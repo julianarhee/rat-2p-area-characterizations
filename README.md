@@ -1,47 +1,47 @@
-# rat-2p-area-characterizations 
-Code for characterizing neural responses in rat cortex to a battery of visual stimuli. Neural data acquired with 2-photon imaging and epifluorescent wide-field imaging. 
+# rat-2p-area-characterizations
+Code for characterizing neural responses in rat cortex to a battery of visual stimuli. Neural data acquired with 2-photon imaging and epifluorescent wide-field imaging.
 
 Written by Juliana Rhee (Cox Lab, Harvard University).
 
 ## Data sources
 Data Acquisition
-* Wide-field data acquired and analyzed with custom code available at [julianarhee/retinotopy-mapper](https://github.com/julianarhee/retinotopic_mapping). 
-* Visual stimuli for 2p experiments were presented with [MWorks](https://mworks.github.io/) and custom Python code. Custom  protocols available at [coxlab/protocols](https://github.com/julianarhee/protocols/tree/2p-dev). 
-* 2p neural data was acquired using [ScanImage](http://scanimage.vidriotechnologies.com/display/SIH/ScanImage+Home) (5). 
+* Wide-field data acquired and analyzed with custom code available at [julianarhee/retinotopy-mapper](https://github.com/julianarhee/retinotopic_mapping).
+* Visual stimuli for 2p experiments were presented with [MWorks](https://mworks.github.io/) and custom Python code. Custom  protocols available at [coxlab/protocols](https://github.com/julianarhee/protocols/tree/2p-dev).
+* 2p neural data was acquired using [ScanImage](http://scanimage.vidriotechnologies.com/display/SIH/ScanImage+Home) (5).
 * Additional custom code for data acquisition and syncing between stimulus presentation, neural data, and pupil/face-tracking at [julianarhee/acquisition-tools](https://github.com/julianarhee/acquisition-tools).
 
 Data Processing
 * Custom code for the basic data processing pipeline can be found at [julianarhee/2p-pipeline](https://github.com/julianarhee/2p-pipeline).
 * Automated cell detection and trace extraction tested with [CaImAn](https://github.com/flatironinstitute/CaImAn) and [suite2p](https://github.com/MouseLand/suite2p).
-* Face data (pupil and whisker tracking) was extracted with [DeepLabCut] (https://github.com/DeepLabCut/DeepLabCut) (6) or [FaceMap] (https://github.com/MouseLand/facemap).
+* Face data (pupil and whisker tracking) was extracted with [DeepLabCut](https://github.com/DeepLabCut/DeepLabCut) (6) or [FaceMap](https://github.com/MouseLand/facemap).
 
 ## Visual Stimuli
-Visual stimuli include a cycling bar (retinotopy), tiled gratings (receptive field mapping), drifting gratings (direction tuning), and objects (shape selectivity, transformation tolerance). 
+Visual stimuli include a cycling bar (retinotopy), tiled gratings (receptive field mapping), drifting gratings (direction tuning), and objects (shape selectivity, transformation tolerance).
 
 **Wide-field retinotopy**
-Retinotopic preferences are estimated using a phase-encoding protocol (adapted from 1-4).
+* Retinotopic preferences are estimated using a phase-encoding protocol (adapted from 1-4).
 TODO: some examples
 
 **2-photon retinotopy**
-Sub-portions of the cortex mapped with wide-field methods are targeted for 2-photon (2p) imaging, and retintopic preferences of a given field-of-view (FOV) are estimated with the same phase-encoding protocol. This method allows for fine-scale characterizations of retinotopic organization and validation of visual area assignment of a given FOV.  
+* Sub-portions of the cortex mapped with wide-field methods are targeted for 2-photon (2p) imaging, and retinotopic preferences of a given field-of-view (FOV) are estimated with the same phase-encoding protocol. This method allows for fine-scale characterizations of retinotopic organization and validation of visual area assignment of a given FOV.
 TODO: some examples
 
 **Receptive field mapping**
-Receptive field characteristics of single neurons are measured using a tiling protocol that presents a dynamic stimulus one small square or tile at a time across the whole screen. 
+* Receptive field characteristics of single neurons are measured using a tiling protocol that presents a dynamic stimulus one small square or tile at a time across the whole screen.
 TODO: some examples
 
 **Drifting gratings**
-Drifting gratings that vary in direction of motion, size, spatial frequency, and speed measure single neuron preferences for low-level visual features (*e.g.*, direction-tuning). 
+* Drifting gratings that vary in direction of motion, size, spatial frequency, and speed measure single neuron preferences for low-level visual features (*e.g.*, direction-tuning).
 TODO: some examples
 
 **Objects**
-Object stimuli are complex shapes that vary along more than one dimension (unlike gratings, for example). Two axes of transformation are tested: identity-changing transformations and identity-preserving transformations. Stimuli are adapted from Zoccolan et al., 2009 (8). 
+* Object stimuli are complex shapes that vary along more than one dimension (unlike gratings, for example). Two axes of transformation are tested: identity-changing transformations and identity-preserving transformations. Stimuli are adapted from Zoccolan et al., 2009 (8).
 TODO: examples
 
 ## Getting Started
 Create the environment (conda).
 ```
-$ conda env create -f rat2p.yml 
+$ conda env create -f rat2p.yml
 $ source activate rat2p
 ```
 
