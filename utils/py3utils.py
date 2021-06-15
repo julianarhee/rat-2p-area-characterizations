@@ -1,8 +1,10 @@
 import os
+import sys
 import re
 import glob
 import json
 import traceback
+import optparse
 
 # import pickle as pkl
 import matplotlib as mpl
@@ -1081,9 +1083,14 @@ def get_neuraldf(animalid, session, fovnum, experiment, traceid='traces001',
         plushalf:  use stimulus period + extra half 
     '''
     # output
-    traceid_dir = glob.glob(os.path.join(rootdir, animalid, session, 
+    try:
+        traceid_dir = glob.glob(os.path.join(rootdir, animalid, session, 
                             'FOV%i_*' % fovnum, 'combined_%s_static' % experiment,
                             'traces', '%s*' % traceid))[0]
+    except Exception as e:
+        print("%s %s %i %s - no traceid!" % (session, animalid, fovnum, experiment))
+        return None
+
     if responsive_test is not None:
         statdir = os.path.join(traceid_dir, 'summary_stats', str(responsive_test))
     else:
@@ -1389,7 +1396,8 @@ def get_responsive_cells(animalid, session, fovnum, run=None, traceid='traces001
                          response_type='dff',create_new=False, n_processes=1,
                          responsive_test='ROC', responsive_thr=0.05, n_stds=2.5,
                          rootdir='/n/coxfs01/2p-data', verbose=False):
-        
+    fov = 'FOV%i_zoom2p0x' % fovnum
+    
     roi_list=None; nrois_total=None;
     rname = run if 'combined' in run else 'combined_%s_' % run
     traceid_dir =  glob.glob(os.path.join(rootdir, animalid, session, 
@@ -1398,7 +1406,18 @@ def get_responsive_cells(animalid, session, fovnum, run=None, traceid='traces001
     if not os.path.exists(stat_dir):
         os.makedirs(stat_dir) 
     # move old dir
-    if create_new and (('gratings' in run) or ('blobs' in run)):
+    if responsive_test=='nstds':
+        stats_fpath = glob.glob(os.path.join(stat_dir, 
+                            '%s-%.2f_result*.pkl' % (responsive_test, n_stds)))
+    else:
+        stats_fpath = glob.glob(os.path.join(stat_dir, 'roc_result*.pkl'))
+
+    # Check if test=nstds and need to make
+    if responsive_test=='nstds' and len(stats_fpath)==0:
+        print("Running NSTDS")
+        create_new=True
+
+    if create_new and run!='retino': #(('gratings' in run) or ('blobs' in run)):
         print("@@@ running anew, might take awhile (%s|%s|%s) @@@" % (animalid, session, fov))
         try:
             if responsive_test=='ROC':
@@ -1428,6 +1447,7 @@ def get_responsive_cells(animalid, session, fovnum, run=None, traceid='traces001
     try:
         #stats_fpath = glob.glob(os.path.join(stats_dir, '*results*.pkl'))
         #assert len(stats_fpath) == 1, "Stats results paths: %s" % str(stats_fpath)
+
         with open(stats_fpath[0], 'rb') as f:
             if verbose:
                 print("... loading stats")
@@ -1444,6 +1464,7 @@ def get_responsive_cells(animalid, session, fovnum, run=None, traceid='traces001
             nrois_total = rstats['nframes_above'].shape[-1]
     except Exception as e:
         print(e)
+        print(stats_fpath)
         traceback.print_exc()
 
     if verbose:
@@ -1645,5 +1666,128 @@ def cells_in_experiment_df(assigned_cells, rfdf):
                               & (assigned_cells['cell'].isin(g['cell'].unique()))] \
                         for (v, dk), g in rfdf.groupby(['visual_area', 'datakey'])])
     return updated_cells
+
+
+
+
+def main(options):
+    opts = extract_options(options)
+    experiment = opts.experiment
+    traceid = opts.traceid
+    response_type = opts.response_type
+    responsive_test = None if opts.responsive_test in ['None', 'none', None] else opts.responsive_test
+    responsive_thr = 0 if responsive_test is None else float(opts.responsive_thr) 
+    n_stds = float(opts.nstds_above) if responsive_test=='nstds' else 0.
+    create_new = opts.create_new
+    epoch = opts.epoch
+    n_processes = int(opts.n_processes)
+    redo_stats = opts.redo_stats 
+    redo_fov = opts.redo_fov
+
+    run_aggregate = opts.aggregate
+    aggregate_dir = opts.aggregate_dir
+    fov_type=opts.fov_type
+    state=opts.state
+
+    do_metrics = opts.do_metrics
+    if run_aggregate: 
+        data_outfile = aggregate_and_save(experiment, traceid=traceid, 
+                                       response_type=response_type, epoch=epoch,
+                                       responsive_test=responsive_test, 
+                                       n_stds=n_stds,
+                                       responsive_thr=responsive_thr, 
+                                       create_new=any([create_new, redo_stats, redo_fov]),
+                                       n_processes=n_processes,
+                                       redo_stats=redo_stats, redo_fov=redo_fov)
+
+    elif do_metrics:
+         save_trial_metrics_cycle(experiment, traceid=traceid, 
+                                       response_type=response_type, epoch=epoch,
+                                       responsive_test=responsive_test, 
+                                       n_stds=n_stds,
+                                       responsive_thr=responsive_thr, 
+                                       create_new=any([create_new, redo_stats, redo_fov]),
+                                       n_processes=n_processes,
+                                       redo_stats=redo_stats, redo_fov=redo_fov)
+ 
+    return
+
+
+def extract_options(options):
+    parser = optparse.OptionParser()
+
+    # PATH opts:
+    parser.add_option('-D', '--root', action='store', dest='rootdir', default='/n/coxfs01/2p-data', 
+                      help='root project dir containing all animalids [default: /n/coxfs01/2pdata]')
+    parser.add_option('-G', '--aggr', action='store', dest='aggregate_dir', default='/n/coxfs01/julianarhee/aggregate-visual-areas', 
+                      help='aggregate analysis dir [default: aggregate-visual-areas]')
+    parser.add_option('--zoom', action='store', dest='fov_type', default='zoom2p0x', 
+                      help="fov type (zoom2p0x)") 
+    parser.add_option('--state', action='store', dest='state', default='awake', 
+                      help="animal state (awake)") 
+  
+    # Set specific session/run for current animal:
+    parser.add_option('-E', '--experiment', action='store', dest='experiment', default='', 
+                      help="experiment name (e.g,. gratings, rfs, rfs10, or blobs)") 
+
+    choices_e = ('stimulus', 'firsthalf', 'plushalf', 'baseline')
+    default_e = 'stimulus'
+    parser.add_option('-e', '--epoch', action='store', dest='epoch', 
+            default=default_e, type='choice', choices=choices_e,
+            help="Trial epoch to average, choices: %s. (default: %s" % (choices_e, default_e))
+
+
+    parser.add_option('-t', '--traceid', action='store', dest='traceid', default='traces001', 
+                      help="traceid (default: traces001)")
+
+    choices_c = ('all', 'ROC', 'nstds', None, 'None')
+    default_c = 'nstds'
+    parser.add_option('-R', '--responsive_test', action='store', dest='responsive_test', 
+            default=default_c, type='choice', choices=choices_c,
+            help="Responsive test, choices: %s. (default: %s" % (choices_c, default_c))
+
+    parser.add_option('--thr', action='store', dest='responsive_thr', default=0.05, 
+                      help="responsive test thr (default: 0.05 for ROC)")
+    parser.add_option('-d', '--response', action='store', dest='response_type', default='dff', 
+                      help="response type (default: dff)")
+    parser.add_option('--nstds', action='store', dest='nstds_above', default=2.5, 
+                      help="only for test=nstds, N stds above (default: 2.5)")
+    parser.add_option('--new', action='store_true', dest='create_new', default=False, 
+                      help="flag to create new")
+    
+    parser.add_option('-X', '--exclude', action='store', dest='always_exclude', 
+                      default=['20190426_JC078'],
+                      help="Datasets to exclude bec incorrect or overlap")
+
+    parser.add_option('-n', '--nproc', action='store', dest='n_processes', 
+                      default=1,
+                      help="N processes (default=1)")
+    parser.add_option('--redo-stats', action='store_true', dest='redo_stats', 
+                      default=False,
+                      help="Flag to redo tests for responsivity")
+    parser.add_option('--redo-fov', action='store_true', dest='redo_fov', 
+                      default=False,
+                      help="Flag to recalculate neuraldf from traces")
+
+    parser.add_option('-i', '--animalid', action='store', dest='animalid', default=None,
+                      help="animalid (e.g., JC110)")
+    parser.add_option('-S', '--session', action='store', dest='session', default=None,
+                      help="session (format: YYYYMMDD)")
+    parser.add_option('-A', '--fovnum', action='store', dest='fovnum', default=None,
+                      help="fovnum (default: all fovs)")
+
+    parser.add_option('--all',  action='store_true', dest='aggregate', default=False,
+                      help="Set flag to cycle thru ALL dsets")
+
+    parser.add_option('--metrics',  action='store_true', dest='do_metrics', default=False,
+                      help="Set flag to cycle thru and save all metrics for each dset")
+
+    (options, args) = parser.parse_args(options)
+
+    return options
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
 
 
