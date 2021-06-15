@@ -32,13 +32,25 @@ def get_ori_dir(datakey, traceid='traces001', fit_desc=None,
                 rootdir='/n/coxfs01/2p-data'):
     ori_dir=None
     session, animalid, fovnum = p3.split_datakey_str(datakey)
-    ori_dir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovnum,
+    try:
+        ori_dir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovnum,
                          'combined_gratings_static', 'traces', '%s*' % traceid,
                          'tuning', fit_desc))
-    assert len(ori_dir)==1, \
-            "[%s]: Ambiguous dir for fit <%s>:\n%s" % (datakey, fit_desc, str(ori_dir))
+        assert len(ori_dir)==1 #, #\
+            #"[%s]: Ambiguous dir for fit <%s>:\n%s" % (datakey, fit_desc, str(ori_dir))
+        ori_dir = ori_dir[0]
 
-    return ori_dir[0]
+    except AssertionError:
+        print("[%s]: Ambiguous dir for fit <%s>:\n%s" % (datakey, fit_desc, str(ori_dir)))
+
+        tdir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovnum,
+                         'combined_gratings_static', 'traces', '%s*' % traceid,
+                         'tuning'))[0]
+        edirs = os.listdir(tdir)
+        for e in edirs:
+            print(e)
+ 
+    return ori_dir
 
 def load_tuning_results(datakey, run_name='gratings', traceid='traces001',
                         fit_desc=None, rootdir='/n/coxfs01/2p-data', verbose=True):
@@ -278,4 +290,31 @@ def aggregate_ori_fits(CELLS, traceid='traces001', fit_desc=None,
         return gdata, no_fits
     else:
         return gdata
+
+
+## Plotting.
+
+def plot_tuning_polar_roi(curr_oris, curr_resps, curr_sems=None, response_type='dff',
+                          fig=None, ax=None, nr=1, nc=1, colspan=1, s_row=0, s_col=0,
+                          color='k', linestyle='-', label=None, alpha=1.0):
+    import pylab as pl
+    if fig is None:
+        fig = pl.figure()
+
+    pl.figure(fig.number)
+
+    # Plot polar graph:
+    if ax is None:
+        ax = pl.subplot2grid((nr,nc), (s_row, s_col), colspan=colspan, polar=True)
+    thetas = np.array([np.deg2rad(c) for c in curr_oris])
+    radii = curr_resps.copy()
+    thetas = np.append(thetas, np.deg2rad(curr_oris[0]))  # append first value so plot line connects back to start
+    radii = np.append(radii, curr_resps[0]) # append first value so plot line connects back to start
+    ax.plot(thetas, radii, '-', color=color, label=label, linestyle=linestyle, alpha=alpha)
+    ax.set_theta_zero_location("N")
+    ax.set_yticks([curr_resps.min(), curr_resps.max()])
+    ax.set_yticklabels(['', round(curr_resps.max(), 1)])
+
+
+    return fig, ax
 
