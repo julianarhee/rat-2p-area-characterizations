@@ -369,21 +369,29 @@ def get_protocol_info(animalid, session, fov, run='retino_run1', rootdir='/n/cox
 
     return scaninfo
 
-def load_retino_analysis_info(animalid, session, fov, run='retino', retinoid=None, 
+def load_retino_analysis_info(animalid, session, fov, run='retino', roiid=None, retinoid=None, 
                               use_pixels=False, rootdir='/n/coxfs01/2p-data'):
 
     run_dir = glob.glob(os.path.join(rootdir, animalid, session, '%s*' % fov, '%s*' % run))[0]
     fov = os.path.split(os.path.split(run_dir)[0])[-1]
 
-    retinoids_fpath = glob.glob(os.path.join(run_dir, 'retino_analysis', 'analysisids_*.json'))[0]
+    retinoids_fpath = glob.glob(os.path.join(run_dir, 'retino_analysis', \
+                                    'analysisids_*.json'))[0]
     with open(retinoids_fpath, 'r') as f:
         rids = json.load(f)
+   
     if use_pixels:
-        roi_analyses = [r for r, rinfo in rids.items() if rinfo['PARAMS']['roi_type'] == 'pixels']
+        roi_analyses = [r for r, rinfo in rids.items() \
+                                if rinfo['PARAMS']['roi_type'] == 'pixels']
     else:
-        roi_analyses = [r for r, rinfo in rids.items() if rinfo['PARAMS']['roi_type'] != 'pixels']
+        if roiid is not None:
+            roi_analyses = [r for r, rinfo in rids.items() if 'roi_id' in rinfo['PARAMS'].keys() and rinfo['PARAMS']['roi_id']==roiid]
+        else: 
+            roi_analyses = [r for r, rinfo in rids.items() \
+                                if rinfo['PARAMS']['roi_type'] != 'pixels']
     if retinoid not in roi_analyses:
-        retinoid = sorted(roi_analyses, key=p3.natural_keys)[-1] # use most recent roi analysis
+        # use most recent roi analysis
+        retinoid = sorted(roi_analyses, key=p3.natural_keys)[-1]
 
     return retinoid, rids[retinoid]
 

@@ -606,7 +606,10 @@ def convert_columns_byte_to_str(df):
 def load_corrected_dff_traces(animalid, session, fov, experiment='blobs', traceid='traces001',
                               return_traces=True, epoch='stimulus', metric='mean', return_labels=False,
                               rootdir='/n/coxfs01/2p-data'):
+    
     print('... calculating F0 for df/f')
+    #experiment_name = 'gratings' if (experiment in ['rfs', 'rfs10'] and int(session)<20190512) else experiment
+
     # Load corrected
     soma_fpath = glob.glob(os.path.join(rootdir, animalid, session, fov,
                                     '*%s_static' % (experiment), 'traces', '%s*' % traceid,
@@ -1083,12 +1086,14 @@ def get_neuraldf(animalid, session, fovnum, experiment, traceid='traces001',
         plushalf:  use stimulus period + extra half 
     '''
     # output
+    experiment_name = 'gratings' if (experiment in ['rfs', 'rfs10'] and int(session)<20190512) else experiment
+
     try:
         traceid_dir = glob.glob(os.path.join(rootdir, animalid, session, 
-                            'FOV%i_*' % fovnum, 'combined_%s_static' % experiment,
+                            'FOV%i_*' % fovnum, 'combined_%s_static' % experiment_name,
                             'traces', '%s*' % traceid))[0]
     except Exception as e:
-        print("%s %s %i %s - no traceid!" % (session, animalid, fovnum, experiment))
+        print("%s %s %i %s - no traceid!" % (session, animalid, fovnum, experiment_name))
         return None
 
     if responsive_test is not None:
@@ -1115,7 +1120,7 @@ def get_neuraldf(animalid, session, fovnum, experiment, traceid='traces001',
         # Load traces
         if response_type=='dff0':
             meanr = load_corrected_dff_traces(animalid, session, 'FOV%i_zoom2p0x' % fovnum, 
-                                    experiment=experiment, traceid=traceid,
+                                    experiment=experiment_name, traceid=traceid,
                                   return_traces=False, epoch=epoch, metric='mean') 
             tmp_desc_base = create_dataframe_name(traceid=traceid, 
                                             response_type='dff', 
@@ -1132,7 +1137,7 @@ def get_neuraldf(animalid, session, fovnum, experiment, traceid='traces001',
         else:
             trace_type = 'df' if response_type=='zscore' else response_type
             traces, labels, sdf = load_traces(animalid, session, fovnum, 
-                                              experiment, traceid=traceid, 
+                                              experiment_name, traceid=traceid, 
                                               response_type=trace_type,
                                               responsive_test=responsive_test, 
                                               responsive_thr=responsive_thr, 
@@ -1318,6 +1323,8 @@ def load_traces(animalid, session, fovnum, experiment, traceid='traces001',
    
     To return ALL selected cells, set responsive_test to None
     '''
+    #experiment_name = 'gratings' if (experiment in ['rfs', 'rfs10'] and int(session)<20190512) else experiment
+
     soma_fpath = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovnum,
                                     '*%s_static' % (experiment), 'traces', '%s*' % traceid,
                                     'data_arrays', 'np_subtracted.npz'))[0]
@@ -1397,7 +1404,8 @@ def get_responsive_cells(animalid, session, fovnum, run=None, traceid='traces001
                          responsive_test='ROC', responsive_thr=0.05, n_stds=2.5,
                          rootdir='/n/coxfs01/2p-data', verbose=False):
     fov = 'FOV%i_zoom2p0x' % fovnum
-    
+    run_name = 'gratings' if (('rfs' in run or 'rfs10' in run) and int(session)<20190512) else run 
+
     roi_list=None; nrois_total=None;
     rname = run if 'combined' in run else 'combined_%s_' % run
     traceid_dir =  glob.glob(os.path.join(rootdir, animalid, session, 
@@ -1588,12 +1596,12 @@ def aggregate_and_save(experiment, traceid='traces001',
     if not os.path.exists(data_outfile):
         create_new=True
 
+    no_stats = []
+    DATA = {}
     if create_new:
         print("Getting data: %s" % experiment)
         print("Saving data to %s" % data_outfile)
         dsets = sdata[sdata['experiment']==experiment].copy()
-        no_stats = []
-        DATA = {}
         for (animalid, session, fovnum), g in dsets.groupby(['animalid', 'session', 'fovnum']):
             datakey = '%s_%s_fov%i' % (session, animalid, fovnum)
             if '%s_%s' % (session, animalid) in always_exclude:
