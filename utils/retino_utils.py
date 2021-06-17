@@ -5,6 +5,7 @@ import glob
 import re
 import json
 import h5py
+import traceback
 
 import matplotlib as mpl
 import tifffile as tf
@@ -25,10 +26,16 @@ def get_average_mag_across_pixels(animalid, session, fov, rootdir='/n/coxfs01/2p
                   in glob.glob(os.path.join(rootdir, animalid, session, fov, 'retino_run*'))]
     
     for retinorun in retinoruns:
-        retinoid, RETID = load_retino_analysis_info(animalid, session, fov, retinorun, use_pixels=True)
-        magratio, phase, trials_by_cond = fft_results_by_trial(RETID)
-        mean_mag = magratio.mean(axis=0).mean()
-        magratios.append((retinorun, mean_mag))
+        try:
+            retinoid, RETID = load_retino_analysis_info(animalid, session, fov, retinorun, use_pixels=True)
+            assert RETID is not None, "Error loading analysis: %s (%s, %s, %s)" % (retinorun, animalid, session, fov)
+
+            magratio, phase, trials_by_cond = fft_results_by_trial(RETID)
+            mean_mag = magratio.mean(axis=0).mean()
+            magratios.append((retinorun, mean_mag))
+        except Exception as e:
+            print(e)
+            continue
 
     return magratios
 
@@ -63,14 +70,15 @@ def select_strongest_retinorun(projection_df):
 # Map funcs
 # -----------------------------------------------------------------------------
 # MAPS: Specific to 2p
-def get_final_maps(magratios_soma, phases_soma, trials_by_cond=None, mag_thr=0.01, delay_thr=0.5,
+def get_final_maps(magratios_soma, phases_soma, trials_by_cond=None, 
+                    mag_thr=0.01, delay_thr=0.5, verbose=False,
                    dims=(512, 512), ds_factor=2, use_pixels=False):
     
     # Get absolute maps from conditions
     magmaps, absolute_az, absolute_el, delay_az, delay_el = absolute_maps_from_conds(
                             magratios_soma, phases_soma, trials_by_cond=trials_by_cond,
                             mag_thr=mag_thr, dims=dims, #(d1_orig, d2_orig),
-                            ds_factor=ds_factor, return_map=use_pixels)
+                            ds_factor=ds_factor, return_map=use_pixels, verbose=verbose)
     
     # #### Filter where delay map is not uniform (Az v El)
     filt_az, filt_el = filter_by_delay_map(absolute_az, absolute_el,
@@ -88,7 +96,8 @@ def get_final_maps(magratios_soma, phases_soma, trials_by_cond=None, mag_thr=0.0
     ntotal = absolute_az.shape[0]
     n_pass_magthr = absolute_az.dropna().shape[0]
     n_pass_delaythr = filt_az.dropna().shape[0]
-    print("Total: %i\n After mag_thr (%.3f): %i\n After delay_thr (%.3f): %i" \
+    if verbose:
+        print("Total: %i\n After mag_thr (%.3f): %i\n After delay_thr (%.3f): %i" \
           % (ntotal, mag_thr, n_pass_magthr, delay_thr, n_pass_delaythr))
     
     df = pd.concat([phases_by_cond, mags_by_cond], axis=1)
@@ -143,7 +152,7 @@ def arrays_to_maps(magratio, phase, trials_by_cond, use_cont=False,
     return currmags_map, currphase_map_c, mag_thr
 
 def absolute_maps_from_conds(magratio, phase, trials_by_cond=None, mag_thr=0.01,
-                                dims=(512, 512), ds_factor=2, return_map=True):
+                                dims=(512, 512), ds_factor=2, return_map=True, verbose=False):
     use_cont=False # doens't matter, should be equiv now
     magmaps = {}
     phasemaps = {}
@@ -167,7 +176,8 @@ def absolute_maps_from_conds(magratio, phase, trials_by_cond=None, mag_thr=0.01,
     ph_right = phasemaps['right'].copy()
     ph_top = phasemaps['top'].copy()
     ph_bottom = phasemaps['bottom'].copy()
-    print("got phase:", np.nanmin(ph_left), np.nanmax(ph_left)) # (0, 2*np.pi)
+    if verbose:
+        print("got phase:", np.nanmin(ph_left), np.nanmax(ph_left)) # (0, 2*np.pi)
 
     absolute_az = (ph_left - ph_right) / 2.
     delay_az = (ph_left + ph_right) / 2.
@@ -176,8 +186,9 @@ def absolute_maps_from_conds(magratio, phase, trials_by_cond=None, mag_thr=0.01,
     delay_el = (ph_bottom + ph_top) / 2.
 
     vmin, vmax = (-np.pi, np.pi) # Now in range (-np.pi, np.pi)
-    print("got absolute:", np.nanmin(absolute_az), np.nanmax(absolute_az))
-    print("Delay:", np.nanmin(delay_az), np.nanmax(delay_az))
+    if verbose:
+        print("got absolute:", np.nanmin(absolute_az), np.nanmax(absolute_az))
+        print("Delay:", np.nanmin(delay_az), np.nanmax(delay_az))
 
     return magmaps, absolute_az, absolute_el, delay_az, delay_el
 
@@ -372,28 +383,35 @@ def get_protocol_info(animalid, session, fov, run='retino_run1', rootdir='/n/cox
 def load_retino_analysis_info(animalid, session, fov, run='retino', roiid=None, retinoid=None, 
                               use_pixels=False, rootdir='/n/coxfs01/2p-data'):
 
+    retinoid=None; RID=None;
+
     run_dir = glob.glob(os.path.join(rootdir, animalid, session, '%s*' % fov, '%s*' % run))[0]
     fov = os.path.split(os.path.split(run_dir)[0])[-1]
 
-    retinoids_fpath = glob.glob(os.path.join(run_dir, 'retino_analysis', \
-                                    'analysisids_*.json'))[0]
-    with open(retinoids_fpath, 'r') as f:
-        rids = json.load(f)
-   
-    if use_pixels:
-        roi_analyses = [r for r, rinfo in rids.items() \
-                                if rinfo['PARAMS']['roi_type'] == 'pixels']
-    else:
-        if roiid is not None:
-            roi_analyses = [r for r, rinfo in rids.items() if 'roi_id' in rinfo['PARAMS'].keys() and rinfo['PARAMS']['roi_id']==roiid]
-        else: 
+    try:
+        retinoids_fpath = glob.glob(os.path.join(run_dir, 'retino_analysis', \
+                                        'analysisids_*.json'))[0]
+        with open(retinoids_fpath, 'r') as f:
+            rids = json.load(f)
+       
+        if use_pixels:
             roi_analyses = [r for r, rinfo in rids.items() \
-                                if rinfo['PARAMS']['roi_type'] != 'pixels']
-    if retinoid not in roi_analyses:
-        # use most recent roi analysis
-        retinoid = sorted(roi_analyses, key=p3.natural_keys)[-1]
+                                    if rinfo['PARAMS']['roi_type'] == 'pixels']
+        else:
+            if roiid is not None:
+                roi_analyses = [r for r, rinfo in rids.items() if 'roi_id' in rinfo['PARAMS'].keys() and rinfo['PARAMS']['roi_id']==roiid]
+            else: 
+                roi_analyses = [r for r, rinfo in rids.items() \
+                                    if rinfo['PARAMS']['roi_type'] != 'pixels']
+        if retinoid not in roi_analyses:
+            # use most recent roi analysis
+            retinoid = sorted(roi_analyses, key=p3.natural_keys)[-1]
+        RID = rids[retinoid]
 
-    return retinoid, rids[retinoid]
+    except Exception as e:
+        print(e)
+        
+    return retinoid, RID
 
 # -----------------------------------------------------------------------------
 # FFT
@@ -459,8 +477,8 @@ def extract_from_fft_results(fft_soma):
 def load_fft_results(animalid, session, fov, retinorun='retino_run1', trace_type='corrected',
                     traceid='traces001', create_new=False, use_pixels=False,
                      detrend_after_average=True, in_negative=False,
-                     rootdir='/n/coxfs01/2p-data'):
-
+                     rootdir='/n/coxfs01/2p-data', verbose=False):
+    fft_results=None
     run_dir = os.path.join(rootdir, animalid, session, fov, retinorun)
     try:
         # RETID = load_retinoanalysis(run_dir, traceid)
@@ -468,12 +486,15 @@ def load_fft_results(animalid, session, fov, retinorun='retino_run1', trace_type
 
         assert RETID is not None
     except Exception as e:
-        print("NO retino for traceid %s\n(check dir: %s)" % (traceid, run_dir))
+        traceback.print_exc()
+        print("NO retino for rois w/ %s\n---(check dir: %s)" % (traceid, run_dir))
+        #create_new=True
         return None
 
     analysis_dir = RETID['DST']
     retinoid = RETID['analysis_id']
-    print("... Loaded: %s, %s (%s))" % (retinorun, retinoid, run_dir))
+    if verbose:
+        print("... Loaded: %s, %s (%s))" % (retinorun, retinoid, run_dir))
 
     fft_dpath=os.path.join(analysis_dir, 'fft_results_%s.pkl' % retinoid)
     if create_new is False:
@@ -489,11 +510,13 @@ def load_fft_results(animalid, session, fov, retinorun='retino_run1', trace_type
         mwinfo = load_mw_info(animalid, session, fov, retinorun)
         scaninfo = get_protocol_info(animalid, session, fov, run=retinorun) # load_si(run_dir)
         tiff_paths = tiff_fpaths = sorted(glob.glob(os.path.join(RETID['SRC'], '*.tif')), key=p3.natural_keys)
-        print("Found %i tifs" % len(tiff_paths))
+        if verbose:
+            print("Found %i tifs" % len(tiff_paths))
 
         # Some preprocessing params
         temporal_ds = float(RETID['PARAMS']['average_frames'])
-        print("Temporal ds: %.2f" % (temporal_ds))
+        if verbose:
+            print("Temporal ds: %.2f" % (temporal_ds))
 
         #### Load raw and process traces -- returns average trace for condition
         # retino_dpath = os.path.join(analysis_dir, 'traces', 'extracted_traces.h5')
@@ -572,8 +595,10 @@ def do_fft_analysis(avg_traces, sorted_idxs, stim_freq_idx):
 # -----------------------------------------------------------------------------
 # preprocessing ---------------
 def load_roi_traces(animalid, session, fov, run='retino_run1', analysisid='analysis002',
-                trace_type='corrected', detrend_after_average=True, rootdir='/n/coxfs01/2p-data'):
-    print("... loading traces (%s)" % trace_type)
+                trace_type='corrected', detrend_after_average=True, verbose=False,
+                rootdir='/n/coxfs01/2p-data'):
+    if verbose:
+        print("... loading traces (%s)" % trace_type)
     retinoid_path = glob.glob(os.path.join(rootdir, animalid, session, fov, '%s*' % run,
                                 'retino_analysis', 'analysisids_*.json'))[0]
     with open(retinoid_path, 'r') as f:
@@ -585,7 +610,8 @@ def load_roi_traces(animalid, session, fov, run='retino_run1', analysisid='analy
         analysisid = eligible[0]
 
     analysis_dir = RIDS[analysisid]['DST']
-    print("... loading traces from: %s" % analysis_dir)
+    if verbose:
+        print("... loading traces from: %s" % analysis_dir)
     retino_dpath = os.path.join(analysis_dir, 'traces', 'extracted_traces.h5')
     scaninfo = get_protocol_info(animalid, session, fov, run=run)
     temporal_ds = RIDS[analysisid]['PARAMS']['downsample_factor']
