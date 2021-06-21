@@ -475,14 +475,15 @@ def extract_from_fft_results(fft_soma):
 
 
 def load_fft_results(animalid, session, fov, retinorun='retino_run1', trace_type='corrected',
-                    traceid='traces001', create_new=False, use_pixels=False,
+                     traceid='traces001', roiid=None, use_pixels=False,
                      detrend_after_average=True, in_negative=False,
-                     rootdir='/n/coxfs01/2p-data', verbose=False):
+                     rootdir='/n/coxfs01/2p-data', verbose=False, create_new=False):
     fft_results=None
     run_dir = os.path.join(rootdir, animalid, session, fov, retinorun)
     try:
         # RETID = load_retinoanalysis(run_dir, traceid)
-        retinoid, RETID = load_retino_analysis_info(animalid, session, fov, use_pixels=False)
+        retinoid, RETID = load_retino_analysis_info(animalid, session, fov, 
+                                    use_pixels=use_pixels, roiid=roiid)
 
         assert RETID is not None
     except Exception as e:
