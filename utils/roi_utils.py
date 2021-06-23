@@ -10,7 +10,8 @@ import tifffile as tf
 import dill as pkl
 import numpy as np
 import pandas as pd
-import py3utils as p3
+
+from . import helpers as hutils
 
 
 
@@ -19,7 +20,7 @@ def get_masks_and_centroids(dk, traceid='traces001',
     '''
     Load zprojected image, masks (nrois, d2, d2), and centroids for dataset.
     '''
-    session, animalid, fovnum = p3.split_datakey_str(dk)
+    session, animalid, fovnum = hutils.split_datakey_str(dk)
     fov = 'FOV%i_zoom2p0x' % fovnum
 
     # Load zimg
@@ -87,7 +88,7 @@ def load_roi_coords(animalid, session, fov, roiid=None,
                     convert_um=True, traceid='traces001',
                     create_new=False,rootdir='/n/coxfs01/2p-data'):
     fovinfo = None
-    roiid = get_roiid_from_traceid(animalid, session, fov, traceid=traceid)
+    r3oiid = get_roiid_from_traceid(animalid, session, fov, traceid=traceid)
     # create outpath
     roidir = glob.glob(os.path.join(rootdir, animalid, session,
                         'ROIs', '%s*' % roiid))[0]
@@ -182,7 +183,7 @@ def calculate_roi_coords(masks, zimg, roi_list=None, convert_um=True):
 
     posdf = transform_fov_posdf(posdf, ml_lim=ylim, ap_lim=xlim)
     # Save fov info
-    pixel_size = p3.get_pixel_size()
+    pixel_size = hutils.get_pixel_size()
     fovinfo = {'zimg': zimg,
                 'convert_um': convert_um,
                 'pixel_size': pixel_size,
@@ -227,7 +228,7 @@ def get_roi_position_in_fov(tmp_roi_contours, roi_list=None,
         xaxis_conversion = 1.
         yaxis_conversion = 1.
     else:
-        (xaxis_conversion, yaxis_conversion) = p3.get_pixel_size()
+        (xaxis_conversion, yaxis_conversion) = hutils.get_pixel_size()
 
     # Get ROI centroids:
     #print(tmp_roi_contours[0])

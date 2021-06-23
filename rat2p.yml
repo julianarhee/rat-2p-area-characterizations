@@ -8,7 +8,7 @@ dependencies:
 - jupyter=1.0.0
 - matplotlib=3.3.4
 - numpy=1.19
-- pandas=1.2
+- pandas=1.2.3
 - pillow=8.1
 - python=3.7
 - scipy=1.6
@@ -27,4 +27,4 @@ dependencies:
 - cycler=0.10
 - cmasher=1.6
 - pip=21.0
-
+- allensdk=2.11.2

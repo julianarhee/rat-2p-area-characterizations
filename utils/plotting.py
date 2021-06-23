@@ -23,7 +23,7 @@ from matplotlib.lines import Line2D
 import statsmodels as sm
 #import statsmodels.api as sm # put this in Nb
 
-import py3utils as p3
+from .aggregate_datasets import do_mannwhitney
 
 np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)       
 
@@ -307,7 +307,7 @@ def plot_mannwhitney(mdf, metric='I_rs', multi_comp_test='holm',
         fig, ax = pl.subplots()
 
     print("********* [%s] Mann-Whitney U test(mc=%s) **********" % (metric, multi_comp_test))
-    statresults = p3.do_mannwhitney(mdf, metric=metric, multi_comp_test=multi_comp_test)
+    statresults = do_mannwhitney(mdf, metric=metric, multi_comp_test=multi_comp_test)
     #print(statresults)
 
     # stats significance

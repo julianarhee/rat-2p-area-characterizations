@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats as spstats
 
-import py3utils as p3
+from . import helpers as hutils 
 
 def get_fit_desc(response_type='dff', responsive_test=None, 
                  responsive_thr=10, n_stds=2.5,
@@ -31,7 +31,7 @@ def get_fit_desc(response_type='dff', responsive_test=None,
 def get_ori_dir(datakey, traceid='traces001', fit_desc=None, 
                 rootdir='/n/coxfs01/2p-data'):
     ori_dir=None
-    session, animalid, fovnum = p3.split_datakey_str(datakey)
+    session, animalid, fovnum = hutils.split_datakey_str(datakey)
     try:
         ori_dir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovnum,
                          'combined_gratings_static', 'traces', '%s*' % traceid,
@@ -308,7 +308,7 @@ def plot_tuning_polar_roi(curr_oris, curr_resps, curr_sems=None, response_type='
         ax = pl.subplot2grid((nr,nc), (s_row, s_col), colspan=colspan, polar=True)
     thetas = np.array([np.deg2rad(c) for c in curr_oris])
     radii = curr_resps.copy()
-    thetas = np.append(thetas, np.deg2rad(curr_oris[0]))  # append first value so plot line connects back to start
+    t3hetas = np.append(thetas, np.deg2rad(curr_oris[0]))  # append first value so plot line connects back to start
     radii = np.append(radii, curr_resps[0]) # append first value so plot line connects back to start
     ax.plot(thetas, radii, '-', color=color, label=label, linestyle=linestyle, alpha=alpha)
     ax.set_theta_zero_location("N")

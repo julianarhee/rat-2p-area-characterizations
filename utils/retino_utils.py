@@ -16,7 +16,7 @@ import dill as pkl
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
 from scipy import misc,interpolate,stats,signal
-import py3utils as p3
+from . import helpers as hutils
 #from py3utils import natural_keys
 
 # Data selection
@@ -405,7 +405,7 @@ def load_retino_analysis_info(animalid, session, fov, run='retino', roiid=None, 
                                     if rinfo['PARAMS']['roi_type'] != 'pixels']
         if retinoid not in roi_analyses:
             # use most recent roi analysis
-            retinoid = sorted(roi_analyses, key=p3.natural_keys)[-1]
+            retinoid = sorted(roi_analyses, key=hutils.natural_keys)[-1]
         RID = rids[retinoid]
 
     except Exception as e:
@@ -441,7 +441,7 @@ def trials_to_dataframes(processed_fpaths, conditions_fpath):
         for tifnum in tif_list:
             processed_tif = [f for f in processed_fpaths if 'File%03d' % tifnum in f]
             if len(processed_tif) == 0:
-                print("No analysis found for file: %s" % tifnum)
+                print("---(%s) No analysis found for file: %s" % (conditions_fpath, tifnum))
                 excluded_tifs.append(tifnum)
         trials_by_cond[cond] = [t for t in tif_list if t not in excluded_tifs]
     trial_list = [int(t) for t in conds.keys() if int(t) not in excluded_tifs]
@@ -449,7 +449,7 @@ def trials_to_dataframes(processed_fpaths, conditions_fpath):
     fits = []
     phases = []
     mags = []
-    for trial_num, trial_fpath in zip(sorted(trial_list), sorted(processed_fpaths, key=p3.natural_keys)):
+    for trial_num, trial_fpath in zip(sorted(trial_list), sorted(processed_fpaths, key=hutils.natural_keys)):
 
         #print("%i: %s" % (trial_num, os.path.split(trial_fpath)[-1]))
         df = h5py.File(trial_fpath, 'r')
@@ -486,9 +486,8 @@ def load_fft_results(animalid, session, fov, retinorun='retino_run1', trace_type
                                     use_pixels=use_pixels, roiid=roiid)
 
         assert RETID is not None
-    except Exception as e:
-        traceback.print_exc()
-        print("NO retino for rois w/ %s\n---(check dir: %s)" % (traceid, run_dir))
+    except AssertionError as e: #Exception as e:
+        print("[%s, %s, %s] NO retino <$s> for rois w/ %s\n...check dir: %s" % (animalid, session, fov, retinorun, traceid, run_dir))
         #create_new=True
         return None
 
@@ -510,7 +509,7 @@ def load_fft_results(animalid, session, fov, retinorun='retino_run1', trace_type
         # Load MW info and SI info
         mwinfo = load_mw_info(animalid, session, fov, retinorun)
         scaninfo = get_protocol_info(animalid, session, fov, run=retinorun) # load_si(run_dir)
-        tiff_paths = tiff_fpaths = sorted(glob.glob(os.path.join(RETID['SRC'], '*.tif')), key=p3.natural_keys)
+        tiff_paths = tiff_fpaths = sorted(glob.glob(os.path.join(RETID['SRC'], '*.tif')), key=hutils.natural_keys)
         if verbose:
             print("Found %i tifs" % len(tiff_paths))
 
@@ -527,7 +526,7 @@ def load_fft_results(animalid, session, fov, retinorun='retino_run1', trace_type
                         analysisid=retinoid, trace_type=trace_type, detrend_after_average=detrend_after_average)
 
         # Do fft
-        n_frames = scaninfo['stimulus']['n_frames']
+        n3_frames = scaninfo['stimulus']['n_frames']
         frame_rate = scaninfo['stimulus']['frame_rate']
         stim_freq_idx = scaninfo['stimulus']['stim_freq_idx']
 

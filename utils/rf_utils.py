@@ -17,9 +17,10 @@ import numpy as np
 import pandas as pd
 import scipy.optimize as opt
 
-import py3utils as p3
-import plotting as pplot
-from py3utils import convert_range
+from . import aggregate_datasets as aggr 
+from . import plotting as pplot
+from . import helpers as hutils
+from .helpers import convert_range
 
 from matplotlib.patches import Ellipse, Rectangle, Polygon
 from shapely.geometry.point import Point
@@ -719,7 +720,7 @@ def cycle_and_load(rfmeta, assigned_cells, fit_desc=None, traceid='traces001', f
                             rfmeta.groupby(['visual_area', 'datakey', 'experiment']):
         if experiment not in ['rfs', 'rfs10']:
             continue
-        session, animalid, fovnum = p3.split_datakey_str(datakey)
+        session, animalid, fovnum = hutils.split_datakey_str(datakey)
         fov = 'FOV%i_zoom2p0x' % fovnum
         curr_cells = assigned_cells[(assigned_cells.visual_area==visual_area)
                                    & (assigned_cells.datakey==datakey)]['cell'].unique() #g['cell'].unique() 
@@ -855,7 +856,7 @@ def update_rf_metrics(rfdf, scale_sigma=True):
 
     # Get anisotropy index
     sins = abs(np.sin(rfdf['theta_Mm_c']))
-    sins_c = p3.convert_range(sins, oldmin=0, oldmax=1, newmin=-1, newmax=1)
+    sins_c = hutils.convert_range(sins, oldmin=0, oldmax=1, newmin=-1, newmax=1)
     rfdf['aniso_index'] = sins_c * rfdf['anisotropy']
  
     return rfdf
@@ -881,7 +882,7 @@ def get_fit_dpaths(dsets, traceid='traces001', fit_desc=None,
     dpaths = {}
     unknown = []
     for (va, datakey), g in dsets.groupby(['visual_area','datakey']):
-        session, animalid, fovnum = p3.split_datakey_str(datakey)
+        session, animalid, fovnum = hutils.split_datakey_str(datakey)
         fov='FOV%i_zoom2p0x' % fovnum
         if datakey in excluded_sessions:
             rfmeta = rfmeta.drop(g.index)
@@ -1056,7 +1057,7 @@ def group_trial_values_by_cond(zscores, trials_by_cond, do_spherical_correction=
         resp_by_cond[cfg] = zscores.iloc[trial_ixs]  # For each config, array of size ntrials x nrois
 
     trialvalues_by_cond = pd.DataFrame([resp_by_cond[cfg].mean(axis=0) \
-                                            for cfg in sorted(resp_by_cond.keys(), key=p3.natural_keys)]) # nconfigs x nrois
+                                            for cfg in sorted(resp_by_cond.keys(), key=hutils.natural_keys)]) # nconfigs x nrois
     #if do_spherical_correction:
     avg_t = trialvalues_by_cond.apply(reshape_array_for_nynx, args=(nx, ny))
     trialvalues_by_cond = avg_t.copy()
@@ -1755,12 +1756,12 @@ def get_fit_params(animalid, session, fov, run='combined_rfs_static', traceid='t
                    post_stimulus_sec=0.5, sigma_scale=2.35, scale_sigma=True,
                    rootdir='/n/coxfs01/2p-data'):
     
-    screen = p3.get_screen_dims()
-    run_info, sdf = p3.load_run_info(animalid, session, fov, run,traceid=traceid, rootdir=rootdir)
+    screen = hutils.get_screen_dims()
+    run_info, sdf = aggr.load_run_info(animalid, session, fov, run,traceid=traceid, rootdir=rootdir)
     
     run_name = run.split('_')[1] if 'combined' in run else run
     dk = '%s_%s_fov%i' % (session, animalid, int(fov.split('_')[0][3:]))
-    sdf= p3.get_stimuli(dk, run_name)
+    sdf= hutils.get_stimuli(dk, run_name)
     row_vals = sorted(sdf['ypos'].unique())
     col_vals = sorted(sdf['xpos'].unique())
 
@@ -1855,7 +1856,7 @@ def fit_2d_receptive_fields(animalid, session, fov, run, traceid,
     rfmaps_arr=None
     if create_new or reload_data: #do_fits:
         # Load processed traces 
-        raw_traces, labels, sdf, run_info = p3.load_dataset(data_fpath, 
+        raw_traces, labels, sdf, run_info = aggr.load_dataset(data_fpath, 
                                                     trace_type=trace_type,add_offset=True, make_equal=False,
                                                     create_new=reload_data)        
         # Get screen dims and fit params
@@ -1867,7 +1868,7 @@ def fit_2d_receptive_fields(animalid, session, fov, run, traceid,
                                     sigma_scale=sigma_scale, scale_sigma=scale_sigma)
         # Z-score or dff the traces:
         trials_by_cond = get_trials_by_cond(labels)
-        zscored_traces, zscores = p3.process_traces(raw_traces, labels, 
+        zscored_traces, zscores = aggr.process_traces(raw_traces, labels, 
                                                 response_type=fit_params['response_type'],
                                                 nframes_post_onset=fit_params['nframes_post_onset'])       
         # -------------------------------------------------------
@@ -1924,8 +1925,8 @@ def fit_2d_receptive_fields(animalid, session, fov, run, traceid,
                         row_vals=fit_params['row_vals'], col_vals=fit_params['col_vals'])
  
         dk = '%s_%s_fov%i' % (session, animalid, int(fov.split('_')[0][3:]))
-        sdf = p3.get_stimuli(dk, run_name)
-        screen = p3.get_screen_dims()
+        sdf = hutils.get_stimuli(dk, run_name)
+        screen = hutils.get_screen_dims()
         print(fit_params['sigma_scale'])
         fig = plot_rfs_to_screen(fitdf, sdf, screen, sigma_scale=fit_params['sigma_scale'],
                         fit_roi_list=fit_roi_list)
