@@ -162,6 +162,15 @@ def adjust_polar_axes(ax, theta_loc='E'):
     ax.spines['polar'].set_visible(False)
     
 
+def equal_corr_axes(fg):
+
+    for ax in fg.axes:
+        ax.set_aspect('equal')
+        ax.set_xlim([-1, 1])
+        ax.set_ylim([-1, 1])
+        #ax.legend_.remove()
+        ax.plot([-1, 1], [-1, 1], color='r', ls='-', lw=0.5)
+
 
 def adjust_box_widths(ax, fac):
     # iterating through axes artists:

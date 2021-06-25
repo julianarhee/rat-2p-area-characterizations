@@ -332,16 +332,17 @@ def select_best_fovs(counts_by_fov, criterion='max', colname='cell'):
 
     return incl.drop_duplicates()
 
-def add_rf_positions(rfdf, calculate_position=False, traceid='traces001'):
+def add_roi_positions(rfdf, calculate_position=False, traceid='traces001'):
     '''
     Add ROI position info to RF dataframe (converted and pixel-based).
-    Set calculate_position=True, to re-calculate.
+    Set calculate_position=True, to re-calculate. 
+    Note: prev. called 'add_rf_positions'
     '''
-    import roi_utils as rutils
+    from . import roi_utils as rutils
     if 'fovnum' not in rfdf.columns:
         rfdf = split_datakey(rfdf)
 
-    print("Adding RF position info...")
+    print("Adding ROI position info...")
     pos_params = ['fov_xpos', 'fov_xpos_pix', 'fov_ypos', 'fov_ypos_pix', 'ml_pos','ap_pos']
     for p in pos_params:
         rfdf[p] = None
@@ -710,24 +711,13 @@ def traces_to_trials(traces, labels, epoch='stimulus', metric='mean', n_on=None)
 
 
 
-def load_roi_assignments(animalid, session, fov, retinorun='retino_run1', 
-                            rootdir='/n/coxfs01/2p-data'):
-    
-    results_fpath = os.path.join(rootdir, animalid, session, fov, retinorun, 
-                              'retino_analysis', 'segmentation', 'roi_assignments.json')
-    
-    assert os.path.exists(results_fpath), "Assignment results not found: %s" % results_fpath
-    with open(results_fpath, 'r') as f:
-        roi_assignments = json.load(f)
-   
-    return roi_assignments #, roi_masks_labeled
-
 
 def get_cells_by_area(sdata, excluded_datasets=[], return_missing=False, verbose=False,
                     rootdir='/n/coxfs01/2p-data'):
     '''
     Use retionrun to ID area boundaries. If more than 1 retino, combine.
     '''
+    from . import roi_utils as rutils
 
     excluded_datasets = ['20190602_JC080_fov1', '20190605_JC090_fov1',
                          '20191003_JC111_fov1', 
@@ -743,7 +733,7 @@ def get_cells_by_area(sdata, excluded_datasets=[], return_missing=False, verbose
         roi_assignments=dict()
         for retinorun in retinoruns:
             try:
-                rois_ = load_roi_assignments(animalid, session, fov, retinorun=retinorun)
+                rois_ = rutils.load_roi_assignments(animalid, session, fov, retinorun=retinorun)
                 for varea, rlist in rois_.items():
                     if varea not in roi_assignments.keys():
                         roi_assignments[varea] = []
@@ -902,7 +892,7 @@ def get_aggregate_data(experiment, traceid='traces001', response_type='dff', epo
     NEURALDATA = dict((visual_area, {}) for visual_area in visual_areas)
     rf_=[]
     for (visual_area, datakey), curr_c in CELLS.groupby(['visual_area', 'datakey']):
-        print(datakey)
+        #print(datakey)
         if visual_area not in NEURALDATA.keys():
             print("... skipping: %s" % visual_area)
             continue

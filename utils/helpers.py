@@ -54,12 +54,6 @@ def split_datakey_str(s):
     fovnum = int(fovn[3:])
     return session, animalid, fovnum
 
-def convert_range(oldval, newmin=None, newmax=None, oldmax=None, oldmin=None):
-    oldrange = (oldmax - oldmin)
-    newrange = (newmax - newmin)
-    newval = (((oldval - oldmin) * newrange) / oldrange) + newmin
-    return newval
-
 def add_meta_to_df(tmpd, metainfo):
     for v, k in metainfo.items():
         tmpd[v] = k
@@ -94,6 +88,29 @@ def get_screen_dims():
               'deg_per_pixel': (deg_per_pixel_x, deg_per_pixel_y)}
 
     return screen
+
+
+# ###############################################################
+# Calculation functions 
+# ###############################################################
+
+def convert_range(oldval, newmin=None, newmax=None, oldmax=None, oldmin=None):
+    oldrange = (oldmax - oldmin)
+    newrange = (newmax - newmin)
+    newval = (((oldval - oldmin) * newrange) / oldrange) + newmin
+    return newval
+
+def CoM(df_):
+    '''
+    Calculate center of mass from coords x0, y0 in dataframe df_
+    '''
+    x = df_['x0'].values
+    y = df_['y0'].values
+    m=np.ones(df_['x0'].shape)
+    cgx = np.sum(x*m)/np.sum(m)
+    cgy = np.sum(y*m)/np.sum(m)
+    
+    return cgx, cgy
 
 
 # Test function for module  

@@ -15,6 +15,20 @@ from . import helpers as hutils
 
 
 
+def load_roi_assignments(animalid, session, fov, retinorun='retino_run1', 
+                            rootdir='/n/coxfs01/2p-data'):
+    
+    results_fpath = os.path.join(rootdir, animalid, session, fov, retinorun, 
+                              'retino_analysis', 'segmentation', 'roi_assignments.json')
+    
+    assert os.path.exists(results_fpath), "Assignment results not found: %s" % results_fpath
+    with open(results_fpath, 'r') as f:
+        roi_assignments = json.load(f)
+   
+    return roi_assignments #, roi_masks_labeled
+
+
+
 def get_masks_and_centroids(dk, traceid='traces001',
                         rootdir='/n/coxfs01/2p-data'):
     '''
@@ -41,6 +55,8 @@ def get_masks_and_centroids(dk, traceid='traces001',
 def get_roi_centroids(masks):
     '''Calculate center of soma, then return centroid coords.
     '''
+    if np.isnan(masks.max()):
+        masks[npisnan(masks)] = 0
     centroids=[]
     for roi in range(masks.shape[0]):
         img = masks[roi, :, :].copy()
@@ -88,7 +104,7 @@ def load_roi_coords(animalid, session, fov, roiid=None,
                     convert_um=True, traceid='traces001',
                     create_new=False,rootdir='/n/coxfs01/2p-data'):
     fovinfo = None
-    r3oiid = get_roiid_from_traceid(animalid, session, fov, traceid=traceid)
+    roiid = get_roiid_from_traceid(animalid, session, fov, traceid=traceid)
     # create outpath
     roidir = glob.glob(os.path.join(rootdir, animalid, session,
                         'ROIs', '%s*' % roiid))[0]
@@ -100,6 +116,7 @@ def load_roi_coords(animalid, session, fov, roiid=None,
                 fovinfo = pkl.load(f, encoding='latin1')
             assert 'roi_positions' in fovinfo.keys(), "Bad fovinfo file, redoing"
         except Exception as e: #AssertionError:
+            print("Error loading <%s> for %s, %s, %s" % (roiid, animalid, sssion, fov))
             traceback.print_exc()
             create_new = True
 
@@ -156,7 +173,9 @@ def calculate_roi_coords(masks, zimg, roi_list=None, convert_um=True):
                 (float) FOV limits (in pixels or um) for (natural) azimuth and elevation axes
     '''
 
-
+    if np.isnan(masks.max()):
+        masks[npisnan(masks)] = 0
+ 
     print("... getting fov info")
     # Get masks
     npix_y, npix_x, nrois_total = masks.shape
@@ -206,7 +225,8 @@ def contours_from_masks(masks):
         im = im.astype('uint8')
         edged = cv2.Canny(im, 0, 0.9)
         tmp_cnts = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        tmp_cnts = tmp_cnts[0] if imutils.is_cv2() else tmp_cnts[1]
+        #tmp_cnts = tmp_cnts[0] if imutils.is_cv2() else tmp_cnts[1]
+        tmp_cnts = tmp_cnts[1] if imutils.is_cv2() else tmp_cnts[0]
         tmp_roi_contours.append((ridx, tmp_cnts[0]))
     print("Created %i contours for rois." % len(tmp_roi_contours))
 
