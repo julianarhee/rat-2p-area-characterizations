@@ -104,7 +104,7 @@ def get_stimuli(datakey, experiment, rootdir='/n/coxfs01/2p-data', verbose=False
     Get stimulus info for a given experiment and imaging site.
     Returns 'sdf' (dataframe, index='config001', etc. columns=stimulus parameters).
     '''
-    session, animalid, fovn = split_datakey_str(datakey)
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
     if verbose:
         print("... getting stimulus info for: %s" % experiment)
     dset_path = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovn,
@@ -232,7 +232,7 @@ def drop_repeats(counts, criterion='max', colname='cell'):
     From df of counts (N cells per datakey), drop repeats by criterion.
     criterion: takes "max" (or whatever func) along column <colname>
     '''
-    counts = split_datakey(counts)
+    counts = hutils.split_datakey(counts)
     unique_dsets = select_best_fovs(counts, criterion='max', colname='cell')
     u_dkeys = list([tuple(k) for k in unique_dsets[['visual_area', 'datakey']].values])
     return u_dkeys
@@ -265,7 +265,7 @@ def select_best_fovs(counts_by_fov, criterion='max', colname='cell'):
     there are duplicate FOVs.
     '''
     if 'animalid' not in counts_by_fov.columns:
-        counts_by_fov = split_datakey(counts_by_fov)
+        counts_by_fov = hutils.split_datakey(counts_by_fov)
     # Cycle thru all dsets and drop repeats
     fovkeys = get_sorted_fovs()
     incl_dsets=[]
@@ -348,7 +348,7 @@ def add_roi_positions(rfdf, calculate_position=False, traceid='traces001'):
     '''
     #from . import roi_utils as rutils
     if 'fovnum' not in rfdf.columns:
-        rfdf = split_datakey(rfdf)
+        rfdf = hutils.split_datakey(rfdf)
 
     print("Adding ROI position info...")
     pos_params = ['fov_xpos', 'fov_xpos_pix', 'fov_ypos', 'fov_ypos_pix', 'ml_pos','ap_pos']
@@ -357,7 +357,7 @@ def add_roi_positions(rfdf, calculate_position=False, traceid='traces001'):
     p_list=[]
     #for (animalid, session, fovnum, exp), g in rfdf.groupby(['animalid', 'session', 'fovnum', 'experiment']):
     for (va, dk, exp), g in rfdf.groupby(['visual_area', 'datakey', 'experiment']):
-        session, animalid, fovnum = split_datakey_str(dk)
+        session, animalid, fovnum = hutils.split_datakey_str(dk)
         try:
             fcoords = roiutils.load_roi_coords(animalid, session, 'FOV%i_zoom2p0x' % fovnum,
                                       traceid=traceid, create_new=False)
@@ -469,6 +469,19 @@ def get_sorted_fovs(filter_by='drop_repeats', excluded_sessions=[]):
 # ###############################################################
 # Data loading
 # ###############################################################
+def load_frame_labels(datakey, experiment, traceid='traces001',
+                        rootdir='/n/coxfs01/2p-data'):
+    session, animalid, fovnum = hutils.split_datakey_str(datakey) 
+    fname = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovnum,
+                        'combined_%s_static' % experiment, 'traces', 
+                        '%s*' % traceid, 'data_arrays', 'labels.npz'))[0]
+    l = np.load(fname, allow_pickle=True)
+    labels = pd.DataFrame(data=l['labels_data'], columns=l['labels_columns'])
+    labels = hutils.convert_columns_byte_to_str(labels)
+
+    return labels
+
+
 def load_responsive_neuraldata(experiment, traceid='traces001',
                       response_type='dff', trial_epoch='plushalf',
                       responsive_test='nstds', responsive_thr=10,n_stds=2.5,
@@ -693,7 +706,7 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
             tmpd['fov'] = fov
             d_.append(tmpd)
         all_sdata = pd.concat(d_, axis=0).reset_index(drop=True)
-        all_sdata = split_datakey(all_sdata)
+        all_sdata = hutils.split_datakey(all_sdata)
         all_sdata['fovnum'] = [int(f.split('_')[0][3:]) for f in all_sdata['fov']]
 
         with open(sdata_fpath, 'wb') as f:
