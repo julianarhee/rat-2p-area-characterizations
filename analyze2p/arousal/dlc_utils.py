@@ -437,7 +437,7 @@ def aggregate_dataframes(experiment, trial_epoch='stimulus',
                                     in_rate=in_rate, out_rate=out_rate,
                                     iti_pre=iti_pre, iti_post=iti_post)
             # save trial metrics for fov
-            save_fov_metrics(datakey, experiment, df_,
+            save_fov_metrics(dkey, experiment, df_,
                     trial_epoch=trial_epoch, snapshot=snapshot)
 
             aggr_dfs[dkey] = df_
@@ -1471,6 +1471,40 @@ def get_dists_between_bodyparts(bp1, bp2, df, DLCscorer=None):
     return dists
 
 
+def get_intersection_between_lines(df, DLCscorer=None):
+    if DLCscorer is not None:
+        tmpdf = df[DLCscorer].copy()
+    else:
+        tmpdf = df.copy()
+    A = [tuple([x,y]) for x, y in tmpdf['pupilT'][['x', 'y']].values]
+    B = [tuple([x,y]) for x, y in tmpdf['pupilB'][['x', 'y']].values]
+
+    C = [tuple([x,y]) for x, y in tmpdf['pupilL'][['x', 'y']].values]
+    D = [tuple([x,y]) for x, y in tmpdf['pupilR'][['x', 'y']].values]
+    
+    ctrs = [line_intersection((a, b), (c, d)) for a, b, c, d in zip(A, B, C, D)]
+
+    return ctrs
+
+
+def line_intersection(line1, line2):
+    xdiff = (line1[0][0] - line1[1][0], line2[0][0] - line2[1][0])
+    ydiff = (line1[0][1] - line1[1][1], line2[0][1] - line2[1][1])
+
+    def det(a, b):
+        return a[0] * b[1] - a[1] * b[0]
+
+    div = det(xdiff, ydiff)
+    if div == 0:
+       raise Exception('lines do not intersect')
+
+    d = (det(*line1), det(*line2))
+    x = det(d, xdiff) / div
+    y = det(d, ydiff) / div
+
+    return x, y
+
+
 def calculate_pupil_metrics(dlc_outfile, filtered=False, threshold=0.99):
     '''
     Read specific dlc outfile (hdf5). Extract bodyparts, and do calculations.
@@ -1504,6 +1538,11 @@ def calculate_pupil_metrics(dlc_outfile, filtered=False, threshold=0.99):
                                 'pupilT', 'pupilB', filtdf, DLCscorer=None)
         pupil_minor = get_dists_between_bodyparts(
                                 'pupilL', 'pupilR', filtdf, DLCscorer=None)
+
+        #TODO:  CR as dist between intersection of pupil_maj and pupil_min?
+        # cr_dist = get_dists_between_bodyparts('pupilC, 'cornealR', filtdf, DLCscorer=None)
+        # ctrs = get_intersection_between_lines(df, DLCscorer=None)
+
     else:
         pupil_major = get_dists_between_bodyparts(
                                 'pupilT', 'pupilB', df, DLCscorer=DLCscorer)
