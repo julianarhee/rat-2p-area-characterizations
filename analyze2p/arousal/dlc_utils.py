@@ -23,13 +23,22 @@ import analyze2p.utils.helpers as hutils
 # ===================================================================
 # Data loading 
 # ====================================================================
-def create_parsed_traces_id(experiment='EXP', alignment_type='ALIGN', 
+def create_parsed_traces_id(alignment_type='ALIGN', 
                              snapshot=391800):
     '''
     Common name for pupiltraces datafiles.
     '''
     #fname = 'traces_%s_align-%s_%s_snapshot-%i' % (feature_name, alignment_type, experiment, snapshot)
     fname = 'snapshot-%i_%s' % (snapshot, alignment_type)
+
+    return fname
+
+def create_trial_metrics_id(trial_epoch='stimulus', snapshot=391800):
+    '''
+    Common name for trial metrics datafiles.
+    '''
+    #fname = 'traces_%s_align-%s_%s_snapshot-%i' % (feature_name, alignment_type, experiment, snapshot)
+    fname = 'snapshot-%i_%s_metrics' %s (snapshot, trial_epoch)
 
     return fname
 
@@ -55,59 +64,114 @@ def create_aggr_metrics_id(experiment, trial_epoch, snapshot):
 
     return fname
 
+def save_traces_and_params(datakey, experiment, ptraces, params, 
+                        rootdir='/n/coxfs01/2p-data'):
+    # Set output dir
+    session, animalid, fovnum = hutils.split_datakey_str(datakey)                 
+    rundir = glob.glob(os.path.join(rootdir, animalid, session, 
+                    'FOV%i_*' % fovnum, 'combined_%s_static' % experiment))[0]
+    dst_dir = os.path.join(rundir, 'facetracker')
+    # Setup output files. Create parse id.
+    parse_id = create_parsed_traces_id( alignment_type=params['alignment_type'],
+                                       snapshot=params['snapshot']) 
 
+    params_fpath = os.path.join(dst_dir, '%s_params.json' % parse_id)
+    results_fpath = os.path.join(dst_dir, '%s_traces.pkl' % parse_id)
+
+    # Save params
+    with open(params_fpath, 'w') as f:
+        json.dump(params, f, indent=4, sort_keys=True)
+    # Save aligned traces
+    with open(results_fpath, 'wb') as f:
+        pkl.dump(ptraces, f, protocol=pkl.HIGHEST_PROTOCOL)
+    print("Saved.")
+
+    return
+
+
+def save_fov_metrics(datakey, experiment, df_,
+                    trial_epoch='stimulus', snapshot=391800,
+                    rootdir='/n/coxfs01/2p-data'):
+    # Set output dir
+    session, animalid, fovnum = hutils.split_datakey_str(datakey)                 
+    rundir = glob.glob(os.path.join(rootdir, animalid, session, 
+                    'FOV%i_*' % fovnum, 'combined_%s_static' % experiment))[0]
+    dst_dir = os.path.join(rundir, 'facetracker')
+
+    metric_id = create_trial_metrics_id(snapshot=snapshot, 
+                                trial_epoch=trial_epoch)
+    
+    results_fpath = os.path.join(dst_dir, '%s.pkl' % metric_id)
+    with open(results_fpath, 'wb') as f:
+        pkl.dump(df_, f, protocol=2)
+
+    return
+
+ 
 def load_fov_traces(datakey, experiment, alignment_type='trial', 
                     snapshot=391800, rootdir='/n/coxfs01/2p-data'):
     '''
     Load pupil traces for one dataset.
     results & params are created and saved in ./arousal/parse_face_data.py
     '''
-    results=None
-    params=None
+    ptraces=None; params=None;
 
-    # Set output stuff
-    session, animalid, fovnum = hutils.split_datakey_str(datakey)
-    exp_dir = glob.glob( os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovnum, 
-                            'combined_%s_static' % experiment))[0]
-    dst_dir = os.path.join(exp_dir, 'facetracker')
-    if not os.path.exists(dst_dir):
-        os.makedirs(dst_dir)
-    
-    # Create parse id
-    parse_id = create_parsed_traces_id(experiment=experiment, 
-                               alignment_type=alignment_type,
-                               snapshot=snapshot) 
+    # Set output dir
+    session, animalid, fovnum = hutils.split_datakey_str(datakey)                 
+    rundir = glob.glob(os.path.join(rootdir, animalid, session, 
+                    'FOV%i_*' % fovnum, 'combined_%s_static' % experiment))[0]
+    dst_dir = os.path.join(rundir, 'facetracker')
+    # Setup output files. Create parse id.
+    parse_id = create_parsed_traces_id(alignment_type=alignment_type,
+                                       snapshot=snapshot) 
     params_fpath = os.path.join(dst_dir, '%s_params.json' % parse_id)
     results_fpath = os.path.join(dst_dir, '%s_traces.pkl' % parse_id)
+
     if not os.path.exists(results_fpath):
         print("    results do not exist:\n    %s" % results_fpath)
+        return None, None
+
     try:
         # load results
         with open(results_fpath, 'rb') as f:
-            results = pkl.load(f) #, encoding='latin1')
-        #print(results.columns())
-        assert 'stim_dur_ms' in results.columns.tolist(), \
+            ptraces = pkl.load(f) #, encoding='latin1')
+        assert 'stim_dur_ms' in ptraces.columns.tolist(), \
                         "No stim dur for FOV."
         # load params
         with open(params_fpath, 'r') as f:
             params = json.load(f)
     except Exception as e:
-        #print(e)
         return None, None    
 
-    return results, params
+    return ptraces, params
 
 
 def aggregate_traces(experiment, traceid='traces001', 
-                feature_name='pupil_area', redo_fov=False,
+                realign=False, recombine=False, create_new=False,
                 snapshot=391800, alignment_type='trial',
+                iti_pre=1., iti_post=1., feature_list=['pupil'],
                 verbose=False, return_missing=False,
+                exclude=['20190517_JC083_fov1'],
                 rootdir='/n/coxfs01/2p-data', fov_type='zoom2p0x', state='awake',
+                eyetracker_dir='/n/coxfs01/2p-data/eyetracker_tmp',
                 aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     '''
-    Create AGGREGATED pupiltraces dict (keys: datakey, values: results)
-    Saves to: <aggregate_dir>/behavior-state/<traces_fname>.pkl
-    Calls load_fov_traces()
+    Load or create AGGREGATED dict of parsed pupuil traces.
+        Saves to: <aggregate_dir>/behavior-state/<traces_fname>.pkl
+        Calls load_fov_traces()
+   
+    create_new: bool
+        Set TRUE to recreate aggregated .pkl file with ALL traces.
+    
+    redo_fov: bool
+        Set TRUE to re-save extracted/aligned pupil traces for each FOV.
+
+    Returns
+    
+    aggr_traces: dict
+        keys, datakey
+        results, parsed pupil traces (pd.DataFrames)
+
     '''
     print("~~~~~ Aggregating pupil traces. ~~~~~~")
     # Set output dir for aggregated datafile
@@ -116,40 +180,58 @@ def aggregate_traces(experiment, traceid='traces001',
 
     missing_dsets=[]
     aggr_traces={}; aggr_params={};
-    # Get all datasets
-    sdata = aggr.get_aggregate_info(traceid=traceid, 
-                            fov_type=fov_type, state=state, return_cells=False)
-    edata = sdata[sdata['experiment']==experiment].copy()
 
-    # Loop thru datakeys and get parsed pupil data
-    for datakey, g in edata.groupby(['datakey']):
-        results=None; params=None;
-        if redo_fov is False:
-            fov_traces, fov_params = load_fov_traces(datakey, 
-                                    alignment_type=alignment_type,
-                                    experiment=experiment, snapshot=snapshot, 
-                                    rootdir=rootdir)
-        if results is None:
-            print("... missing traces: %s" % dk)
-            missing_dsets.append(dk)
-            continue
-        #### Add to dict
-        aggr_traces[dk] = fov_traces
-        aggr_params[dk] = fov_params
+    if create_new is False:
+        try:
+            aggr_traces, missing_dsets = load_traces(experiment, 
+                                                alignment_type=alignment_type, 
+                                                snapshot=snapshot,
+                                                aggregate_dir=aggregate_dir, 
+                                                return_missing=True)
+            assert len(aggr_traces.keys())>0, "No data. Re-aggregating"
+        except Exception as e:
+            create_new=True 
 
-    if len(aggr_traces.keys())>0:
-        # Save traces
-        parse_id = create_aggr_traces_id(experiment=experiment, 
-                                alignment_type=alignment_type,
-                                snapshot=snapshot)
-        traces_fpath = os.path.join(aggregate_dir, 
-                                'behavior-state', '%s.pkl' % parse_id) 
-        with open(traces_fpath, 'wb') as f:
-            pkl.dump(aggr_traces, f, protocol=2) #pkl.HIGHEST_PROTOCOL)
-        params_fpath = os.path.join(aggregate_dir, 
-                                'behavior-state', '%s_params.json' % parse_id) 
-        with open(params_fpath, 'w') as f:
-            json.dump(aggr_params, f, indent=4) #pkl.HIGHEST_PROTOCOL)
+    if create_new:
+        # Get all datasets
+        sdata = aggr.get_aggregate_info(traceid=traceid, 
+                                fov_type=fov_type, state=state, 
+                                return_cells=False)
+        edata = sdata[sdata['experiment']==experiment].copy()
+
+        # Loop thru datakeys and get parsed pupil data
+        for datakey, g in edata.groupby(['datakey']):
+            if (iti_pre+iti_post)>1 and (datakey in exclude):
+                print(" - skipping %s - " % datakey)
+                continue
+
+            if realign is False and recombine is False:
+                fov_traces, fov_params = load_fov_traces(datakey, experiment,
+                                        alignment_type=alignment_type,
+                                        snapshot=snapshot, rootdir=rootdir)
+            else:
+                # Reparse
+                fov_traces, fov_params = parse_pose_data(datakey, experiment, 
+                                        traceid=traceid, 
+                                        iti_pre=iti_pre, iti_post=iti_post, 
+                                        feature_list=feature_list,
+                                        alignment_type=alignment_type, 
+                                        snapshot=snapshot, verbose=verbose,
+                                        rootdir=rootdir,
+                                        eyetracker_dir=eyetracker_dir,
+                                        realign=realign, recombine=recombine) 
+            if fov_traces is None:
+                print("... missing traces: %s" % datakey)
+                missing_dsets.append(datakey)
+                continue
+            #### Add to dict
+            aggr_traces[datakey] = fov_traces
+            aggr_params[datakey] = fov_params
+
+        if len(aggr_traces.keys())>0:
+            save_traces(aggr_traces, aggr_params, experiment,
+                        alignment_type=alignment_type, snapshot=snapshot,
+                        aggregate_dir=aggregate_dir)
 
     print("Aggregated pupil traces. Missing %i datasets." % len(missing_dsets))
     if verbose:
@@ -157,13 +239,13 @@ def aggregate_traces(experiment, traceid='traces001',
             print(m)
 
     if return_missing:
-        return pupiltraces, missing_dsets
+        return aggr_traces, missing_dsets
     else:
-        return pupiltraces
+        return aggr_traces
 
 
-def load_traces(experiment='blobs', alignment_type='stimulus', 
-                snapshot=391800, return_missing=False,
+def load_traces(experiment, alignment_type='stimulus', snapshot=391800, 
+                return_missing=False,
                 traceid='traces001', fov_type='zoom2p0x', state='awake',
                 aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     """
@@ -178,6 +260,9 @@ def load_traces(experiment='blobs', alignment_type='stimulus',
                             alignment_type=alignment_type, snapshot=snapshot) 
     traces_fpath = os.path.join(aggregate_dir, \
                     'behavior-state', '%s.pkl' % traces_fname)  
+    params_fpath = os.path.join(aggregate_dir, \
+                    'behavior-state', '%s_params.json' % traces_fname)  
+
     if not os.path.exists(traces_fpath):
         print( "Aggr. traces not found:\n    %s" % traces_fpath)
         return None
@@ -185,7 +270,7 @@ def load_traces(experiment='blobs', alignment_type='stimulus',
     try: 
         # This is a dict, keys are datakeys
         with open(traces_fpath, 'rb') as f:
-            pupiltraces = pkl.load(f, encoding='latin1')
+            aggr_traces = pkl.load(f, encoding='latin1')
         print(">>>> Loaded aggregated pupil traces.")
     except Exception as e:
         traceback.print_exc()
@@ -195,64 +280,51 @@ def load_traces(experiment='blobs', alignment_type='stimulus',
                             traceid=traceid, fov_type=fov_type, state=state)
         edata = sdata[(sdata['experiment'] == experiment)]
         missing_dsets = [ e for e in edata['datakey'].unique() \
-                            if e not in pupiltraces.keys() ]
-        return pupiltraces, missing_dsets
+                            if e not in aggr_traces.keys() ]
+        return aggr_traces, missing_dsets
     else:
-        return pupiltraces
+        return aggr_traces
 
- 
-def get_aggregate_traces(experiment, feature_name='pupil_area',
-                    alignment_type='stimulus', snapshot=391800, 
-                    return_missing=False, create_new=False, redo_fov=False,
-                    traceid='traces001', rootdir='/n/coxfs01/2p-data',
-                    aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
-    '''
-    Load or create AGGREGATED pupiltraces dict.
+
+def save_traces(aggr_traces, aggr_params, experiment, 
+                alignment_type='trial', snapshot=391800,
+                aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+
+    #### Output files
+    traces_fname = create_aggr_traces_id(experiment=experiment, 
+                            alignment_type=alignment_type, snapshot=snapshot) 
+    traces_fpath = os.path.join(aggregate_dir, \
+                    'behavior-state', '%s.pkl' % traces_fname)  
+    params_fpath = os.path.join(aggregate_dir, \
+                    'behavior-state', '%s_params.json' % traces_fname)  
     
-    create_new: bool
-        Set TRUE to recreate aggregated .pkl file with ALL traces.
-    
-    redo_fov: bool
-        Set TRUE to re-save extracted/aligned pupil traces for each FOV.
+    with open(traces_fpath, 'wb') as f:
+        pkl.dump(aggr_traces, f, protocol=2) #pkl.HIGHEST_PROTOCOL)
+    with open(params_fpath, 'w') as f:
+        json.dump(aggr_params, f, indent=4) #pkl.HIGHEST_PROTOCOL)
 
-    '''
-    if not redo_fov: 
-        print("... loading existing")
-        try:
-            pupiltraces, missing_dsets = load_traces(
-                                            experiment=experiment, 
-                                            alignment_type=alignment_type, 
-                                            snapshot=snapshot,
-                                            aggregate_dir=aggregate_dir, 
-                                            return_missing=True)
-            assert pupiltraces is not None
-        except Exception as e:
-            traceback.print_exc()
-            create_new=True
 
-    feature_to_load = 'pupil_area' if feature_name=='pupil_fraction' \
-                            else feature_name
-    if create_new or redo_fov:
-        print("... aggregate traces anew")
-        pupiltraces, missing_dsets = aggregate_traces(
-                                            experiment, 
-                                            traceid=traceid,
-                                            redo_fov=redo_fov,
-                                            feature_name=feature_to_load, 
-                                            alignment_type=alignment_type, 
-                                            snapshot=snapshot, 
-                                            return_missing=True,
-                                            rootdir=rootdir, 
-                                            aggregate_dir=aggregate_dir)
-    if return_missing:
-        return pupiltraces, missing_dsets
-    else:
-        return pupiltraces
+    return
+
 
 
 # AGGREGATE STUFF
-def load_dataframes(snapshot, experiment='blobs', 
-                trial_epoch='stimulus',
+def save_dataframes(aggr_dfs, aggr_params, experiment,
+                snapshot=391800, trial_eopch='stimulus',
+                aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+
+    fname = create_aggr_metrics_id(experiment, trial_epoch, snapshot)
+    df_fpath = os.path.join(aggregate_dir, \
+                                    'behavior-state', '%s.pkl' % fname)
+    # Save
+    with open(df_fpath, 'wb') as f:
+        pkl.dump(aggr_dfs, f, protocol=2)# pkl.HIGHEST_PROTOCOL)
+    print("---> Saved aggr dataframes: %s" % pupildf_fpath) 
+
+    return 
+
+
+def load_dataframes(experiment, snapshot=391800, trial_epoch='stimulus',
                 return_missing=False, traceid='traces001', 
                 fov_type='zoom2p0x', state='awake', 
                 aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
@@ -273,7 +345,10 @@ def load_dataframes(snapshot, experiment='blobs',
     pupildfs=None
 
     fname = create_aggr_metrics_id(experiment, trial_epoch, snapshot)
-    pupildf_fpath = os.path.join(aggregate_dir, 'behavior-state', '%s.pkl' % fname)
+    pupildf_fpath = os.path.join(aggregate_dir, 
+                                    'behavior-state', '%s.pkl' % fname)
+    params_fpath = os.path.join(aggregate_dir, 
+                                    'behavior-state', '%s_params.json' % fname)
     try:
         with open(pupildf_fpath, 'rb') as f:
             pupildfs = pkl.load(f)
@@ -283,7 +358,7 @@ def load_dataframes(snapshot, experiment='blobs',
             pupildfs = pkl.load(f, encoding='latin1')
     except Exception as e:
         print('File not found: %s' % pupildf_fpath)
-
+   
     if return_missing:
         sdata = aggr.get_aggregate_info(return_cells=False, traceid=traceid, 
                                         fov_type=fov_type, state=state)
@@ -294,14 +369,18 @@ def load_dataframes(snapshot, experiment='blobs',
     else:
         return pupildfs
 
-       
-def aggregate_dataframes(aggr_traces,
-                    feature_name='pupil_fraction', trial_epoch='pre',
-                    in_rate=20., out_rate=20., 
-                    iti_pre=1., iti_post=1.): #, stim_dur=1.):
+def aggregate_dataframes(experiment, trial_epoch='stimulus',
+                in_rate=20., out_rate=20., iti_pre=1., iti_post=1.,
+                create_new=False, realign=False, recombine=False,
+                snapshot=391800, alignment_type='trial', traceid='traces001',
+                verbose=False, return_missing=False,
+                rootdir='/n/coxfs01/2p-data', 
+                fov_type='zoom2p0x', state='awake',
+                aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):   
     '''
-    Create AGGREGATED pupil dataframes (per-trial metric) - dict
-
+    Load or create AGGREGATED dict of pupil dataframes (per-trial metrics)
+    (prev called load_pupil_data)
+    
     Takes pupil traces, resample, then returns dict of pupil dataframes.
     Durations are in seconds.
 
@@ -310,16 +389,81 @@ def aggregate_dataframes(aggr_traces,
         'stimulus': Use stimulus period
         'all': Use full trial period
  
+    create_new: bool
+        Set TRUE to recreate aggregated .pkl file with ALL traces.
+    
+    realign: bool
+        Set TRUE to re-align aggregate traces for each FOV.
+    recombine: bool
+        Set TRUE to re-combine all pupildata across runs for each FOV.
+
     Returns:
 
-    pupildata (dict)
+    aggr_dfs (dict)
         keys: datakeys (like MEANS dict)
         values: dataframes (pupildf, trial metrics)
     '''
     print("~~~~~~~~~~~~ Aggregating pupil dataframes. ~~~~~~~~~~~")
-    tmpkey = list(aggr_traces.keys())[0]
+
+    aggr_dfs=None; missing_dsets=[];
+    if realign or recombine:
+        create_new=True
+
+    if (create_new is False):
+        try:
+            aggr_dfs, missing_dsets = load_dataframes(experiment, 
+                                        snapshot=snapshot, 
+                                        trial_epoch=trial_epoch, 
+                                        aggregate_dir=aggregate_dir, 
+                                        return_missing=True)
+            assert pupildfs is not None, "No aggregated dfs. Creating new."
+        except Exception as e:
+            create_new=True
+
+    if create_new:
+        # Load traces
+        redo_traces_too = (realign is True or recombine is True)
+        aggr_traces,  missing_dsets = aggregate_traces(experiment, 
+                                        alignment_type=alignment_type, 
+                                        snapshot=snapshot, 
+                                        traceid=traceid, 
+                                        create_new=redo_traces_too,
+                                        realign=realign, recombine=recombine,
+                                        return_missing=True)
+        # Calculate per-trial metrics 
+        aggr_dfs={}
+        for dkey, ptraces in aggr_traces.items():
+            df_ = parsed_traces_to_metrics(ptraces, trial_epoch=trial_epoch,
+                                    in_rate=in_rate, out_rate=out_rate,
+                                    iti_pre=iti_pre, iti_post=iti_post)
+            # save trial metrics for fov
+            save_fov_metrics(datakey, experiment, df_,
+                    trial_epoch=trial_epoch, snapshot=snapshot)
+
+            aggr_dfs[dkey] = df_
+
+    return aggr_dfs
+
+
+def parsed_traces_to_metrics(ptraces, in_rate=20., out_rate=20.,
+                        trial_epoch='stimulus', iti_pre=1., iti_post=1.):
+    '''
+    Resample raw (parsed) pupil trace, calculate a single trial metric.
+
+    ptraces: pd.DataFrame
+        Raw pupi traces parsed into trials.
+
+    trial_epoch: str
+        stimulus:  average over the stimulus period
+        pre:  average over iti_pre
+        plushalf:  stimulus + stimulus*0.5
+        trial: iti_pre thru iti_post
+
+    Returns: pd.DataFrame (also includes pupil_fraction)
+
+    '''
     stim_durs = np.unique([round(s/1E3, 1) for s \
-                    in aggr_traces[tmpkey]['stim_dur_ms'].unique()])
+                                    in ptraces['stim_dur_ms'].unique()])
     assert len(stim_durs)==1, "Bad stim durs: %s" % str(stim_durs)
     stim_dur = float(stim_durs[0])*1000
     desired_nframes = int((stim_dur + iti_pre + iti_post)*out_rate)
@@ -327,16 +471,15 @@ def aggregate_dataframes(aggr_traces,
     new_stim_on = int(round(iti_pre*out_rate))
     nframes_on = int(round(stim_dur*out_rate))
 
-    feature_to_load = 'pupil_area' if feature_name=='pupil_fraction' \
-                            else feature_name
-    pupildfs={}
-    for dkey, ptraces in aggr_traces.items():
-        binned_pupil = resample_pupil_traces(pupiltraces, #feature_name=feature_name,
-                                    in_rate=in_rate, out_rate=out_rate, 
-                                    min_nframes=desired_nframes, iti_pre_ms=iti_pre_ms)
-        df_ = calculate_trial_metrics(binned_pupil, trial_epoch=trial_epoch,
-                                    new_stim_on=new_stim_on, nframes_on=nframes_on)
-
+    # Resample for exact frame #s
+    binned_pupil = resample_pupil_traces(ptraces,
+                                in_rate=in_rate, out_rate=out_rate, 
+                                min_nframes=desired_nframes, 
+                                iti_pre_ms=iti_pre_ms)
+    # Calculate single metric per trial
+    df_ = calculate_trial_metrics(binned_pupil, trial_epoch=trial_epoch,
+                                new_stim_on=new_stim_on, 
+                                nframes_on=nframes_on)
 #        pupil_r = resample_pupil_traces(ptraces, 
 #                                    in_rate=in_rate, 
 #                                    out_rate=out_rate, 
@@ -345,12 +488,11 @@ def aggregate_dataframes(aggr_traces,
 #                                    iti_pre_ms=iti_pre_ms)
 #        pupildf = get_pupil_df(pupil_r, trial_epoch=trial_epoch, 
 #                                new_stim_on=new_stim_on, nframes_on=nframes_on)
-        if 'pupil_fraction' not in df_.columns:
-            pupil_max = df_['pupil_area'].max()
-            df_['pupil_fraction'] = df_['pupil_area']/pupil_max
-        pupildfs[dkey] = df_
-
-    return pupildfs
+    if 'pupil_fraction' not in df_.columns:
+        pupil_max = df_['pupil_area'].max()
+        df_['pupil_fraction'] = df_['pupil_area']/pupil_max
+ 
+    return df_
 
 
 def calculate_trial_metrics(binned_pupil, trial_epoch='pre', new_stim_on=20., nframes_on=20.):
@@ -408,72 +550,6 @@ def calculate_trial_metrics(binned_pupil, trial_epoch='pre', new_stim_on=20., nf
 #    #print(pupildf.shape)
 #
 #    return pupildf
-
-
-def get_aggregate_dataframes(experiment='blobs', feature_name='pupil_area', 
-                    trial_epoch='stimulus', alignment_type='stimulus', 
-                    in_rate=20., out_rate=20., iti_pre=1., iti_post=1., 
-                    snapshot=391800,  traceid='traces001', 
-                    aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas', 
-                    create_new=False, redo_fov=False, return_missing=False):
-    '''
-    Load or create AGGREGATED dit of pupil dataframes (per-trial metrics)
-    (prev called load_pupil_data)
-
-    
-    create_new: bool
-        Set TRUE to recreate aggregated .pkl file with ALL traces.
-    
-    redo_fov: bool
-        Set TRUE to re-save extracted/aligned pupil traces for each FOV.
-
-    Returns:
-
-    pupildata (dict)
-        keys: datakeys (like MEANS dict)
-        values: dataframes (pupildf, trial metrics)
-    '''
-    pupildfs=None; missing_dsets=[];
-    if (redo_fov is False) and (create_new is False):
-        try:
-            pupildfs, missing_dsets = load_dataframes(snapshot, 
-                                        experiment=experiment, 
-                                        trial_epoch=trial_epoch, 
-                                        aggregate_dir=aggregate_dir, 
-                                        return_missing=True)
-            assert pupildfs is not None, "No aggregated dfs. Creating new."
-        except Exception as e:
-            create_new=True
-
-    if create_new or redo_fov:
-        print("... re-aggregating pupil dfs, epoch=%s" % trial_epoch)
-        fname = create_aggr_metrics_id(experiment, trial_epoch, snapshot)
-        pupildf_fpath = os.path.join(aggregate_dir, 'behavior-state', '%s.pkl' % fname)
-        # Load traces
-        aggr_traces, missing_dsets = get_aggregate_traces(experiment, 
-                                        alignment_type=alignment_type, 
-                                        snapshot=snapshot, 
-                                        traceid=traceid, 
-                                        create_new=True, redo_fov=redo_fov,
-                                        return_missing=True)
-
-        if len(pupiltraces.keys())>0: 
-            # Aggregate mean values into dataframe
-            aggr_dfs = aggregate_dataframes(aggr_traces, fname, 
-                                            feature_name=feature_name, 
-                                            trial_epoch=trial_epoch, 
-                                            in_rate=in_rate, out_rate=out_rate, 
-                                            iti_pre=iti_pre, iti_post=iti_post)
-                                            #stim_dur=stim_dur)
-            # Save
-            with open(pupildf_fpath, 'wb') as f:
-                pkl.dump(pupildata, f, protocol=2)# pkl.HIGHEST_PROTOCOL)
-            print("---> Saved aggr dataframes: %s" % pupildf_fpath) 
-        
-    if return_missing:
-        return pupildata, missing_dsets
-    else:
-        return pupildata
 
 
 def get_dlc_sources(
@@ -545,8 +621,8 @@ def get_trialmeta(datakey, experiment, alignment_type='stimulus',
     run_dir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i*' % fovnum, 
                             'combined_%s_static' % experiment))[0]
     dst_dir = os.path.join(run_dir, 'facetracker')
-    parse_id = create_parsed_traces_id(experiment=experiment,
-                            alignment_type=alignment_type, snapshot=snapshot)
+    parse_id = create_parsed_traces_id(alignment_type=alignment_type, 
+                                        snapshot=snapshot)
     alignment_fpath = os.path.join(dst_dir, '%s.pkl' % parse_id)
     params_fpath = os.path.join(dst_dir, '%s_params.json' % parse_id)
 
@@ -608,7 +684,7 @@ def combine_pose_data(datakey, experiment, feature_list=['pupil'],
     Get pupil traces combined in order across run files *not trials yet.
     TODO:  add other features besides pupil stuff?
 
-    Combined pupil traces are saved to:
+    Saves combined pupil traces to:
         ./RUNDIR/facetracker/snapshot-%i_features.pkl 
 
     Returns:
@@ -670,8 +746,8 @@ def get_pose_data(datakey, experiment, feature_list=['pupil'],
                    eyetracker_dir='/n/coxfs01/2p-data/eyetracker_tmp'):
   
     '''
-    1. Get alignment info for parsing trials.
-    2. Load extracted pupil features as combined df across runs.
+    1. Get alignment info for parsing trials, get_trialmeta()
+    2. Load extracted features as combined df across runs, combine_post_data()
     (prev called: load_pose_data())
     ''' 
     trialmeta=None; pupildata=None; params=None;
@@ -688,7 +764,8 @@ def get_pose_data(datakey, experiment, feature_list=['pupil'],
                                     feature_list=feature_list, 
                                     snapshot=snapshot, create_new=recombine,
                                     verbose=verbose, 
-                                    rootdir=rootdir, eyetracker_dir=eyetracker_dir)
+                                    rootdir=rootdir, 
+                                    eyetracker_dir=eyetracker_dir)
         params['dlc_empty_files'] = bad_files
 
     return trialmeta, pupildata, params
@@ -696,6 +773,60 @@ def get_pose_data(datakey, experiment, feature_list=['pupil'],
 # ===================================================================
 # Feature extraction (traces)
 # ====================================================================
+def align_traces(datakey, experiment, trialmeta, pupildata, params,
+                traceid='traces001', rootdir='/n/coxfs01/2p-data'):
+    '''
+    Align traces (pupildata, combined across runs) from pose data.
+    Update params and save results.
+
+    Inputs: from get_pose_data()
+
+    Output:
+        ./RUNDIR/facetracker/snapshot-%i_<alignment>_param.json
+        ./RUNDIR/facetracker/snapshot-%i_<alignment>_traces.pkl
+
+    '''
+    ptraces=None; missing_trials=None;
+    # Get labels
+    labels = aggr.load_frame_labels(datakey, experiment, 
+                                traceid=traceid, rootdir=rootdir)
+    # Split traces into trials
+    ptraces, missing_trials = traces_to_trials(
+                                trialmeta, pupildata, labels,
+                                return_missing=True)
+
+    if ptraces is not None:
+        # Update params with missing trial info
+        params['missing_trials'] = missing_trials
+        # Save
+        save_traces_and_params(datakey, experiment, ptraces, params)
+ 
+    return ptraces, params
+
+def add_trial_labels(trialmeta, pupildata, labels):
+
+    # Make sure we only take the included runs
+    included_run_indices = labels['run_ix'].unique() #0 indexed
+    mwmeta_runs = trialmeta['run_num'].unique() # 1 indexed
+    pupildata_runs = pupildata['run_num'].unique() # 1 indexed
+    
+    if 0 in included_run_indices and (1 not in mwmeta_runs): # skipped _run1
+        included_run_indices1 = [int(i+2) for i in included_run_indices]
+    else:
+        included_run_indices1 = [int(i+1) for i in included_run_indices]
+    tmpmeta = trialmeta[trialmeta['run_num'].isin(included_run_indices1)]
+    tmppupil = pupildata[pupildata['run_num'].isin(included_run_indices1)]
+
+    # Add global trial num and stimulus config info to face metadata
+    trial_key = pd.DataFrame({'config': [g['config'].unique()[0] \
+                                    for trial, g in labels.groupby(['trial'])],
+                              'trial': [int(trial[5:]) \
+                                    for trial, g in labels.groupby(['trial'])]})
+    trialmeta = pd.concat([tmpmeta, trial_key], axis=1)
+
+    return trialmeta, pupildata
+
+
 def traces_to_trials(trialmeta, pupildata, labels, 
                     return_missing=False, verbose=False):
     '''
@@ -720,27 +851,10 @@ def traces_to_trials(trialmeta, pupildata, labels,
     print('Splitting traces into trials')
 
     # Make sure we only take the included runs
-    included_run_indices = labels['run_ix'].unique() #0 indexed
-    mwmeta_runs = trialmeta['run_num'].unique() # 1 indexed
-    pupildata_runs = pupildata['run_num'].unique() # 1 indexed
-    
-    if 0 in included_run_indices and (1 not in mwmeta_runs): # skipped _run1
-        included_run_indices1 = [int(i+2) for i in included_run_indices]
-    else:
-        included_run_indices1 = [int(i+1) for i in included_run_indices]
+    trialmeta, pupildata = add_trial_labels(trialmeta, pupildata, labels)
 
-    tmpmeta = trialmeta[trialmeta['run_num'].isin(included_run_indices1)]
-    tmppupil = pupildata[pupildata['run_num'].isin(included_run_indices1)]
-
-    # Add stimulus config info to face metadata
-    trial_key = pd.DataFrame({'config': [g['config'].unique()[0] \
-                                        for trial, g in labels.groupby(['trial'])],
-                             'trial': [int(trial[5:]) \
-                                        for trial, g in labels.groupby(['trial'])]})
-    trialmeta = pd.concat([tmpmeta, trial_key], axis=1)
-
-    feature_cols = [k for k in pupildata.columns if 'run_' not in k]
     # Get pose traces for each valid trial
+    feature_cols = [k for k in pupildata.columns if 'run_' not in k]
     missing_trials = []
     p_list = []
     for tix, (trial, g) in enumerate(trialmeta.groupby(['trial'])):
@@ -748,7 +862,12 @@ def traces_to_trials(trialmeta, pupildata, labels,
         # Get run of experiment that current trial is in
         run_label = g['run_label'].unique()[0]
         (e_start, e_end), = g[['start_ix', 'end_ix']].values
-        pdf = pupildata[pupildata['run_label']==run_label].iloc[e_start:e_end+1]
+        if np.isnan(e_start) or np.isnan(e_end):
+            #print("NaN in trial triggers: %s" % (trial))
+            missing_trials.append(trial)
+            continue
+        pdf = pupildata[pupildata['run_label']==run_label]\
+                        .iloc[int(e_start):int(e_end)+1]
         if len(pdf)==0 or np.isnan(pdf[feature_cols]).all(axis=None):
             missing_trials.append(trial)
             continue
@@ -760,12 +879,71 @@ def traces_to_trials(trialmeta, pupildata, labels,
         pdf['actual_iti_ms'] =  float(g['actual_iti_ms'].unique())
         p_list.append(pdf)
     pupiltraces = pd.concat(p_list, axis=0) #.fillna(method='pad')  
-    print("... Missing %i trials total" % (len(missing_trials))) #, missing_trials)
+    print("... Missing %i trials total" % (len(missing_trials)))
 
     if return_missing:
         return pupiltraces, missing_trials
     else:
         return pupiltraces
+
+
+
+def parse_pose_data(datakey, experiment, 
+                    iti_pre=1., iti_post=1., feature_list=['pupil'], 
+                    alignment_type='trial', realign=False, recombine=False, 
+                    snapshot=391800, verbose=False,
+                    traceid='traces001', rootdir='/n/coxfs01/2p-data',
+                    eyetracker_dir='/n/coxfs01/2p-data/eyetracker_tmp'):
+    '''
+    Load and parse eyetracker data, align to MW trials. 
+    Calculates metrics, then saves to combined_run dir in 'facetracker' subdir.
+
+    iti_pre, iti_post: float    
+        How much of the trial to use for pre/post, in SEC.
+
+    return_errors: bool
+        Set TRUE to return dict of missing/bad file info.
+
+    feature_name: str
+        What feature to extract. If "pupil_fraction" this is calculate internally.
+    
+    alignment_type: str
+        'trial' means use pre/post ITI + stimulus duration (read from MW file).
+        'stimulus' means just use stimulus duration (ignores pre/post ITI).
+
+    Outputs:
+        
+    ptraces: pd.DatFrame
+        Saved to: .../combined_blobs_static/facetracker/FNAME.pkl
+
+    params: dict
+        Saved to: .../combined_blobs_static/facetracker/FNAME_params.json
+
+    '''
+    print("Parsing pose data.")
+    #### Load pupil data
+    trialmeta, pupildata, params = get_pose_data(datakey, experiment,
+                                        snapshot=snapshot,
+                                        feature_list=feature_list,
+                                        alignment_type=alignment_type,
+                                        iti_pre=iti_pre, iti_post=iti_post, 
+                                        verbose=verbose, 
+                                        realign=realign, recombine=recombine,
+                                        eyetracker_dir=eyetracker_dir)
+    if trialmeta is None or pupildata is None:
+        return None, None
+
+    #### Parse pupil data into traces
+    ptraces=None
+    ptraces, params = align_traces(datakey, experiment,
+                                        trialmeta, pupildata, params,
+                                        traceid=traceid, rootdir=rootdir)
+    if ptraces is None:
+        print("    !!! no data !!!!!")
+
+    return ptraces, params
+
+
 
 
 # ===================================================================
@@ -869,8 +1047,15 @@ def get_per_trial_metrics(pupildata, trialmeta, feature_name='pupil_maj', featur
 # Data processing 
 # ====================================================================
 # Data cleanup
-
 def get_video_metadata_for_run(curr_src):
+    metadata=None
+    performance_info = os.path.join(curr_src, 'times', 'performance.txt')
+    metadata = pd.read_csv(performance_info, sep="\t ", engine='python')
+    fps = float(metadata['frame_rate'])
+    
+    return metadata
+
+def get_frame_triggers_for_run(curr_src):
     '''
     Get frame times and and interpolate missing frames for 1 run
     '''
@@ -881,14 +1066,12 @@ def get_video_metadata_for_run(curr_src):
         run_num = int(re.search(r"_f\d+[a-zA-Z]_", os.path.split(curr_src)[-1]).group().split('_')[1][1:])
 
     # Get meta data for experiment
-    metadata = None
-    performance_info = os.path.join(curr_src, 'times', 'performance.txt')
     try:
-        metadata = pd.read_csv(performance_info, sep="\t ", engine='python')
+        metadata = get_video_metadata_for_run(curr_src) 
         fps = float(metadata['frame_rate'])
     except Exception as e:
         src_key = os.path.split(curr_src)[-1]
-        print('***** ERROR: *****\n  Unable to load performance.txt (%s)' % (src_key))
+        print('ERROR:\n  Unable to load performance.txt (%s)' % (src_key))
         fps = 20.0
 
     # Get frame info
@@ -899,11 +1082,9 @@ def get_video_metadata_for_run(curr_src):
         #print("... adjusted for missing frames:", frames.shape)
 
         tif_dur_sec = frames.iloc[-1]['time_stamp'] / 60.
-        print("... Full run duration: %.2f min" % tif_dur_sec)
-     
+        print("... Full run duration: %.2f min" % tif_dur_sec) 
     except Exception as e:
         traceback.print_exc()
-
    
     return frames
 
@@ -934,27 +1115,31 @@ def check_missing_frames(frame_attrs, metadata, verbose=False):
     # Identify frame indices where we definitely missed a frame or trigger
     missed_ixs = [m-1 for m in np.where(frame_attrs['time_stamp'].diff() > float(metadata['frame_period']*1.5))[0]]
     if len(missed_ixs)>0 and verbose:
-        print("... found %i funky frame chunks: %s" % (len(missed_ixs), str(missed_ixs)))
+        print("... found %i funky frame chunks: %s" \
+                % (len(missed_ixs), str(missed_ixs)))
 
     added_=[]
     for mi in missed_ixs:
-        # Identify duration of funky interval and how many missed frames were dropped:
+        # Identify duration of funky interval, how many missed frames dropped?
         missing_interval = float(frame_attrs['time_stamp'].iloc[mi+1])-float(frame_attrs['time_stamp'].iloc[mi])
         n_missing_frames = int(round(missing_interval/float(metadata['frame_period']), 0) -1)
         if verbose:
-            print("... missing %.1f, interpolated %i frames" % (missing_interval, add_missing.shape[0]))
+            print("... missing %.1f, interpolated %i frames" \
+                        % (missing_interval, add_missing.shape[0]))
         # Create empty spaces for missing frames in dataframe
         ixs = np.linspace(mi, mi+1, n_missing_frames+2)[1:-1]
         add_missing = pd.DataFrame({
-                        'frame_number': [np.nan for i in np.arange(0, n_missing_frames)],
-                        'sync_in1': [np.nan for _ in np.arange(0, n_missing_frames)],
-                        'sync_in2': [np.nan for _ in np.arange(0, n_missing_frames)],
-                        'time_stamp': [np.nan for _ in np.arange(0, n_missing_frames)]},
-                        index=ixs)
+            'frame_number': [np.nan for i in np.arange(0, n_missing_frames)],
+            'sync_in1': [np.nan for _ in np.arange(0, n_missing_frames)],
+            'sync_in2': [np.nan for _ in np.arange(0, n_missing_frames)],
+            'time_stamp': [np.nan for _ in np.arange(0, n_missing_frames)]},
+             index=ixs
+        )
         added_.append(add_missing.shape[0])
         df2 = pd.concat([tmpdf.iloc[:mi+1], add_missing, tmpdf.iloc[mi+1:]]) 
         tmpdf = df2.copy() 
-    print("... missing %i frames, added %i" % (int(metadata['missingFrames']), np.sum(added_)))
+    print("... missing %i frames, added %i" \
+                % (int(metadata['missingFrames']), np.sum(added_)))
 
     # Interpolate over the NaNs
     interpdf = tmpdf.interpolate().reset_index(drop=True)
@@ -963,6 +1148,21 @@ def check_missing_frames(frame_attrs, metadata, verbose=False):
     
     return interpdf
 
+
+def get_raw_experiment_dirs(datakey, experiment=None,
+                    eyetracker_dir='/n/coxfs01/2p-data/eyetracker_tmp'):
+    '''Glob all subdirs for datakey (experiment=None, if all)'''
+    # Eyetracker source files
+    print("... finding all movies for dset: %s" % datakey)
+    if experiment is None:
+        src_dirs = sorted(glob.glob(os.path.join(eyetracker_dir, 
+                                    '%s_*' % (datakey))), 
+                                    key=hutils.natural_keys)
+    else:
+        src_dirs = sorted(glob.glob(os.path.join(eyetracker_dir, 
+                                    '%s_%s_*' % (datakey, experiment))), 
+                                    key=hutils.natural_keys)
+    return src_dirs 
 
 def get_trial_triggers(datakey, curr_exp, 
                     alignment_type='stimulus', pre_ITI_ms=1000, post_ITI_ms=1000,
@@ -999,15 +1199,15 @@ def get_trial_triggers(datakey, curr_exp,
     # Get all runs for the current experiment
     session, animalid, fovnum = hutils.split_datakey_str(datakey)
     all_runs = sorted(glob.glob(os.path.join(rootdir, animalid, session, 
-                        'FOV%i*' % fovnum, '%s_run*' % curr_exp)), 
-                        key=hutils.natural_keys)
-    run_list = [os.path.split(rundir)[-1].split('_run')[-1] for rundir in all_runs] 
-    print("[%s] Found runs:" % curr_exp, run_list)
+                                'FOV%i*' % fovnum, '%s_run*' % curr_exp)), 
+                                key=hutils.natural_keys)
+    run_list = [os.path.split(rundir)[-1].split('_run')[-1] \
+                                for rundir in all_runs] 
+    print("[%s, %s] Found runs:" % (datakey, curr_exp), run_list)
     
     # Eyetracker source files
-    print("... finding all movies for dset: %s" % datakey)
-    facetracker_srcdirs = sorted(glob.glob(os.path.join(eyetracker_dir, 
-                                    '%s*' % (datakey))), key=hutils.natural_keys)
+    facetracker_srcdirs = get_raw_experiment_dirs(datakey, experiment=None,
+                    eyetracker_dir=eyetracker_dir)
     if verbose:
         for si, sd in enumerate(facetracker_srcdirs):
             print(si, sd)
@@ -1059,7 +1259,7 @@ def get_trial_triggers(datakey, curr_exp,
             print('... Eyetracker: %s' % os.path.split(curr_face_srcdir)[-1])
 
             # Get eyetracker metadata
-            video_meta = get_video_metadata_for_run(curr_face_srcdir)
+            video_meta = get_frame_triggers_for_run(curr_face_srcdir)
             assert video_meta is not None, "NO meta for run: %s" % curr_face_srcdir
 
         except Exception as e:
@@ -1125,7 +1325,7 @@ def get_trial_triggers(datakey, curr_exp,
 
     print("... There were %i missing DLC results." % len(missing_dlc))
     for d in missing_dlc:
-        print(d)
+        print('    %s' % str(d))
     if return_missing:
         return trialmeta, missing_dlc
     else:
