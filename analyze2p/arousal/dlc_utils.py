@@ -38,7 +38,7 @@ def create_trial_metrics_id(trial_epoch='stimulus', snapshot=391800):
     Common name for trial metrics datafiles.
     '''
     #fname = 'traces_%s_align-%s_%s_snapshot-%i' % (feature_name, alignment_type, experiment, snapshot)
-    fname = 'snapshot-%i_%s_metrics' %s (snapshot, trial_epoch)
+    fname = 'snapshot-%i_%s_metrics' % (snapshot, trial_epoch)
 
     return fname
 
@@ -89,7 +89,7 @@ def save_traces_and_params(datakey, experiment, ptraces, params,
     return
 
 
-def save_fov_metrics(datakey, experiment, df_,
+def save_fov_metrics(datakey, experiment, df_, params_, 
                     trial_epoch='stimulus', snapshot=391800,
                     rootdir='/n/coxfs01/2p-data'):
     # Set output dir
@@ -102,8 +102,12 @@ def save_fov_metrics(datakey, experiment, df_,
                                 trial_epoch=trial_epoch)
     
     results_fpath = os.path.join(dst_dir, '%s.pkl' % metric_id)
+    params_fpath = os.path.join(dst_dir, '%s_params.json' % metric_id)
+
     with open(results_fpath, 'wb') as f:
         pkl.dump(df_, f, protocol=2)
+    with open(params_fpath, 'w') as f:
+        json.dump(params_, f, indent=4, sort_keys=True)
 
     return
 
@@ -183,7 +187,7 @@ def aggregate_traces(experiment, traceid='traces001',
 
     if create_new is False:
         try:
-            aggr_traces, missing_dsets = load_traces(experiment, 
+            aggr_traces, aggr_params, missing_dsets = load_traces(experiment, 
                                                 alignment_type=alignment_type, 
                                                 snapshot=snapshot,
                                                 aggregate_dir=aggregate_dir, 
@@ -239,9 +243,9 @@ def aggregate_traces(experiment, traceid='traces001',
             print(m)
 
     if return_missing:
-        return aggr_traces, missing_dsets
+        return aggr_traces, aggr_params, missing_dsets
     else:
-        return aggr_traces
+        return aggr_traces, aggr_params
 
 
 def load_traces(experiment, alignment_type='stimulus', snapshot=391800, 
@@ -253,7 +257,8 @@ def load_traces(experiment, alignment_type='stimulus', snapshot=391800,
     keys : datakeys (SESSION_ANIMALID_FOV)
     vals: dataframe of config, trial, pupil metric
     """
-    pupiltraces=None
+    aggr_traces=None
+    agg_params=None
     missing_dsets=None
     #### Loading existing extracted pupil data
     traces_fname = create_aggr_traces_id(experiment=experiment, 
@@ -262,28 +267,29 @@ def load_traces(experiment, alignment_type='stimulus', snapshot=391800,
                     'behavior-state', '%s.pkl' % traces_fname)  
     params_fpath = os.path.join(aggregate_dir, \
                     'behavior-state', '%s_params.json' % traces_fname)  
-
-    if not os.path.exists(traces_fpath):
-        print( "Aggr. traces not found:\n    %s" % traces_fpath)
-        return None
-
     try: 
         # This is a dict, keys are datakeys
         with open(traces_fpath, 'rb') as f:
             aggr_traces = pkl.load(f, encoding='latin1')
         print(">>>> Loaded aggregated pupil traces.")
+        with open(params_fpath, 'r') as f:
+            aggr_params = json.load(f)
+
     except Exception as e:
         traceback.print_exc()
-        
+        if not os.path.exists(traces_fpath):
+            print( "Aggr. traces not found:\n    %s" % traces_fpath)
+
+     
     if return_missing:
         sdata = aggr.get_aggregate_info(return_cells=False,
                             traceid=traceid, fov_type=fov_type, state=state)
         edata = sdata[(sdata['experiment'] == experiment)]
         missing_dsets = [ e for e in edata['datakey'].unique() \
                             if e not in aggr_traces.keys() ]
-        return aggr_traces, missing_dsets
+        return aggr_traces, aggr_params, missing_dsets
     else:
-        return aggr_traces
+        return aggr_traces, aggr_params
 
 
 def save_traces(aggr_traces, aggr_params, experiment, 
@@ -310,16 +316,22 @@ def save_traces(aggr_traces, aggr_params, experiment,
 
 # AGGREGATE STUFF
 def save_dataframes(aggr_dfs, aggr_params, experiment,
-                snapshot=391800, trial_eopch='stimulus',
+                snapshot=391800, trial_epoch='stimulus',
                 aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
 
     fname = create_aggr_metrics_id(experiment, trial_epoch, snapshot)
     df_fpath = os.path.join(aggregate_dir, \
                                     'behavior-state', '%s.pkl' % fname)
+    params_fpath = os.path.join(aggregate_dir, \
+                                    'behavior-state', '%s_params.json' % fname)
+
     # Save
     with open(df_fpath, 'wb') as f:
         pkl.dump(aggr_dfs, f, protocol=2)# pkl.HIGHEST_PROTOCOL)
-    print("---> Saved aggr dataframes: %s" % pupildf_fpath) 
+    print("---> Saved aggr dataframes: %s" % df_fpath) 
+
+    with open(params_fpath, 'w') as f:
+        json.dump(aggr_params, f, indent=4, sort_keys=True)
 
     return 
 
@@ -342,32 +354,37 @@ def load_dataframes(experiment, snapshot=391800, trial_epoch='stimulus',
         keys: datakeys (like MEANS dict)
         values: dataframes (pupildf, trial metrics) 
     '''
-    pupildfs=None
+    aggr_dfs=None; aggr_params=None;
 
     fname = create_aggr_metrics_id(experiment, trial_epoch, snapshot)
-    pupildf_fpath = os.path.join(aggregate_dir, 
+    df_fpath = os.path.join(aggregate_dir, 
                                     'behavior-state', '%s.pkl' % fname)
     params_fpath = os.path.join(aggregate_dir, 
                                     'behavior-state', '%s_params.json' % fname)
     try:
-        with open(pupildf_fpath, 'rb') as f:
-            pupildfs = pkl.load(f)
+        with open(df_fpath, 'rb') as f:
+            aggr_dfs = pkl.load(f)
         print(">>>> Loaded aggregate pupil dataframes.")
     except UnicodeDecodeError:
-        with open(pupildf_fpath, 'rb') as f:
-            pupildfs = pkl.load(f, encoding='latin1')
+        with open(df_fpath, 'rb') as f:
+            aggr_dfs = pkl.load(f, encoding='latin1')
     except Exception as e:
-        print('File not found: %s' % pupildf_fpath)
-   
+        print('File not found: %s' % df_fpath)
+  
+    if aggr_dfs is not None:
+        with open(params_fpath, 'r') as f:
+            aggr_params = json.load(f) 
+ 
     if return_missing:
         sdata = aggr.get_aggregate_info(return_cells=False, traceid=traceid, 
                                         fov_type=fov_type, state=state)
         edata = sdata[(sdata['experiment'] == experiment)]
         missing_dsets = [ e for e in edata['datakey'].unique() \
-                                if e not in pupildfs.keys() ]
-        return pupildfs, missing_dsets
+                                if e not in aggr_dfs.keys() ]
+        return aggr_dfs, aggr_params, missing_dsets
     else:
-        return pupildfs
+        return aggr_dfs, aggr_params
+
 
 def aggregate_dataframes(experiment, trial_epoch='stimulus',
                 in_rate=20., out_rate=20., iti_pre=1., iti_post=1.,
@@ -405,25 +422,25 @@ def aggregate_dataframes(experiment, trial_epoch='stimulus',
     '''
     print("~~~~~~~~~~~~ Aggregating pupil dataframes. ~~~~~~~~~~~")
 
-    aggr_dfs=None; missing_dsets=[];
+    aggr_dfs=None; aggr_params=None; missing_traces=[];
     if realign or recombine:
         create_new=True
 
     if (create_new is False):
         try:
-            aggr_dfs, missing_dsets = load_dataframes(experiment, 
+            aggr_dfs, aggr_params, missing_dsets = load_dataframes(experiment, 
                                         snapshot=snapshot, 
                                         trial_epoch=trial_epoch, 
                                         aggregate_dir=aggregate_dir, 
                                         return_missing=True)
-            assert pupildfs is not None, "No aggregated dfs. Creating new."
+            assert aggr_dfs is not None, "No aggregated dfs. Creating new."
         except Exception as e:
             create_new=True
 
     if create_new:
         # Load traces
         redo_traces_too = (realign is True or recombine is True)
-        aggr_traces,  missing_dsets = aggregate_traces(experiment, 
+        aggr_traces, aggr_traces_params, missing_traces = aggregate_traces(experiment, 
                                         alignment_type=alignment_type, 
                                         snapshot=snapshot, 
                                         traceid=traceid, 
@@ -431,21 +448,35 @@ def aggregate_dataframes(experiment, trial_epoch='stimulus',
                                         realign=realign, recombine=recombine,
                                         return_missing=True)
         # Calculate per-trial metrics 
+        print("Calculating trial metrics for all found traces")
         aggr_dfs={}
-        for dkey, ptraces in aggr_traces.items():
-            df_ = parsed_traces_to_metrics(ptraces, trial_epoch=trial_epoch,
+        aggr_params={}
+        for dkey, fov_traces in aggr_traces.items():
+            fov_params = aggr_traces_params[dkey]
+            df_, params_ = parsed_traces_to_metrics(fov_traces, fov_params, 
+                                    trial_epoch=trial_epoch,
                                     in_rate=in_rate, out_rate=out_rate,
                                     iti_pre=iti_pre, iti_post=iti_post)
             # save trial metrics for fov
-            save_fov_metrics(dkey, experiment, df_,
+            save_fov_metrics(dkey, experiment, df_, params_,
                     trial_epoch=trial_epoch, snapshot=snapshot)
 
             aggr_dfs[dkey] = df_
+            aggr_params[dkey] = params_
 
-    return aggr_dfs
+        # Save aggregate metrics
+        save_dataframes(aggr_dfs, aggr_params, experiment,
+                            snapshot=snapshot, trial_epoch=trial_epoch,
+                            aggregate_dir=aggregate_dir)
+        print("Saved aggr. metrics to disk.")
+
+    if return_missing:
+        return aggr_dfs, aggr_params, missing_traces
+    else:
+        return aggr_dfs, aggr_params
 
 
-def parsed_traces_to_metrics(ptraces, in_rate=20., out_rate=20.,
+def parsed_traces_to_metrics(ptraces, params, in_rate=20., out_rate=20.,
                         trial_epoch='stimulus', iti_pre=1., iti_post=1.):
     '''
     Resample raw (parsed) pupil trace, calculate a single trial metric.
@@ -471,6 +502,9 @@ def parsed_traces_to_metrics(ptraces, in_rate=20., out_rate=20.,
     new_stim_on = int(round(iti_pre*out_rate))
     nframes_on = int(round(stim_dur*out_rate))
 
+    params.update({'new_stim_on': new_stim_on, 'new_nframes_on': nframes_on, 
+                   'trial_epoch': trial_epoch})
+
     # Resample for exact frame #s
     binned_pupil = resample_pupil_traces(ptraces,
                                 in_rate=in_rate, out_rate=out_rate, 
@@ -492,7 +526,7 @@ def parsed_traces_to_metrics(ptraces, in_rate=20., out_rate=20.,
         pupil_max = df_['pupil_area'].max()
         df_['pupil_fraction'] = df_['pupil_area']/pupil_max
  
-    return df_
+    return df_, params
 
 
 def calculate_trial_metrics(binned_pupil, trial_epoch='pre', new_stim_on=20., nframes_on=20.):
@@ -749,6 +783,13 @@ def get_pose_data(datakey, experiment, feature_list=['pupil'],
     1. Get alignment info for parsing trials, get_trialmeta()
     2. Load extracted features as combined df across runs, combine_post_data()
     (prev called: load_pose_data())
+    
+    Args.
+    realign: bool
+        Set TRUE to re-extra meta info for aligning trials based on triggers.
+
+    recombine: bool
+        Set TRUE to re-create/combine pupildata from extracted hdf5 features.
     ''' 
     trialmeta=None; pupildata=None; params=None;
 
@@ -1414,77 +1455,129 @@ def calculate_pose_features(datakey, experiment, feature_list=['pupil'],
         #dlc_outfile = [s for s in dlc_outfiles if '_f%iD' % run_num in s][0]
         
         # Calculate some statistic from pose data
-        feature_dict={}
+        feature_dict=[] #{}
         for feature in feature_list:
+            currdf=None
             if verbose:
                 print("... calculating: %s" % feature)
             if 'pupil' in feature:
-                pupil_major, pupil_minor = calculate_pupil_metrics(dlc_outfile)
-                   
-                if pupil_major is not None and pupil_minor is not None:
-                    pupil_areas = [np.pi*p_maj*p_min for p_maj, p_min in \
-                                        zip(pupil_major, pupil_minor)]
-                    feature_dict.update({'pupil_maj': pupil_major,
-                                         'pupil_min': pupil_minor,
-                                         'pupil_area': pupil_areas})
+                currdf = calculate_pupil_metrics(dlc_outfile)
+#                if pupil_major is not None and pupil_minor is not None:
+#                    pupil_areas = [np.pi*p_maj*p_min for p_maj, p_min in \
+#                                        zip(pupil_major, pupil_minor)]
+#                    feature_dict.update({'pupil_maj': pupil_major,
+#                                         'pupil_min': pupil_minor,
+#                                         'pupil_area': pupil_areas})
             elif 'snout' in feature:
-                snout_areas = calculate_snout_metrics(dlc_outfile)
-                feature_dict.update({'snout_area': snout_areas})
-            
-        if len(feature_dict.keys())==0:
+                #snout_areas = calculate_snout_metrics(dlc_outfile
+                # feature_dict.update({'snout_area': snout_areas})
+                currdf = calculate_snout_metrics(dlc_outfile)
+            elif 'whisker' in feature:
+                currdf = calculate_whisker_metrics(dlc_outfile)
+
+            if currdf is not None:
+                feature_dict.append(currdf)
+ 
+        if len(feature_dict)==0:
             bad_files.append(dlc_outfile)
             continue
-       
-        fkey = list(feature_dict.keys())[0]
-        nsamples = len(feature_dict[fkey]) #pupil_major)
+
+        pdf = pd.concat(feature_dict, axis=1)
+ 
+        #fkey = list(feature_dict.keys())[0]
+        #nsamples = len(feature_dict[fkey]) #pupil_major)
         run_numeric = int(re.findall('\d+', run_num)[0])
         # Create dataframe
-        pdf = pd.DataFrame(feature_dict, index=np.arange(0, nsamples)) 
+        #pdf = pd.DataFrame(feature_dict, index=np.arange(0, nsamples)) 
         pdf['run_label'] = run_num
         pdf['run_num'] = run_numeric
-        pdf.index = np.arange(0, nsamples)
+        #pdf.index = np.arange(0, nsamples)
         p_list.append(pdf)
 
     pupildata = pd.concat(p_list, axis=0)
-    
+        
+    pupil_max = pupildata['pupil_area'].max()
+    pupildata['pupil_fraction'] = pupildata['pupil_area']/pupil_max
+ 
     print("... done parsing!") 
 
     return pupildata, bad_files
 
 
 # body feature extraction
-def get_dists_between_bodyparts(bp1, bp2, df, DLCscorer=None):
+def get_dists_between_bodyparts(bp1, bp2, df): #, DLCscorer=None):
 
-    if DLCscorer is not None:
-        coords1 = [np.array([x, y]) for x, y, in \
-                    zip(df[DLCscorer][bp1]['x'].values, df[DLCscorer][bp1]['y'].values)]
-        coords2 = [np.array([x, y]) for x, y, in \
-                    zip(df[DLCscorer][bp2]['x'].values, df[DLCscorer][bp2]['y'].values)]
-    else:
-        coords1 = [np.array([x, y]) for x, y, in \
-                    zip(df[bp1]['x'].values, df[bp1]['y'].values)]
-        coords2 = [np.array([x, y]) for x, y, in \
-                    zip(df[bp2]['x'].values, df[bp2]['y'].values)]
+#    if DLCscorer is not None:
+#        coords1 = [np.array([x, y]) for x, y, in \
+#                    zip(df[DLCscorer][bp1]['x'].values, df[DLCscorer][bp1]['y'].values)]
+#        coords2 = [np.array([x, y]) for x, y, in \
+#                    zip(df[DLCscorer][bp2]['x'].values, df[DLCscorer][bp2]['y'].values)]
+#    else:
+    coords1 = [np.array([x, y]) for x, y, in \
+                zip(df[bp1]['x'].values, df[bp1]['y'].values)]
+    coords2 = [np.array([x, y]) for x, y, in \
+                zip(df[bp2]['x'].values, df[bp2]['y'].values)]
 
     dists = np.array([np.linalg.norm(c1-c2) for c1, c2 in zip(coords1, coords2)])
     
     return dists
 
 
-def get_intersection_between_lines(df, DLCscorer=None):
-    if DLCscorer is not None:
-        tmpdf = df[DLCscorer].copy()
-    else:
-        tmpdf = df.copy()
+def get_relative_position(df, feat='pupilC'):
+    '''Get Euclid. distance between each successive row. First entry is Nan'''
+    dists = [np.linalg.norm(c1-c2) for c1, c2 in \
+                        zip(df[feat][['x', 'y']].values,
+                            df[feat][['x', 'y']].shift().values)]
+    return dists
+
+
+def calculate_pupil_centers(tmpdf): #, DLCscorer=None):
+    '''Calculate pupil center from line intersection of major/minor axes'''
+    newdf=None
+#    if DLCscorer is not None:
+#        tmpdf = df[DLCscorer].copy()
+#    else:
+#        tmpdf = df.copy()
     A = [tuple([x,y]) for x, y in tmpdf['pupilT'][['x', 'y']].values]
     B = [tuple([x,y]) for x, y in tmpdf['pupilB'][['x', 'y']].values]
 
     C = [tuple([x,y]) for x, y in tmpdf['pupilL'][['x', 'y']].values]
     D = [tuple([x,y]) for x, y in tmpdf['pupilR'][['x', 'y']].values]
-    
-    ctrs = [line_intersection((a, b), (c, d)) for a, b, c, d in zip(A, B, C, D)]
 
-    return ctrs
+    # Calculate centers from intersection of 2 lines 
+    ctrs = [line_intersection((a, b), (c, d)) for a, b, c, d in zip(A, B, C, D)]
+    # Save as dataframe coords    
+    newdf = pd.DataFrame(ctrs, columns={'x', 'y'})
+
+    # Add likelihoods from MIN of combined:
+    feature_list = ['pupilT', 'pupilB', 'pupilL', 'pupilR']
+    calc_cols = [(x, 'likelihood') for x in feature_list]
+    min_likelihoods = tmpdf[calc_cols].min(axis=1)
+
+    newdf['likelihood'] = min_likelihoods
+
+    return newdf
+
+
+def add_feature_to_df(df, newdf, new_features=[], ix_levels=['x', 'y', 'likelihood']):
+    '''
+    Add proper MultiIndex columns to dataframe to be added to main DLC results.
+    Main results are loaded from hdf5, and assumed to have:
+    Level 0: 'bodyparts', 'coords'
+    Level 1: 'x', 'y', 'likelihood'
+
+    Returns combined df (df - orig, newdf - added df).
+    '''
+    #lowest_ix_levels = ['x', 'y']
+    #new_features = ['pupilC']
+    new_labels = [[f]*len(ix_levels) for f in new_features]
+    new_labels.append(np.tile(ix_levels, len(new_features)))
+    new_ix = pd.MultiIndex.from_arrays(new_labels, names=('bodyparts', 'coords'))
+    newdf.columns = new_ix
+
+    tmpdf = pd.concat([df, newdf], axis=1)
+
+    return tmpdf
 
 
 def line_intersection(line1, line2):
@@ -1503,6 +1596,34 @@ def line_intersection(line1, line2):
     y = det(d, ydiff) / div
 
     return x, y
+
+
+def filter_dlc_scores(df, threshold=0.99, bodyparts=[], filtered=False):
+    '''Filter DLC scores before or after caluclating metrics
+    Returns inputs for calculating metrics.
+
+    '''
+    DLCscorer = df.columns.get_level_values(level=0).unique()[0]
+    filtered_df = df[DLCscorer][bodyparts][df[DLCscorer][bodyparts] >= threshold].dropna()
+    kept_ixs = filtered_df.index.tolist()
+
+    if filtered:    
+        finaldf = filtered_df.copy()
+        dlc_scorer = None
+        replace_ixs = []
+    else:
+        finaldf = df.copy()
+        dlc_scorer = DLCscorer
+        # Save indices to replace with NaNs if not using filtered df above
+        replace_ixs = np.array([i for i in np.arange(0, df.shape[0]) \
+                                if i not in kept_ixs])
+
+    if dlc_scorer is not None:
+        tmpdf = finaldf[dlc_scorer].copy()
+    else:
+        tmpdf = finaldf.copy()
+
+    return tmpdf, dlc_scorer, replace_ixs
 
 
 def calculate_pupil_metrics(dlc_outfile, filtered=False, threshold=0.99):
@@ -1525,39 +1646,68 @@ def calculate_pupil_metrics(dlc_outfile, filtered=False, threshold=0.99):
 
     df = pd.read_hdf(dlc_outfile)
     if df.shape[0] < 5: # sth wrong
-        return None, None
-    
-    DLCscorer = df.columns.get_level_values(level=0).unique()[0]
-    
-    filtdf = df.copy()
-    filtdf = filtdf[DLCscorer][bodyparts][filtdf[DLCscorer][bodyparts] >= threshold].dropna()
-    kept_ixs = filtdf.index.tolist()
+        return None
+   
+    tmpdf, dlc_scorer, replace_ixs = filter_dlc_scores(df, threshold=threshold, 
+                                                filtered=filtered, bodyparts=bodyparts)
+    # Add additional columns
+    df1 = calculate_pupil_centers(tmpdf) # Add 'pupilC' as intersection of lines
+    finaldf = add_feature_to_df(tmpdf, df1, new_features=['pupilC'])
 
-    if filtered:
-        pupil_major = get_dists_between_bodyparts(
-                                'pupilT', 'pupilB', filtdf, DLCscorer=None)
-        pupil_minor = get_dists_between_bodyparts(
-                                'pupilL', 'pupilR', filtdf, DLCscorer=None)
+    # Calculate metrics
+    pupil_major = get_dists_between_bodyparts(
+                            'pupilT', 'pupilB', finaldf) #DLCscorer=dlc_scorer)
+    pupil_minor = get_dists_between_bodyparts(
+                            'pupilL', 'pupilR', finaldf) #DLCscorer=dlc_scorer)
 
-        #TODO:  CR as dist between intersection of pupil_maj and pupil_min?
-        # cr_dist = get_dists_between_bodyparts('pupilC, 'cornealR', filtdf, DLCscorer=None)
-        # ctrs = get_intersection_between_lines(df, DLCscorer=None)
+    #TODO:  CR as dist between intersection of pupil_maj and pupil_min? 
+    cr_dist = get_dists_between_bodyparts('pupilC', 'cornealR', finaldf) #, DLCscorer=dlc_scorer)
+    rel_pupil_pos = get_relative_position(finaldf, feat='pupilC')
 
-    else:
-        pupil_major = get_dists_between_bodyparts(
-                                'pupilT', 'pupilB', df, DLCscorer=DLCscorer)
-        pupil_minor = get_dists_between_bodyparts(
-                                'pupilL', 'pupilR', df, DLCscorer=DLCscorer)
-    if not filtered:
-        #print("Replacing bad vals")
-        replace_ixs = np.array([i for i in np.arange(0, df.shape[0]) \
-                                if i not in kept_ixs])
-        if len(replace_ixs) > 0:
-            pupil_major[replace_ixs] = np.nan
-            pupil_minor[replace_ixs] = np.nan
+    # Cal area
+    pupil_areas = [np.pi*p_maj*p_min for p_maj, p_min in zip(pupil_major, pupil_minor)]
  
-    return pupil_major, pupil_minor
+    df_ = pd.DataFrame({'pupil_maj': pupil_major,  
+                        'pupil_min': pupil_minor,
+                        'pupil_area': pupil_areas,
+                        'cr_dist': cr_dist,
+                        'pupil_dist': rel_pupil_pos}, index=finaldf.index)
 
+    #print("Replacing bad vals")
+    if len(replace_ixs) > 0:
+        df_.loc[replace_ixs] = np.nan
+        #pupil_major[replace_ixs] = np.nan
+        #pupil_minor[replace_ixs] = np.nan
+        #cr_dist[replace_ixs] = np.nan
+
+    return df_ #pupil_major, pupil_minor
+
+
+def calculate_whisker_metrics(dlc_outfile, filtered=False, threshold=.99999999):
+    from shapely import geometry
+    bodyparts = ['whiskerP', 'whiskerP1', 'whiskerP2', 'whiskerP3',
+               'whiskerAU', 'whiskerAU1', 'whiskerAU2', 'whiskerAU3',
+               'whiskerAL', 'whiskerAL1', 'whiskerAL2', 'whiskerAL3']
+
+    df = pd.read_hdf(dlc_outfile)
+    if df.shape[0] < 5: # sth wrong
+        return None
+
+    finaldf, dlc_scorer, replace_ixs = filter_dlc_scores(df, threshold=threshold, 
+                                                filtered=filtered, bodyparts=bodyparts)
+
+    feat_={}
+    for bp in bodyparts: 
+        rel_pos = get_relative_position(finaldf, feat=bp)
+        feat_.update({bp: rel_pos})
+ 
+    df_ = pd.DataFrame(feat_, index=finaldf.index)
+
+    #print("Replacing bad vals")
+    if len(replace_ixs) > 0:
+        df_.loc[replace_ixs] = np.nan   
+
+    return df_ #snout_areas
 
 
 def calculate_snout_metrics(dlc_outfile, filtered=False, threshold=.99999999):
@@ -1568,36 +1718,37 @@ def calculate_snout_metrics(dlc_outfile, filtered=False, threshold=.99999999):
 
     df = pd.read_hdf(dlc_outfile)
     if df.shape[0] < 5: # sth wrong
-        return None, None
+        return None
 
-    DLCscorer = df.columns.get_level_values(level=0).unique()[0]
-
-    filtdf = df.copy()
-    filtdf = filtdf[DLCscorer][bodyparts][filtdf[DLCscorer][bodyparts] >= threshold].dropna()
-    kept_ixs = filtdf.index.tolist()
-    
-    if filtered:
-        xcoords = filtdf[bodyparts].xs(('x'), level=('coords'), axis=1)
-        ycoords = filtdf[bodyparts].xs(('y'), level=('coords'), axis=1)
-    else:
-        xcoords = df[DLCscorer][bodyparts].xs(('x'), level=('coords'), axis=1)
-        ycoords = df[DLCscorer][bodyparts].xs(('y'), level=('coords'), axis=1)
-    
+    finaldf, dlc_scorer, replace_ixs = filter_dlc_scores(df, threshold=threshold, 
+                                                filtered=filtered, bodyparts=bodyparts)
+   
+#    if filtered:
+#        xcoords = filtdf[bodyparts].xs(('x'), level=('coords'), axis=1)
+#        ycoords = filtdf[bodyparts].xs(('y'), level=('coords'), axis=1)
+#    else:
+#        xcoords = df[DLCscorer][bodyparts].xs(('x'), level=('coords'), axis=1)
+#        ycoords = df[DLCscorer][bodyparts].xs(('y'), level=('coords'), axis=1)
+#
+    xcoords = finaldf[bodyparts].xs(('x'), level=('coords'), axis=1)
+    ycoords = finaldf[bodyparts].xs(('y'), level=('coords'), axis=1)
+   
     nsamples = xcoords.shape[0]
-    snout_areas = np.array([PolyArea(xcoords.iloc[i,:], ycoords.iloc[i,:]) for i in np.arange(0, nsamples)])
+    snout_areas = np.array([poly_area(xcoords.iloc[i,:], ycoords.iloc[i,:]) \
+                            for i in np.arange(0, nsamples)])
+    df_ = pd.DataFrame({'snout_area': snout_areas}, index=finaldf.index)
 
-    if not filtered:
-        replace_ixs = np.array([i for i in np.arange(0, df.shape[0]) if i not in kept_ixs])
-        if len(replace_ixs) > 0:
-            snout_areas[replace_ixs] = np.nan
-            snout_areas[replace_ixs] = np.nan
+    #print("Replacing bad vals")
+    if len(replace_ixs) > 0:
+        df_.loc[replace_ixs] = np.nan   
 
-    return snout_areas
+    return df_ #snout_areas
 
-def PolyArea(x,y):
+
+def poly_area(x,y):
     return 0.5*np.abs(np.dot(x,np.roll(y,1))-np.dot(y,np.roll(x,1)))
 
-class struct():
+class Struct():
     pass
 
 def subtract_condition_mean(neuraldata, labels, included_trials):
