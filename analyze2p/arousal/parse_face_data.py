@@ -81,7 +81,7 @@ def extract_options(options):
             default=default_c, type='choice', choices=choices_c,
             help="Alignment choices: %s. (default: %s" % (choices_c, default_c))
 
-    choices_e = ('pre', 'stimulus', 'all')
+    choices_e = ('pre', 'stimulus','plushalf', 'all')
     default_e = 'pre'
     parser.add_option('-e', '--epoch', action='store', dest='pupil_epoch', 
             default=default_e, type='choice', choices=choices_e,
@@ -100,9 +100,9 @@ def extract_options(options):
 
     parser.add_option('--new', action='store_true', dest='create_new', 
             default=False, help="re-save aggregate dataframes")
-    parser.add_option('--meta', action='store_true', dest='realign', 
+    parser.add_option('--realign', action='store_true', dest='realign', 
             default=False, help="Re-align trials (trigger indices). True, if redo_fov is flagged.")
-    parser.add_option('--combine', action='store_true', dest='recombine', 
+    parser.add_option('--recombine', action='store_true', dest='recombine', 
             default=False, help="Recombine pupil data. True if redo_fov flagged.")
 
 
@@ -142,7 +142,7 @@ def parse_all_missing(experiment, create_new=False,
         missing_dsets = edata['datakey'].unique()
         create_new=True
     
-    aggr_dfs, missing_dsets = dlcutils.aggregate_dataframes(
+    aggr_dfs, aggr_params, missing_dsets = dlcutils.aggregate_dataframes(
                                         experiment,
                                         alignment_type=alignment_type, 
                                         trial_epoch=pupil_epoch,
@@ -155,10 +155,11 @@ def parse_all_missing(experiment, create_new=False,
                                         return_missing=True)
 
     dsets_todo = edata[edata['datakey'].isin(missing_dsets)]
-    print("Missing %i pupil dsets. Parsing pose data for these now." % len(missing_dsets))
+    print("Missing pupil traces for %i dsets. Parsing pose data for these now." % len(missing_dsets))
 
     for (animalid, session, fov, datakey), g \
             in dsets_todo.groupby(['animalid', 'session', 'fov', 'datakey']):
+        print("... parsing pose data: %s" % datakey)
 
         if datakey in exclude_for_now:
             print("Need to retransfer (%s), skipping for now" % datakey)
@@ -234,15 +235,16 @@ def main(options):
             print(i)
 
     else:
-        ptraces, params = parse_pose_data(datakey, experiment, 
+        ptraces, params = dlcutils.parse_pose_data(datakey, experiment, 
                             traceid=traceid, 
                             iti_pre=iti_pre, iti_post=iti_post, 
-                            feature_name=feature_name, 
+                            feature_list=feature_list,
                             alignment_type=alignment_type, 
-                            snapshot=snapshot,
+                            snapshot=snapshot, verbose=verbose,
                             rootdir=rootdir,
                             eyetracker_dir=eyetracker_dir,
                             realign=realign, recombine=recombine)
+ 
         print("******[%s|%s|%s] Finished parsing eyetracker data (snapshot=%i)" % (animalid, session, experiment, snapshot))
 
     return
