@@ -172,6 +172,20 @@ def equal_corr_axes(fg):
         ax.plot([-1, 1], [-1, 1], color='r', ls='-', lw=0.5)
 
 
+# Adjust plotting of default seaborn 
+def change_width(ax, new_value):
+    '''Adjust spacing bw grouped bar plots in seaborn (fraction)'''
+    for patch in ax.patches:
+        current_width = patch.get_width()
+        diff = current_width - new_value
+
+        # we change the bar width
+        patch.set_width(new_value)
+
+        # we recenter the bar
+        patch.set_x(patch.get_x() + diff * .5)
+
+
 def adjust_box_widths(ax, fac):
     # iterating through axes artists:
     for c in ax.get_children():
