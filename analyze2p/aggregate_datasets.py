@@ -114,7 +114,7 @@ def get_stimuli(datakey, experiment, rootdir='/n/coxfs01/2p-data', verbose=False
     if 'blobs' in experiment:
         sdf = reformat_morph_values(sdf)
 
-    return sdf
+    return sdf.sort_index()
 
 
 def get_master_sdf(experiment='blobs', images_only=False):
