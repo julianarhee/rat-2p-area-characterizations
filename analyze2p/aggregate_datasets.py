@@ -562,6 +562,13 @@ def traces_to_trials(traces, labels, epoch='stimulus', metric='mean', n_on=None)
     '''
     Returns dataframe w/ columns = roi ids, rows = mean response to stim ON per trial
     Last column is config on given trial.
+    
+    epoch: str
+        stimulus: avg over stimulus period (overrides n_on)
+        firsthalf: avg over first half of stimulus on period
+        plushalf: avg over stimulus period + half post
+        baseline: avg over baseline period
+
     '''
     print(labels.columns)
     s_on = int(labels['stim_on_frame'].mean())
@@ -1152,13 +1159,10 @@ def process_and_save_traces(trace_type='dff',
 
 def load_dataset(soma_fpath, trace_type='dff', add_offset=True, 
                 make_equal=False, create_new=False):
-    
-    #print("... [loading dataset]")
     traces=None
     labels=None
     sdf=None
     run_info=None
-
     try:
         data_fpath = soma_fpath.replace('np_subtracted', trace_type)
         if not os.path.exists(data_fpath) or create_new is True:
@@ -1166,28 +1170,26 @@ def load_dataset(soma_fpath, trace_type='dff', add_offset=True,
             traces, labels, sdf, run_info = process_and_save_traces(
                                                     trace_type=trace_type,
                                                     soma_fpath=soma_fpath
-                                                    )
-
+            )
         else:
             #print("... loading saved data array (%s)." % trace_type)
             traces_dset = np.load(data_fpath, allow_pickle=True)
             traces = pd.DataFrame(traces_dset['data'][:]) 
-            labels_fpath = data_fpath.replace('%s.npz' % trace_type, 'labels.npz')
-            labels_dset = np.load(labels_fpath, allow_pickle=True, encoding='latin1')
-            
+            labels_fpath = data_fpath.replace(\
+                            '%s.npz' % trace_type, 'labels.npz')
+            labels_dset = np.load(labels_fpath, allow_pickle=True, 
+                            encoding='latin1') 
             # Stimulus / condition info
             labels = pd.DataFrame(data=labels_dset['labels_data'], 
                                   columns=labels_dset['labels_columns'])
             labels = hutils.convert_columns_byte_to_str(labels)
-
             sdf = pd.DataFrame(labels_dset['sconfigs'][()]).T
             if 'blobs' in soma_fpath: #self.experiment_type:
                 sdf = reformat_morph_values(sdf)
             run_info = labels_dset['run_info'][()]
         if make_equal:
             print("... making equal")
-            traces, labels = check_counts_per_condition(traces, labels)           
-            
+            traces, labels = check_counts_per_condition(traces, labels)      
     except Exception as e:
         traceback.print_exc()
         print("ERROR LOADING DATA")
@@ -1197,8 +1199,8 @@ def load_dataset(soma_fpath, trace_type='dff', add_offset=True,
         aspect_ratio = sdf['aspect'].unique()[0]
         sdf['size'] = [round(sz/aspect_ratio, 1) for sz in sdf['size']]
 
-
     return traces, labels, sdf, run_info
+
 
 def load_run_info(animalid, session, fov, run, traceid='traces001',
                   rootdir='/n/coxfs01/2p-ddata'):
@@ -1225,7 +1227,8 @@ def load_run_info(animalid, session, fov, run, traceid='traces001',
 def load_traces(animalid, session, fovnum, experiment, traceid='traces001',
                 response_type='dff', 
                 responsive_test='ROC', responsive_thr=0.05, n_stds=2.5,
-                redo_stats=False, n_processes=1, rootdir='/n/coxfs01/2p-data'):
+                redo_stats=False, n_processes=1, 
+                rootdir='/n/coxfs01/2p-data'):
     '''
     redo_stats: use carefully, will re-run responsivity test if True
    
@@ -1257,20 +1260,61 @@ def load_traces(animalid, session, fovnum, experiment, traceid='traces001',
 
 
 
-def process_traces(raw_traces, labels, response_type='zscore', nframes_post_onset=None):
+def process_traces(raw_traces, labels, trace_type='zscore', 
+                    response_type='zscore', trial_epoch='stimulus',
+                    nframes_post_onset=None):
+    '''
+    Processes traces and calculate trial metrics
+    
+    Inputs: 
+    
+    raw_traces: pd.DataFrame
+        Raw traces (i.e., corrected)
+    
+    labels: pd.DataFrame
+        Frame labels for all trials
+
+    response_type: str
+        zscore:  (F - mean_bas)/std_bas
+        dff, (F - mean_bas)/mean_bas
+        snr: mean_stim/mean_bas
+        mean: mean_stim (i.e., metric value)
+
+    trial_epoch: str
+        stimulus: avg over stim period
+        plushalf: avg over stim * 1.5
+        pre: baseline only
+
+    nframes_post_onset: int
+        overrides trial_epoch 
+
+    '''
     print("--- processed traces: %s" % response_type)
     # Get stim onset frame: 
     stim_on_frame = labels['stim_on_frame'].unique()
-    assert len(stim_on_frame) == 1, "---[stim_on_frame]: More than 1 stim onset found: %s" % str(stim_on_frame)
+    assert len(stim_on_frame) == 1, \
+        "---[stim_on]: > 1 stim onset found: %s" % str(stim_on_frame)
     stim_on_frame = stim_on_frame[0]
 
     # Get n frames stimulus on:
     nframes_on = labels['nframes_on'].unique()
-    assert len(nframes_on) == 1, "---[nframes_on]: More than 1 stim dur found: %s" % str(nframes_on)
+    assert len(nframes_on) == 1, \
+        "---[nframes_on]: > 1 stim dur found: %s" % str(nframes_on)
     nframes_on = nframes_on[0]
 
-    if nframes_post_onset is None:
-        nframes_post_onset = nframes_on*2
+    if nframes_post_onset is not None:
+        metric_ixs = np.arange(stim_on_frame, stim_on_frame+nframes_on+nframes_post_onset).astype(int)
+    else:
+        if trial_epoch == 'stimulus':
+            metric_ixs = np.arange(stim_on_frame, stim_on_frame+nframes_on).astype(int)
+        elif trial_epoch == 'plushalf':
+            metric_ixs = np.arange(stim_on_frame, stim_onframe+nframes_on*1.5).astype(int)
+
+        elif trial_epoch in ['pre', 'bas']:
+            metric_ixs = np.arange(0, stim_on_frame).astype(int)
+        else:
+            metric_ixs = np.arange(stim_on_frame, stim_on_frame+nframes_on).astype(int)
+
 
     zscored_traces_list = []
     zscores_list = []
@@ -1278,32 +1322,40 @@ def process_traces(raw_traces, labels, response_type='zscore', nframes_post_onse
     for trial, tmat in labels.groupby(['trial']):
 
         # Get traces using current trial's indices: divide by std of baseline
-        curr_traces = raw_traces.iloc[tmat.index]
-        bas_std = curr_traces.iloc[0:stim_on_frame].std(axis=0)
-        bas_mean = curr_traces.iloc[0:stim_on_frame].mean(axis=0)
-        if response_type == 'zscore':
-            curr_zscored_traces = pd.DataFrame(curr_traces).subtract(bas_mean).divide(bas_std, axis='columns')
+        raw_ = raw_traces.iloc[tmat.index]
+        bas_std = raw_.iloc[0:stim_on_frame].std(axis=0)
+        bas_mean = raw_.iloc[0:stim_on_frame].mean(axis=0)
+        stim_mean = raw_.iloc[metric_ixs].mean(axis=0)
+
+        if trace_type == 'zscore':
+            curr_traces = pd.DataFrame(raw_).subtract(bas_mean)\
+                            .divide(bas_std, axis='columns')
+        elif trace_type == 'dff':
+            curr_traces = pd.DataFrame(raw_).subtract(bas_mean)\
+                            .divide(bas_mean, axis='columns')
         else:
-            curr_zscored_traces = pd.DataFrame(curr_traces).subtract(bas_mean).divide(bas_mean, axis='columns')
-        zscored_traces_list.append(curr_zscored_traces)
+            curr_traces = pd.DataFrame(raw_).subtract(bas_mean)
 
         # Also get zscore (single value) for each trial:
-        stim_mean = curr_traces.iloc[stim_on_frame:(stim_on_frame+nframes_on+nframes_post_onset)].mean(axis=0)
-        if response_type == 'zscore':
-            zscores_list.append((stim_mean-bas_mean)/bas_std)
+        if response_type=='zscore':
+            curr_metrics = (stim_mean-bas_mean)/bas_std
         elif response_type == 'snr':
-            zscores_list.append(stim_mean/bas_mean)
-        elif response_type == 'meanstim':
-            zscores_list.append(stim_mean)
+            curr_metrics = stim_mean/bas_mean
+        elif response_type == 'mean':
+            curr_metrics = stim_mean
         elif response_type == 'dff':
-            zscores_list.append((stim_mean-bas_mean) / bas_mean)
+            curr_metrics = (stim_mean-bas_mean) / bas_mean 
+        else:           
+            curr_metrics = stim_mean
 
-        #zscores_list.append(curr_zscored_traces.iloc[stim_on_frame:stim_on_frame+nframes_post_onset].mean(axis=0)) # Get average zscore value for current trial
+        traces_list.append(curr_traces)
+        metrics_list.append(curr_metrics)
 
-    zscored_traces = pd.concat(zscored_traces_list, axis=0)
-    zscores =  pd.concat(zscores_list, axis=1).T # cols=rois, rows = trials
+    processed_traces = pd.concat(traces_list, axis=0)
+    trial_metrics = pd.concat(metrics_list, axis=1).T 
+    # cols=rois, rows = trials
 
-    return zscored_traces, zscores
+    return processed_traces, trial_metrics 
 
 
 
