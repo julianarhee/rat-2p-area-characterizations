@@ -116,7 +116,7 @@ def load_roi_coords(animalid, session, fov, roiid=None,
                 fovinfo = pkl.load(f, encoding='latin1')
             assert 'roi_positions' in fovinfo.keys(), "Bad fovinfo file, redoing"
         except Exception as e: #AssertionError:
-            print("Error loading <%s> for %s, %s, %s" % (roiid, animalid, sssion, fov))
+            print("Error loading <%s> for %s, %s, %s" % (roiid, animalid, session, fov))
             traceback.print_exc()
             create_new = True
 
