@@ -292,14 +292,14 @@ def plot_paired(plotdf, aix=0, curr_metric='avg_size', ax=None,
                 marker='o', offset=0.25, color='k', label=None, lw=0.5, alpha=1, 
                 return_vals=False, return_stats=True, round_to=3, ttest=True):
 
+    from analyze2p.utils import stats as st
     if ax is None:
         fig, ax = pl.subplots()
-        
-#    a_vals = plotdf[plotdf[compare_var]==c1].sort_values(by='datakey')[curr_metric].values
-#    b_vals = plotdf[plotdf[compare_var]==c2].sort_values(by='datakey')[curr_metric].values
-    pdict, a_vals, b_vals = paired_ttest_from_df(plotdf, metric=curr_metric, c1=c1, c2=c2,
-                                compare_var=compare_var, round_to=round_to, return_vals=True, ttest=ttest)
-
+    pdict, a_vals, b_vals = st.paired_ttest_from_df(plotdf, 
+                                metric=curr_metric, c1=c1, c2=c2,
+                                compare_var=compare_var, 
+                                round_to=round_to, 
+                                return_vals=True, ttest=ttest)
     by_exp = [(a, e) for a, e in zip(a_vals, b_vals)]
     for pi, p in enumerate(by_exp):
         ax.plot([aix-offset, aix+offset], p, marker=marker, color=color,
@@ -315,6 +315,53 @@ def plot_paired(plotdf, aix=0, curr_metric='avg_size', ax=None,
     else: 
         return ax
 
+def pairwise_compare_single_metric(comdf, curr_metric='avg_size', 
+                        c1='rfs', c2='rfs10', compare_var='experiment',
+                        ax=None, marker='o', visual_areas=['V1', 'Lm', 'Li'],
+                        xlabel_offset=-1, area_colors=None, 
+                        return_stats=False, round_to=3, ttest=True):
+    assert 'datakey' in comdf.columns, "Need a sorter, 'datakey' not found."
+    if area_colors is None:
+        visual_areas = ['V1', 'Lm', 'Li']
+        colors = ['magenta', 'orange', 'dodgerblue'] 
+        #sns.color_palette(palette='colorblind') #, n_colors=3)
+        area_colors = {'V1': colors[0], 'Lm': colors[1], 'Li': colors[2]}
+    offset = 0.25 
+    if ax is None:
+        fig, ax = pl.subplots(figsize=(5,4), dpi=150)
+        fig.patch.set_alpha(0)
+        ax.patch.set_alpha(0)
+    
+    # Plot paired values
+    aix=0
+    r_=[]
+    for ai, visual_area in enumerate(visual_areas):
+        plotdf = comdf[comdf['visual_area']==visual_area]
+        ax, pdict = plot_paired(plotdf, aix=aix, curr_metric=curr_metric, ax=ax,
+                        c1=c1, c2=c2, compare_var=compare_var, offset=offset,
+                        marker=marker, color=area_colors[visual_area], lw=0.5, 
+                        return_stats=True, round_to=round_to, ttest=ttest)
+        pdict.update({'visual_area': visual_area})
+        res = pd.DataFrame(pdict, index=[ai])
+        r_.append(res)
+        aix = aix+1
+    statdf = pd.concat(r_, axis=0)
+
+    # Plot average
+    sns.barplot("visual_area", curr_metric, data=comdf, 
+                hue=compare_var, hue_order=[c1, c2], #zorder=0,
+                ax=ax, order=visual_areas,
+                errcolor="k", edgecolor=('k', 'k', 'k'), 
+                facecolor=(1,1,1,0), linewidth=2.5)
+    ax.legend_.remove()
+    for x in ax.get_xticks():
+        ax.text(x, xlabel_offset, visual_areas[x])
+
+    set_split_xlabels(ax, a_label=c1, b_label=c2)
+    if return_stats:
+        return ax, statdf
+    else: 
+        return ax
 
 
 
@@ -507,3 +554,32 @@ def darken_cmap(colormap='spectral', alpha=0.9,
     mpl.cm.register_cmap("dark_%s" % colormap, dark_cmap)
     new_cmap_name='dark_%s' % colormap
     return new_cmap_name
+
+
+# Axis labeling
+# https://stackoverflow.com/questions/58854335/how-to-label-y-ticklabels-as-group-category-in-seaborn-clustermap
+from itertools import groupby    
+def add_line(ax, xpos, ypos, offset=0.2, lw=1):
+    line = pl.Line2D([ypos, ypos+ offset], [xpos, xpos], color='black', 
+                     transform=ax.transAxes, linewidth=lw)
+    line.set_clip_on(False)
+    ax.add_line(line)
+
+def label_len(my_index,level):
+    labels = my_index.get_level_values(level)
+    return [(k, sum(1 for i in g)) for k,g in groupby(labels)]
+
+def label_group_bar_table(ax, df, offset=0.2, lw=1):
+    xpos = -offset
+    scale = 1./df.index.size
+    for level in range(df.index.nlevels):
+        pos = df.index.size
+        for label, rpos in label_len(df.index,level):
+            add_line(ax, pos*scale, xpos, offset=offset, lw=lw)
+            pos -= rpos
+            lypos = (pos + .5 * rpos)*scale
+            ax.text(xpos+(offset*0.5), lypos, label, ha='center', transform=ax.transAxes) 
+        add_line(ax, pos*scale , xpos)
+        xpos -= offset
+
+
