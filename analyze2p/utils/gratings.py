@@ -19,42 +19,47 @@ def get_fit_desc(response_type='dff', responsive_test=None,
     '''
     if responsive_test is None:
         fit_desc = 'fit-%s_all-cells_boot-%i-resample-%i' \
-                        % (response_type, n_bootstrap_iters, n_resamples) #, responsive_test, responsive_thr)
+                        % (response_type, n_bootstrap_iters, n_resamples) 
     elif responsive_test == 'nstds':
         fit_desc = 'fit-%s_responsive-%s-%.2f-thr%.2f_boot-%i-resample-%i' \
                         % (response_type, responsive_test, n_stds, responsive_thr, n_bootstrap_iters, n_resamples)
     else:
         fit_desc = 'fit-%s_responsive-%s-thr%.2f_boot-%i-resample-%i' \
                         % (response_type, responsive_test, responsive_thr, n_bootstrap_iters, n_resamples)
+
     return fit_desc
 
-def get_ori_dir(datakey, traceid='traces001', fit_desc=None, 
+
+def get_ori_dir(datakey, traceid='traces001', fit_desc=None, verbose=False,
                 rootdir='/n/coxfs01/2p-data'):
+    '''Find specified results dir for gratings fits'''
     ori_dir=None
     session, animalid, fovnum = hutils.split_datakey_str(datakey)
     try:
-        ori_dir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovnum,
+        ori_dir = glob.glob(os.path.join(rootdir, animalid, session, 
+                         'FOV%i_*' % fovnum,
                          'combined_gratings_static', 'traces', '%s*' % traceid,
                          'tuning', fit_desc))
         assert len(ori_dir)==1 #, #\
-            #"[%s]: Ambiguous dir for fit <%s>:\n%s" % (datakey, fit_desc, str(ori_dir))
         ori_dir = ori_dir[0]
 
     except AssertionError:
-        print("[%s]: Ambiguous dir for fit <%s>:\n%s" % (datakey, fit_desc, str(ori_dir)))
-
-        tdir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovnum,
-                         'combined_gratings_static', 'traces', '%s*' % traceid,
-                         'tuning'))[0]
-        edirs = os.listdir(tdir)
-        for e in edirs:
-            print(e)
- 
+        print("[%s]: Ambiguous dir for fit:\n%s" % (datakey, str(ori_dir)))
+        if verbose:
+            tdir = glob.glob(os.path.join(rootdir, animalid, session, 
+                            'FOV%i_*' % fovnum,
+                            'combined_gratings_static', 'traces', '%s*' % traceid,
+                            'tuning'))[0]
+            edirs = os.listdir(tdir)
+            for e in edirs:
+                print(e)
+     
     return ori_dir
+
 
 def load_tuning_results(datakey, run_name='gratings', traceid='traces001',
                         fit_desc=None, rootdir='/n/coxfs01/2p-data', verbose=True):
-
+    '''Load results from bootstrap analysis (fitresults.pkl, fitparams.json)'''
     bootresults=None; fitparams=None;
     try: 
         ori_dir = get_ori_dir(datakey, traceid=traceid, fit_desc=fit_desc)
@@ -178,7 +183,22 @@ def evaluate_fits(bootr, interp=False):
 
 
 def get_good_fits(bootresults, fitparams, gof_thr=0.66, verbose=True):
-   
+   '''
+    For all cells, evaluate fits.
+    bootresults: dict
+        All results from bootstrap analysis, by roi (keys). 
+    fitparams:  dict
+        Fit info
+    
+    Returns
+
+    best_rfits: pd.DataFrame
+        Best fit stimulus param for each cell.
+
+    all_rfits: pd.DatFrame
+        All stimulus conditions with fit for each cell.
+ 
+    ''' 
     best_rfits=None; all_rfits=None; 
     niters = fitparams['n_bootstrap_iters']
     interp = fitparams['n_intervals_interp']>1
@@ -196,14 +216,14 @@ def get_good_fits(bootresults, fitparams, gof_thr=0.66, verbose=True):
             r2comb, gof, fitr = evaluate_fits(bootr, interp=interp)
             if np.isnan(gof) or (gof_thr is not None and (gof < gof_thr)):
                 continue            
-            rfdf = bootr['results'] # All 1000 iterations
-            rfdf['r2comb'] = [r2comb for _ in range(niters)] # add combined R2 val
-            rfdf['gof'] = [gof for _ in range(niters)] # add GoF metric            
+            rfdf = bootr['results'] # df with all 1000 iterations
+            rfdf['r2comb'] = r2comb # add combined R2 val
+            rfdf['gof'] = gof # add GoF metric            
             rfdf['sf'] = float(stimparam[0])
             rfdf['size'] = float(stimparam[1])
             rfdf['speed'] = float(stimparam[2])
 
-            tmpd = average_metrics_across_iters(rfdf) # Average current roi, current condition results
+            tmpd = average_metrics_across_iters(rfdf) # Average condition results
             stimkey = 'sf-%.2f-sz-%i-sp-%i' % stimparam 
             fitresults.append(tmpd)
             stimkeys.append(stimkey)
@@ -211,6 +231,7 @@ def get_good_fits(bootresults, fitparams, gof_thr=0.66, verbose=True):
         if len(fitresults) > 0:
             roif = pd.concat(fitresults, axis=0).reset_index(drop=True)
             roif.index = stimkeys
+            roif['cell'] = roi
             gof =  roif.mean()['gof']  
             if (gof_thr is not None) and (gof >= gof_thr): #0.66:
                 goodrois.append(roi) # This is just for repoorting 
@@ -233,11 +254,14 @@ def get_good_fits(bootresults, fitparams, gof_thr=0.66, verbose=True):
         all_rfits = pd.concat(all_dfs, axis=0) 
         if verbose: 
             if gof_thr is not None: 
-                print("... %i (of %i) fitable cells pass GoF thr %.2f" % (len(goodrois), len(passrois), gof_thr))
+                print("... %i (of %i) fitable cells pass GoF thr %.2f" \
+                                % (len(goodrois), len(passrois), gof_thr))
             else:
-                print("... %i (of %i) fitable cells (no GoF thr)" % (best_rfits.shape[0], len(passrois)))
+                print("... %i (of %i) fitable cells (no GoF thr)" \
+                                % (best_rfits.shape[0], len(passrois)))
 
     return best_rfits, all_rfits #rmetrics_by_cfg
+
 
 def aggregate_ori_fits(CELLS, traceid='traces001', fit_desc=None,
                        response_type='dff', responsive_test='nstds', responsive_thr=10.,
@@ -252,40 +276,35 @@ def aggregate_ori_fits(CELLS, traceid='traces001', fit_desc=None,
                             n_stds=n_stds, responsive_thr=responsive_thr, 
                             n_bootstrap_iters=n_bootstrap_iters, 
                             n_resamples=n_resamples)
-
     gdata=None
-    no_fits=[]; g_=[];
-    i = 0
+    no_fits=[]; g_list=[];
     for (va, dk), g in CELLS.groupby(['visual_area', 'datakey']):
         try:
-            # Get src dir
-            ori_dir = get_ori_dir(dk, traceid=traceid, fit_desc=fit_desc)
-            #print(ori_dir)
             # Load tuning results
             fitresults, fitparams = load_tuning_results(dk, 
                                             fit_desc=fit_desc, traceid=traceid)
+            assert fitresults is not None, "ERROR: [%s] No fit results" % datakey
             # Get OSI results for assigned cells
             rois_ = g['cell'].unique()
             boot_ = dict((k, v) for k, v in fitresults.items() if k in rois_)
         except Exception as e:
             print(e)
-            print('ERROR: %s' % dk)
             continue
-
         # Aggregate fits
-        best_fits, curr_fits = get_good_fits(boot_, fitparams, 
-                                                 gof_thr=None, verbose=verbose)
+        best_fits, all_fits = get_good_fits(boot_, fitparams, 
+                                             gof_thr=None, verbose=verbose)
         if best_fits is None:
             no_fits.append('%s_%s' % (va, dk))
             continue
-        curr_fits['visual_area'] = va
-        curr_fits['datakey'] = dk
-        g_.append(curr_fits)
+        all_fits['visual_area'] = va
+        al_fits['datakey'] = dk
+        g_list.append(curr_fits)
     gdata = pd.concat(g_, axis=0).reset_index(drop=True)
     if verbose:
         print("Datasets with NO fits found:")
         for s in no_fits:
             print(s)
+
     if return_missing:
         return gdata, no_fits
     else:
