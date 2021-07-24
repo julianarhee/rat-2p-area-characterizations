@@ -278,11 +278,6 @@ def set_split_xlabels(ax, offset=0.25, a_label='rfs', b_label='rfs10', rotation=
         labs.extend([a_label, b_label])
     ax.set_xticks(locs)
     ax.set_xticklabels(labs, rotation=rotation, ha=ha)
-
-#    ax.set_xticks([0-offset, 0+offset, 1-offset, 1+offset, 2-offset, 2+offset])
-#    ax.set_xticklabels([a_label, b_label, a_label, b_label, a_label, b_label],
-#                        rotation=rotation, ha=ha)
-#    ax.set_xlabel('')
     ax.tick_params(axis='x', size=0)
     sns.despine(bottom=True, offset=4)
     return ax
@@ -292,7 +287,7 @@ def plot_paired(plotdf, aix=0, curr_metric='avg_size', ax=None,
                 marker='o', offset=0.25, color='k', label=None, lw=0.5, alpha=1, 
                 return_vals=False, return_stats=True, round_to=3, ttest=True):
 
-    from analyze2p.utils import stats as st
+    import analyze2p.stats as st
     if ax is None:
         fig, ax = pl.subplots()
     pdict, a_vals, b_vals = st.paired_ttest_from_df(plotdf, 
@@ -317,8 +312,9 @@ def plot_paired(plotdf, aix=0, curr_metric='avg_size', ax=None,
 
 def pairwise_compare_single_metric(comdf, curr_metric='avg_size', 
                         c1='rfs', c2='rfs10', compare_var='experiment',
+                        c1_label=None, c2_label=None,
                         ax=None, marker='o', visual_areas=['V1', 'Lm', 'Li'],
-                        xlabel_offset=-1, area_colors=None, 
+                        xlabel_offset=-1, area_colors=None, bar_ci=95, bar_lw=0.5,
                         return_stats=False, round_to=3, ttest=True):
     assert 'datakey' in comdf.columns, "Need a sorter, 'datakey' not found."
     if area_colors is None:
@@ -350,14 +346,15 @@ def pairwise_compare_single_metric(comdf, curr_metric='avg_size',
     # Plot average
     sns.barplot("visual_area", curr_metric, data=comdf, 
                 hue=compare_var, hue_order=[c1, c2], #zorder=0,
-                ax=ax, order=visual_areas,
+                ax=ax, order=visual_areas, ci=bar_ci,
                 errcolor="k", edgecolor=('k', 'k', 'k'), 
-                facecolor=(1,1,1,0), linewidth=2.5)
+                facecolor=(1,1,1,0), linewidth=bar_lw)
     ax.legend_.remove()
     for x in ax.get_xticks():
         ax.text(x, xlabel_offset, visual_areas[x])
-
-    set_split_xlabels(ax, a_label=c1, b_label=c2)
+    c1_label = c1 if c1_label is None else c1_label
+    c2_label = c2 if c2_label is None else c2_label
+    set_split_xlabels(ax, a_label=c1_label, b_label=c2_label)
     if return_stats:
         return ax, statdf
     else: 

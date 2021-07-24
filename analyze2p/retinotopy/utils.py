@@ -16,7 +16,7 @@ import dill as pkl
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
 from scipy import misc,interpolate,stats,signal
-from . import helpers as hutils
+import analyze2p.utils as hutils
 #from py3utils import natural_keys
 
 # Data selection

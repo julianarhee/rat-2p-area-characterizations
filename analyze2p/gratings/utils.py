@@ -1,3 +1,7 @@
+#!/usr/bin/env python2
+# -*- coding: utf-8 -*-
+
+'''Functions for analyzing gratings data'''
 
 import os
 import glob
@@ -9,7 +13,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats as spstats
 
-from . import helpers as hutils 
+from analyze2p import utils as hutils
 
 def get_fit_desc(response_type='dff', responsive_test=None, 
                  responsive_thr=10, n_stds=2.5,
@@ -40,17 +44,19 @@ def get_ori_dir(datakey, traceid='traces001', fit_desc=None, verbose=False,
                          'FOV%i_*' % fovnum,
                          'combined_gratings_static', 'traces', '%s*' % traceid,
                          'tuning', fit_desc))
-        assert len(ori_dir)==1 #, #\
+        assert len(ori_dir)==1,"... [%s]: Ambiguous dir" % (datakey)
         ori_dir = ori_dir[0]
 
-    except AssertionError:
-        print("[%s]: Ambiguous dir for fit:\n%s" % (datakey, str(ori_dir)))
+    except AssertionError as e:
+        ori_dir=None
         if verbose:
+            print(e)
             tdir = glob.glob(os.path.join(rootdir, animalid, session, 
                             'FOV%i_*' % fovnum,
                             'combined_gratings_static', 'traces', '%s*' % traceid,
                             'tuning'))[0]
             edirs = os.listdir(tdir)
+            print("--- found dirs: ---")
             for e in edirs:
                 print(e)
      
@@ -58,11 +64,13 @@ def get_ori_dir(datakey, traceid='traces001', fit_desc=None, verbose=False,
 
 
 def load_tuning_results(datakey, run_name='gratings', traceid='traces001',
-                        fit_desc=None, rootdir='/n/coxfs01/2p-data', verbose=True):
+                        fit_desc=None, rootdir='/n/coxfs01/2p-data', verbose=False):
     '''Load results from bootstrap analysis (fitresults.pkl, fitparams.json)'''
     bootresults=None; fitparams=None;
     try: 
-        ori_dir = get_ori_dir(datakey, traceid=traceid, fit_desc=fit_desc)
+        ori_dir = get_ori_dir(datakey, traceid=traceid, fit_desc=fit_desc,
+                                verbose=verbose)
+        assert ori_dir is not None, "... [%s] No ori_dir" % datakey
         results_fpath = os.path.join(ori_dir, 'fitresults.pkl')
         params_fpath = os.path.join(ori_dir, 'fitparams.json')
         # open 
@@ -70,9 +78,12 @@ def load_tuning_results(datakey, run_name='gratings', traceid='traces001',
             bootresults = pkl.load(f, encoding='latin1')
         with open(params_fpath, 'r') as f:
             fitparams = json.load(f, encoding='latin1')
+    except AssertionError as e:
+        print(e)
     except Exception as e:
-        print("[ERROR]: NO FITS FOUND: %s" % ori_dir)
-        traceback.print_exc() 
+        print("[ERROR]: NO fits %s" % datakey)
+        if verbose:
+            traceback.print_exc() 
                         
     return bootresults, fitparams
 
@@ -183,7 +194,7 @@ def evaluate_fits(bootr, interp=False):
 
 
 def get_good_fits(bootresults, fitparams, gof_thr=0.66, verbose=True):
-   '''
+    '''
     For all cells, evaluate fits.
     bootresults: dict
         All results from bootstrap analysis, by roi (keys). 
@@ -197,8 +208,7 @@ def get_good_fits(bootresults, fitparams, gof_thr=0.66, verbose=True):
 
     all_rfits: pd.DatFrame
         All stimulus conditions with fit for each cell.
- 
-    ''' 
+    '''
     best_rfits=None; all_rfits=None; 
     niters = fitparams['n_bootstrap_iters']
     interp = fitparams['n_intervals_interp']>1
@@ -283,12 +293,14 @@ def aggregate_ori_fits(CELLS, traceid='traces001', fit_desc=None,
             # Load tuning results
             fitresults, fitparams = load_tuning_results(dk, 
                                             fit_desc=fit_desc, traceid=traceid)
-            assert fitresults is not None, "ERROR: [%s] No fit results" % datakey
+            assert fitresults is not None, "ERROR: [%s] No fit results" % dk
             # Get OSI results for assigned cells
             rois_ = g['cell'].unique()
             boot_ = dict((k, v) for k, v in fitresults.items() if k in rois_)
         except Exception as e:
-            print(e)
+            if verbose:
+                traceback.print_exc() 
+            no_fits.append('%s_%s' % (va, dk))
             continue
         # Aggregate fits
         best_fits, all_fits = get_good_fits(boot_, fitparams, 
@@ -297,9 +309,9 @@ def aggregate_ori_fits(CELLS, traceid='traces001', fit_desc=None,
             no_fits.append('%s_%s' % (va, dk))
             continue
         all_fits['visual_area'] = va
-        al_fits['datakey'] = dk
-        g_list.append(curr_fits)
-    gdata = pd.concat(g_, axis=0).reset_index(drop=True)
+        all_fits['datakey'] = dk
+        g_list.append(all_fits)
+    gdata = pd.concat(g_list, axis=0).reset_index(drop=True)
     if verbose:
         print("Datasets with NO fits found:")
         for s in no_fits:

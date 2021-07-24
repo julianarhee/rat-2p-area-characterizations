@@ -18,8 +18,8 @@ import pandas as pd
 import scipy.optimize as opt
 
 import analyze2p.aggregate_datasets as aggr 
-import analyze2p.utils.plotting as pplot
-import analyze2p.utils.helpers as hutils
+import analyze2p.plotting as pplot
+import analyze2p.utils as hutils
 
 from matplotlib.patches import Ellipse, Rectangle, Polygon
 from shapely.geometry.point import Point
@@ -955,6 +955,26 @@ def add_rf_positions(rfdf, calculate_position=False, traceid='traces001'):
     return rfdf
 
 
+def combine_rfs_single(rfdf):
+    '''Combine RF data so only 1 RF experiment per datakey'''
+    final_rfdf=None
+    rf_=[]
+    for (visual_area, datakey), curr_rfdf in rfdf.groupby(['visual_area', 'datakey']):
+        final_rf=None
+        if visual_area in ['V1', 'Lm']:
+            if 'rfs' in curr_rfdf['experiment'].values:
+                final_rf = curr_rfdf[curr_rfdf.experiment=='rfs'].copy()
+            else:
+                final_rf = curr_rfdf[curr_rfdf.experiment=='rfs10'].copy() 
+        else:
+            final_rf = curr_rfdf[curr_rfdf.experiment=='rfs10'].copy()
+        rf_.append(final_rf)
+
+    final_rfdf = pd.concat(rf_).reset_index(drop=True)
+
+    return final_rfdf
+
+
 def average_rfs_select(rfdf):
     final_rfdf=None
     rf_=[]
@@ -968,17 +988,18 @@ def average_rfs_select(rfdf):
 
             # Means by cell id (some dsets have rf-5 and rf10 measurements, average these)
             meanrf = curr_rfdf.groupby(['cell']).mean().reset_index()
-            mean_thetas = curr_rfdf.groupby(['cell'])['theta'].apply(spstats.circmean, low=0, high=2*np.pi).values
+            mean_thetas = curr_rfdf.groupby(['cell'])['theta']\
+                                    .apply(spstats.circmean, low=0, high=2*np.pi).values
             meanrf['theta'] = mean_thetas
             meanrf['visual_area'] = visual_area
             meanrf['experiment'] = ['average_rfs' if len(g['experiment'].values)>1 \
-                                    else str(g['experiment'].unique()[0]) for c, g in curr_rfdf.groupby(['cell'])]
-            #meanrf['experiment'] = ['average_rfs' for _ in np.arange(0, len(assigned_with_rfs))]
-
+                                    else str(g['experiment'].unique()[0]) \
+                                    for c, g in curr_rfdf.groupby(['cell'])]
             # Add the meta/non-numeric info
-            non_num = [c for c in curr_rfdf.columns if c not in meanrf.columns and c!='experiment']
+            non_num = [c for c in curr_rfdf.columns if c \
+                            not in meanrf.columns and c!='experiment']
             metainfo = pd.concat([g[non_num].iloc[0] for c, g in \
-                                curr_rfdf.groupby(['cell'])], axis=1).T.reset_index(drop=True)
+                            curr_rfdf.groupby(['cell'])], axis=1).T.reset_index(drop=True)
             final_rf = pd.concat([metainfo, meanrf], axis=1)            
             final_rf = update_rf_metrics(final_rf, scale_sigma=True)
         rf_.append(final_rf)

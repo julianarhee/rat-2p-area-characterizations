@@ -11,7 +11,7 @@ import dill as pkl
 import numpy as np
 import pandas as pd
 
-from . import helpers as hutils
+import analyze2p.utils as hutils
 
 
 

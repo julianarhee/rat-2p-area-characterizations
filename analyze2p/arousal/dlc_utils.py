@@ -18,7 +18,7 @@ import dill as pkl
 
 #from pipeline.python.classifications import aggregate_data_stats as aggr
 import analyze2p.aggregate_datasets as aggr
-import analyze2p.utils.helpers as hutils
+import analyze2p.utils as hutils
 
 # ===================================================================
 # Data loading 

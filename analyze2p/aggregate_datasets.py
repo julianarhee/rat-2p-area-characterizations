@@ -35,8 +35,8 @@ import statsmodels as sm
 
 np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)       
 
-import analyze2p.utils.helpers as hutils
-import analyze2p.utils.rois as roiutils
+import analyze2p.utils as hutils
+import analyze2p.extraction.rois as roiutils
 
 # ###############################################################
 # Analysis specific
@@ -105,15 +105,32 @@ def get_stimuli(datakey, experiment, rootdir='/n/coxfs01/2p-data', verbose=False
     Returns 'sdf' (dataframe, index='config001', etc. columns=stimulus parameters).
     '''
     session, animalid, fovn = hutils.split_datakey_str(datakey)
+    if 'rfs' in experiment and int(session)<20190512:
+        experiment_name = 'gratings'
+    else:
+        experiment_name = experiment
     if verbose:
-        print("... getting stimulus info for: %s" % experiment)
-    dset_path = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovn,
-                        'combined_%s_static' % experiment, 'traces/traces*', 'data_arrays', 'labels.npz'))[0]
-    dset = np.load(dset_path, allow_pickle=True)
-    sdf = pd.DataFrame(dset['sconfigs'][()]).T
-    if 'blobs' in experiment:
-        sdf = reformat_morph_values(sdf)
-
+        print("... getting stimulus info for <%s>: %s" % (experiment, experiment_name))
+    try:
+        dset_path = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovn,
+                            'combined_%s_static' % experiment_name, \
+                            'traces/traces*', 'data_arrays', 'labels.npz'))[0]
+        dset = np.load(dset_path, allow_pickle=True)
+        sdf = pd.DataFrame(dset['sconfigs'][()]).T
+        if 'blobs' in experiment:
+            sdf = reformat_morph_values(sdf)
+    except IndexError as e:
+        print("(%s) No labels.npz for exp name ~%s~. Found:" % (datakey, experiment_name))
+        tdir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovn,
+                        'combined_%s_static' % experiment_name, \
+                        'traces/traces*', 'data_arrays', '*.npz'))
+        for t in tdir:
+            print('   %s' % t)
+        return None
+    except Exception as e:
+        traceback.print_exc()
+        return None
+ 
     return sdf.sort_index()
 
 
@@ -464,6 +481,17 @@ def get_sorted_fovs(filter_by='drop_repeats', excluded_sessions=[]):
 # ###############################################################
 # STATS
 # ###############################################################
+def get_strongest_response(NDATA0):
+    '''Get trial-avg responses, pick stim cond with max response per cell'''
+    meanr = NDATA0.groupby(['visual_area', 'datakey', 'cell', 'config'])\
+                    .mean().reset_index()
+    best_ixs = meanr.groupby(['visual_area', 'datakey', 'cell'])['response']\
+                    .transform(max) == meanr['response']
+    assert meanr.loc[best_ixs].groupby(['visual_area', 'datakey', 'cell'])\
+            .count().max().max()==1
+    bestg = meanr.loc[best_ixs].copy()
+    
+    return bestg
    
 
 # ###############################################################
@@ -514,6 +542,7 @@ def load_responsive_neuraldata(experiment, traceid='traces001',
                               response_type=response_type, epoch=trial_epoch,
                               responsive_test=responsive_test, 
                               responsive_thr=responsive_thr, n_stds=n_stds)
+            nd0['experiment'] = exp
             nd_.append(nd0)
         NDATA = pd.concat(nd_, axis=0).reset_index(drop=True)
     else:
@@ -725,7 +754,6 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
         return all_sdata
 
 
-# Data loading.
 
 def get_aggregate_data_filepath(experiment, traceid='traces001', response_type='dff', 
                         epoch='stimulus', 
@@ -784,9 +812,12 @@ def get_aggregate_data(experiment, traceid='traces001', response_type='dff', epo
     if experiment!='blobs':
         rename_configs=False
         return_configs=False
-    MEANS = load_aggregate_data(experiment, traceid=traceid, response_type=response_type, epoch=epoch,
-                        responsive_test=responsive_test, responsive_thr=responsive_thr, n_stds=n_stds,
-                        rename_configs=rename_configs, equalize_now=equalize_now, zscore_now=zscore_now,
+    MEANS = load_aggregate_data(experiment, traceid=traceid, 
+                        response_type=response_type, epoch=epoch,
+                        responsive_test=responsive_test, 
+                        responsive_thr=responsive_thr, n_stds=n_stds,
+                        rename_configs=rename_configs, 
+                        equalize_now=equalize_now, zscore_now=zscore_now,
                         return_configs=return_configs, images_only=images_only)
     #print(MEANS.keys())
     # Combine into dataframe

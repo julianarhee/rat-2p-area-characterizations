@@ -14,6 +14,7 @@ import pylab as pl
 import seaborn as sns
 
 import analyze2p.aggregate_datasets as aggr
+import analyze2p.utils as hutils
 
 def trial_averaged_responses(zscored, sdf, params=['ori', 'sf', 'size', 'speed']):
     '''
@@ -166,6 +167,21 @@ def get_pw_cortical_distance(cc_, pos_):
     
     return cc_
 
+
+def get_bins(n_bins=4, custom_bins=False, use_quartile=True, cmap='viridis'):
+    if custom_bins:
+        use_quartile = False
+    qcolor_list = sns.color_palette(cmap, n_colors=n_bins)
+    # Bin into quartiles
+    bins = [0, 200, 350, 400, np.inf] if custom_bins \
+                    else np.arange(0, n_bins+1).astype(int)
+    bin_labels = custom_bin_labels(bins) if custom_bins \
+                    else [hutils.make_ordinal(i) for i in bins[1:]]
+    bin_colors = dict((k, v) for k, v in zip(bin_labels, qcolor_list))
+    
+
+    return bins, bin_labels, bin_colors
+
 def custom_bin_labels(bins):
     labels=[]
     for bi, b in enumerate(bins[0:-1]):
@@ -180,7 +196,7 @@ def custom_bin_labels(bins):
     return labels
  
 def bin_column_values(cc_, to_quartile='cortical_distance', use_quartile=True,
-                     n_bins=4, labels=False, bins=None):
+                     n_bins=4, labels=False, bins=None, return_bins=False):
     '''
     Split column into quartiles (n_bins=4) or custom N bins.
     to_quartile: str
@@ -194,10 +210,11 @@ def bin_column_values(cc_, to_quartile='cortical_distance', use_quartile=True,
     # bins=[0, 100, 300, 500, np.inf], 
 
     if bins is not None:
-        labels = custom_bin_labels(bins)
+        if labels is None:
+            labels = custom_bin_labels(bins)
         cc_['binned_%s' % to_quartile] = pd.cut(x=cc_[to_quartile], 
                                 bins=bins, 
-                                labels=['<100', '100-300', '300-500', '>500'])
+                                labels=labels)
 
     if use_quartile:
         cc_['binned_%s' % to_quartile], bin_edges = pd.qcut(cc_[to_quartile], \
@@ -205,24 +222,98 @@ def bin_column_values(cc_, to_quartile='cortical_distance', use_quartile=True,
     else:
         cc_['binned_%s' % to_quartile], bin_edges = pd.cut(cc_[to_quartile], \
                                          n_bins,labels=labels, retbins=True)
-    return cc_
+    if return_bins:
+        return cc_, bin_edges
+    else:
+        return cc_
 
-def plot_quartiles_vs_distance(cc_, to_quartile='cortical_distance',
-                              plot_bins=[0, 3], metric='signal_cc',
-                              qcolors=None, plot_median=True):
-    if qcolors is None:
+def plot_quartile_dists_FOV(cc_, metric='signal_cc', to_quartile='cortical_distance',
+                            bin_colors=None, bin_labels=None,
+                            plot_median=True, extrema_only=True, ax=None,
+                            legend=True):
+    if bin_labels is None:
+        bin_labels = sorted(cc_['binned_%s' % to_quartile].unique(), \
+                            key=hutils.natural_keys)
+    # Plot metric X for top and bottom quartiles
+    if extrema_only:
+        plot_bins = [bin_labels[0], bin_labels[-1] ] # [0, 1, 2, 3]
+    else:
+        plot_bins = bin_labels
+    # colors 
+    if bin_colors is None:
         nb = len(plot_bins)
         qcolor_list = sns.color_palette('cubehelix', n_colors=nb)
-        qcolors = dict((k, v) for k, v in zip(np.arange(0, nb), qcolor_list))
-        
+        bin_colors = dict((k, v) for k, v in zip(np.arange(0, nb), qcolor_list))
+      
     currd = cc_[cc_['binned_%s' % to_quartile].isin(plot_bins)]
-    g = sns.displot(data=currd, x=metric,
-                hue='binned_%s' % to_quartile, legend=True, palette=qcolors)
+    if ax is None:
+        fig, ax = pl.subplots()
+    sns.histplot(data=currd, x=metric, hue='binned_%s' % to_quartile, ax=ax,
+                stat='probability', common_norm=False, common_bins=True,
+                palette=bin_colors, legend=legend)
+    #g = sns.displot(data=currd, x=metric,
+    #            hue='binned_%s' % to_quartile, legend=True, palette=bin_colors)
     
     if plot_median:
         for b in plot_bins:
-            median_ = cc_[cc_['binned_%s' % to_quartile]==b][metric].median()
-            g.fig.axes[0].axvline(x=median_, color=qcolors[b])
+            median_ = currd[currd['binned_%s' % to_quartile]==b][metric].median()
+            #g.fig.axes[0].axvline(x=median_, color=bin_colors[b])
+            ax.axvline(x=median_, color=bin_colors[b]) 
     # g.fig.axes[0].axvline(x=0, color='k')
+
+    return ax #g
+
+
+def plot_quartile_dists_by_area(bcorrs, bin_labels, bin_colors,
+                        metric='signal_cc', to_quartile='cortical_distance', 
+                        extrema_only=True, plot_median=True,
+                        visual_areas=['V1', 'Lm', 'Li']): 
+    '''Plot distns of 1st and last quartiles for metric X'''
+
+    # Plot metric X for top and bottom quartiles
+    if extrema_only:
+        plot_bins = [bin_labels[0], bin_labels[-1] ] # [0, 1, 2, 3]
+    else:
+        plot_bins = bin_labels
+    currd = bcorrs[bcorrs['binned_%s' % to_quartile].isin(plot_bins)]    
+    g = sns.FacetGrid(data=currd, col='visual_area', col_order=visual_areas, 
+                      height=2., aspect=1.3,
+                      hue='binned_%s' % to_quartile, palette=bin_colors) 
+    g.map(sns.histplot, metric, stat='probability',
+                      common_norm=False, common_bins=False)
+    g.fig.axes[-1].legend(bbox_to_anchor=(1,1), loc='upper left',
+                      title=to_quartile, fontsize=6)
+    if plot_median:
+        # Add vertical lines
+        for (va, b), c_ in currd.groupby(['visual_area', 'binned_%s' % to_quartile]):
+            median_ = c_[c_['binned_%s' % to_quartile]==b][metric].median()
+            ai = visual_areas.index(va)
+            g.fig.axes[ai].axvline(x=median_, color=bin_colors[b])
+    pl.subplots_adjust(left=0.1, bottom=0.2, right=0.85, top=0.75)
+    sns.despine(trim=True, offset=2)
+
+    return g
+
+
+def plot_y_by_binned_x(means_, bin_labels, connect_fovs=False,cmap='viridis',
+                       metric='signal_cc', to_quartile='cortical_distance',
+                       size=3, visual_areas=['V1', 'Lm', 'Li']):
+    '''Bar plot (medians) showing individual FOV as dots'''
+
+    bw_bin_colors = dict((k, [0.7]*3) for k in bin_labels)
+    g = sns.FacetGrid(data=means_, col='visual_area', col_order=visual_areas,
+                      hue='binned_%s' % to_quartile, height=3, aspect=0.7)
+    g.map(sns.stripplot, 'binned_%s' % to_quartile, metric, palette=cmap, size=size)
+    g.map(sns.barplot, 'binned_%s' % to_quartile, metric, palette=bw_bin_colors,
+             ci=None, estimator=np.median)
+    if connect_fovs:
+        for va, fc in means_.groupby(['visual_area']):
+            ai = visual_areas.index(va)
+            ax = g.fig.axes[ai]
+            sns.lineplot(x='binned_%s' % to_quartile, y=metric, data=fc,
+                         lw=0.5, hue='datakey', ax=ax) #, linecolor='k')
+            ax.legend_.remove()
+    pl.subplots_adjust(top=0.8, left=0.1, right=0.95, bottom=0.2)
+    
     return g
 
