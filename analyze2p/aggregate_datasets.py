@@ -37,6 +37,7 @@ np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
 
 import analyze2p.utils as hutils
 import analyze2p.extraction.rois as roiutils
+#import analyze2p.gratings.utils as utils
 
 # ###############################################################
 # Analysis specific
@@ -1398,8 +1399,9 @@ def process_traces(raw_traces, labels, trace_type='zscore',
 def get_responsive_cells(datakey, run=None, traceid='traces001',
                          response_type='dff',create_new=False, n_processes=1,
                          responsive_test='ROC', responsive_thr=0.05, n_stds=2.5,
-                         rootdir='/n/coxfs01/2p-data', verbose=False):
+                         rootdir='/n/coxfs01/2p-data', verbose=False, return_stats=False):
     '''Load specified responsivity test results.'''
+    rstats=None; roi_list=None; nrois_total=None;
     session, animalid, fovnum = hutils.split_datakey_str(datakey)
     fov = 'FOV%i_zoom2p0x' % fovnum
     run_name = 'gratings' if (('rfs' in run or 'rfs10' in run) and int(session)<20190512) else run 
@@ -1457,7 +1459,7 @@ def get_responsive_cells(datakey, run=None, traceid='traces001',
         with open(stats_fpath[0], 'rb') as f:
             if verbose:
                 print("... loading stats")
-            rstats = pkl.load(f)#, encoding='latin1')
+            rstats = pkl.load(f, encoding='latin1')
         # print("...loaded")        
         if responsive_test == 'ROC':
             roi_list = [r for r, res in rstats.items() if res['pval'] < responsive_thr]
