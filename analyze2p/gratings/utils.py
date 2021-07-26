@@ -34,7 +34,7 @@ def get_fit_desc(response_type='dff', responsive_test=None,
     return fit_desc
 
 
-def get_ori_dir(datakey, traceid='traces001', fit_desc=None, verbose=False,
+def get_fit_dir(datakey, traceid='traces001', fit_desc=None, verbose=False,
                 rootdir='/n/coxfs01/2p-data'):
     '''Find specified results dir for gratings fits'''
     ori_dir=None
@@ -61,6 +61,37 @@ def get_ori_dir(datakey, traceid='traces001', fit_desc=None, verbose=False,
                 print(e)
      
     return ori_dir
+
+
+def create_fit_dir(datakey, run_name='gratings', 
+                   traceid='traces001', response_type='dff', n_stds=2.5,
+                   responsive_test=None, responsive_thr=0.05,
+                   n_bootstrap_iters=1000, n_resamples=20,
+                   rootdir='/n/coxfs01/2p-data', traceid_dir=None):
+
+    # Get RF dir for current fit type
+    fit_desc = get_fit_desc(response_type=response_type, responsive_test=responsive_test, 
+                            n_stds=n_stds,
+                            responsive_thr=responsive_thr, n_bootstrap_iters=n_bootstrap_iters,
+                            n_resamples=n_resamples)
+    session, animalid, fovnum = hutils.split_datakey_str(datakey)
+    traceid_dirs = glob.glob(os.path.join(rootdir, animalid, session, 
+                         'FOV%i_*' % fovnum, 'combined_%s_*' % run_name, 
+                         'traces', '%s*' % traceid))
+        if len(traceid_dirs) > 1:
+            print("More than 1 trace ID found:")
+            for ti, traceid_dir in enumerate(traceid_dirs):
+                print(ti, traceid_dir)
+            sel = input("Select IDX of traceid to use: ")
+            traceid_dir = traceid_dirs[int(sel)]
+        else:
+            traceid_dir = traceid_dirs[0]
+    
+    osidir = os.path.join(traceid_dir, 'tuning', fit_desc)
+    if not os.path.exists(osidir):
+        os.makedirs(osidir)
+
+    return osidir, fit_desc
 
 
 def load_tuning_results(datakey, run_name='gratings', traceid='traces001',

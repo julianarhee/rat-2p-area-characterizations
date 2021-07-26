@@ -148,6 +148,12 @@ def uint16_to_RGB(img):
     rgb = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
     return rgb
 
+def convert_uint16(tracemat):
+    offset = 32768
+    arr = np.zeros(tracemat.shape, dtype='uint16')
+    arr[:] = tracemat + offset
+    return arr
+
 
 
 # Test function for module  

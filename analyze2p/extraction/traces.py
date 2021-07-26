@@ -22,7 +22,8 @@ def get_mean_and_std_traces(roi, raw_traces, labels, curr_cfgs, stimdf):
     return mean_traces, std_traces, tpoints
 
 
-def group_roidata_stimresponse(roidata, labels_df, roi_list=None, return_grouped=True, nframes_post=0): #None):
+def group_roidata_stimresponse(roidata, labels_df, roi_list=None, 
+                            return_grouped=True, nframes_post=0): #None):
     '''
     roidata: array of shape nframes_total x nrois
     labels:  dataframe of corresponding nframes_total with trial/config info
