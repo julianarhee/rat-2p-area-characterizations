@@ -70,14 +70,17 @@ def create_fit_dir(datakey, run_name='gratings',
                    rootdir='/n/coxfs01/2p-data', traceid_dir=None):
 
     # Get RF dir for current fit type
+    search_str = run_name if 'combined' in run_name else 'combined_%s_' % run_name
+
     fit_desc = get_fit_desc(response_type=response_type, responsive_test=responsive_test, 
                             n_stds=n_stds,
                             responsive_thr=responsive_thr, n_bootstrap_iters=n_bootstrap_iters,
                             n_resamples=n_resamples)
     session, animalid, fovnum = hutils.split_datakey_str(datakey)
-    traceid_dirs = glob.glob(os.path.join(rootdir, animalid, session, 
-                         'FOV%i_*' % fovnum, 'combined_%s_*' % run_name, 
-                         'traces', '%s*' % traceid))
+    try:
+        traceid_dirs = glob.glob(os.path.join(rootdir, animalid, session, 
+                             'FOV%i_*' % fovnum, '%s*' % search_str, 
+                             'traces', '%s*' % traceid))
         if len(traceid_dirs) > 1:
             print("More than 1 trace ID found:")
             for ti, traceid_dir in enumerate(traceid_dirs):
@@ -86,7 +89,10 @@ def create_fit_dir(datakey, run_name='gratings',
             traceid_dir = traceid_dirs[int(sel)]
         else:
             traceid_dir = traceid_dirs[0]
-    
+    except Exception as e:
+        print(traceid_dirs)
+        print(datakey, search_str, fit_desc)
+
     osidir = os.path.join(traceid_dir, 'tuning', fit_desc)
     if not os.path.exists(osidir):
         os.makedirs(osidir)
