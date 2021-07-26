@@ -141,6 +141,15 @@ def CoM(df_):
     return cgx, cgy
 
 
+def uint16_to_RGB(img):
+    im = img.astype(np.float64)/img.max()
+    im = 255 * im
+    im = im.astype(np.uint8)
+    rgb = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
+    return rgb
+
+
+
 # Test function for module  
 def _test():
     assert add('1', '1') == 2
