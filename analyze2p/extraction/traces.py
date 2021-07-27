@@ -1,14 +1,21 @@
 
+import os
+import numpy as np
+import pandas as pd
 
-def get_mean_and_std_traces(roi, raw_traces, labels, curr_cfgs, stimdf):
+import scipy.stats as spstats
+
+def get_mean_and_std_traces(roi, traces, labels, curr_cfgs, stimdf):
+    import scipy.stats as spstats
+
     cfg_groups = labels[labels['config'].isin(curr_cfgs)].groupby(['config'])
 
     mean_traces = np.array([np.nanmean(np.array([traces[roi][trials.index]\
                 for rep, trials in cfg_df.groupby(['trial'])]), axis=0) \
-                for cfg, config_df in \
+                for cfg, cfg_df in \
                 sorted(cfg_groups, key=lambda x: stimdf['ori'][x[0]])])
 
-    std_traces = np.array([stats.sem(np.array([traces[roi][trials.index]\
+    std_traces = np.array([spstats.sem(np.array([traces[roi][trials.index]\
                 for rep, trials \
                 in cfg_df.groupby(['trial'])]), axis=0, nan_policy='omit') \
                 for cfg, cfg_df \
