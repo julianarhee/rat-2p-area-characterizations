@@ -169,6 +169,7 @@ def get_pw_cortical_distance(cc_, pos_):
 
 
 def get_bins(n_bins=4, custom_bins=False, use_quartile=True, cmap='viridis'):
+    '''Get generic bins and bin labels to split data up'''
     if custom_bins:
         use_quartile = False
     qcolor_list = sns.color_palette(cmap, n_colors=n_bins)
