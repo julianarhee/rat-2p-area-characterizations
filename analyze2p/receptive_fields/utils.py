@@ -967,7 +967,10 @@ def combine_rfs_single(rfdf):
             else:
                 final_rf = curr_rfdf[curr_rfdf.experiment=='rfs10'].copy() 
         else:
-            final_rf = curr_rfdf[curr_rfdf.experiment=='rfs10'].copy()
+            if 'rfs10' in curr_rfdf['experiment'].values:
+                final_rf = curr_rfdf[curr_rfdf.experiment=='rfs10'].copy()
+            else:
+                final_rf = curr_rfdf[curr_rfdf.experiment=='rfs'].copy()
         rf_.append(final_rf)
 
     final_rfdf = pd.concat(rf_).reset_index(drop=True)
