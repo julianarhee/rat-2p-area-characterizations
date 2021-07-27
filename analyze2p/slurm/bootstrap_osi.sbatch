@@ -35,12 +35,13 @@ RTHR="$4"
 REDOCELL="$5"
 
 echo "datakey: ${DATAKEY}"
-
+echo "REDO: ${REDOCELL}"
 #
-if ["$REDOCELL" = true]; then
+if [[ ${REDOCELL} == "True" ]]; then
     echo "REDOING all cells"
     python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/gratings/bootstrap_osi.py -t $TRACEID -R $RTEST -n 8 -i $DATAKEY -b 500 -k 20 -d dff -f $RTHR -c 1 --new --plots --redo-cell
 else
+    echo "NO redo"
     python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/gratings/bootstrap_osi.py -t $TRACEID -R $RTEST -n 8 -i $DATAKEY -b 500 -k 20 -d dff -f $RTHR -c 1 --new --plots
 fi
  

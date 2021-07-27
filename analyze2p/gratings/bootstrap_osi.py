@@ -182,10 +182,10 @@ def load_tuning_results(datakey='', run_name='gratings', traceid='traces001',
     
     bootresults=None; fitparams=None;
     if traceid_dir is None:
-        search_name = run_name if 'combined_' in run_name else 'combined_%s' % run_name
+        search_name = run_name if 'combined_' in run_name else 'combined_%s_' % run_name
         session, animalid, fovnum = hutils.split_datakey_str(datakey)
         fitdir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovnum, 
-                                        '%s_*' % search_name,
+                                        '%s*' % search_name,
                                         'traces/%s*' % traceid, 'tuning*', fit_desc))
     else:
         fitdir = glob.glob(os.path.join(traceid_dir, 'tuning*', fit_desc))
@@ -998,7 +998,7 @@ def plot_tuning_fits(roi, bootr, df_traces, labels, sdf, trace_type='dff'):
     
     # Plot original data - tuning curves
     curr_oris = np.array([sdf['ori'][c] for c in curr_cfgs])
-    print(curr_oris)
+    #print(curr_oris)
     sz = np.mean([sdf['size'][c] for c in curr_cfgs])
     sf = np.mean([sdf['sf'][c] for c in curr_cfgs])
     sp = np.mean([sdf['speed'][c] for c in curr_cfgs])
@@ -1137,6 +1137,7 @@ def get_tuning(datakey, run_name, return_iters=False,
                                 rootdir=rootdir)
     traceid_dir =  fitdir.split('/tuning/')[0] 
     data_fpath = os.path.join(traceid_dir, 'data_arrays', 'np_subtracted.npz')
+    print(traceid_dir)
 
     do_fits = False
     if not os.path.exists(data_fpath):
@@ -1239,6 +1240,11 @@ def get_tuning(datakey, run_name, return_iters=False,
         start_t = time.time()
         #bootresults = bootstrap_osi_mp(roidf_list, sdf, statdf=statdf, 
         #                            params=fitparams, n_processes=n_processes)
+        if redo_cell:
+            print("Refitting ALL cells")
+        else:
+            print("Only refitting what we need")
+
         bootresults = pool_bootstrap(roidf_list, sdf, statdf=statdf, 
                                     params=fitparams, n_processes=n_processes,
                                     create_new=redo_cell)
@@ -1265,7 +1271,7 @@ def get_tuning(datakey, run_name, return_iters=False,
                     fig, stimkey = plot_tuning_fits(roi, bootr, dff_traces, labels, 
                                                     sdf, trace_type='dff')
                     pplot.label_figure(fig, data_id)
-                    pl.savefig(os.path.join(fitdir, 'roi-fits', \
+                    pl.savefig(os.path.join(fitdir, 'roi-fits', 'figures', \
                                 'roi%05d__%s.png' % (int(roi+1), stimkey)))
                     pl.close()
 

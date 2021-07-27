@@ -141,6 +141,7 @@ info("found %i [%s] datasets to process." % (len(dsets), experiment))
 
 # Run it
 for (datakey), g in dsets.groupby(['datakey']):
+    print("REDO is now: %s" % str(redo_cell))
     mtag = '%s_%s_%s' % (experiment, datakey, visual_area) 
     #
     cmd = "sbatch --job-name={procid}.{mtag} \
