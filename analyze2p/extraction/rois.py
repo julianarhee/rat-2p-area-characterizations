@@ -15,6 +15,25 @@ import analyze2p.utils as hutils
 
 
 
+# Calculations
+def get_roi_centroids(masks):
+    '''Calculate center of soma, then return centroid coords.
+    '''
+    centroids=[]
+    for roi in range(masks.shape[0]):
+        img = masks[roi, :, :].copy()
+        x, y = np.where(img>0)
+        centroid = ( round(sum(x) / len(x)), round(sum(y) / len(x)) )
+        centroids.append(centroid)
+    
+    nrois_total = masks.shape[0]
+    ctr_df = pd.DataFrame(centroids, columns=['y', 'x'], index=range(nrois_total))
+    print("test")
+    return ctr_df
+
+
+
+# Loading
 def load_roi_assignments(animalid, session, fov, retinorun='retino_run1', 
                             rootdir='/n/coxfs01/2p-data'):
     

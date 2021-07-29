@@ -193,6 +193,37 @@ def check_sdfs(stim_datakeys, experiment='blobs', traceid='traces001', images_on
         return SDF
 
 
+def select_stimulus_configs(datakey, experiment, select_stimuli=None):
+    '''
+    Get config list for datakey and experiment.
+
+    select_stimuli: (str or None)
+        - None: Returns all configs in sdf.
+        - fullfield: Return only full-field stimuli 
+                   This will be FF (gratings) or morphlevel=-1 (blobs)
+        - images: Return non-FF stimuli.
+                This will be apertured (gratings) or images (blobs)
+
+    Returns list ['config001', 'config002', etc.]
+    '''
+    curr_cfgs=None
+    sdf = get_stimuli(datakey, experiment=experiment)
+    if sdf is None:
+        return None
+    if select_stimuli is not None:
+        if experiment=='gratings':
+            curr_cfgs = sdf[sdf['size']==200].index.tolist() \
+                        if select_stimuli=='fullfield' \
+                        else sdf[sdf['size']!=200].index.tolist()
+        elif experiment=='blobs':
+            curr_cfgs = sdf[sdf['morphlevel']!=-1].index.tolist() \
+                        if select_stimuli=='images' \
+                        else sdf[sdf['morphlevel']==-1].index.tolist()
+    else:
+        curr_cfgs = sdf.index.tolist()
+        
+    return curr_cfgs
+
 # ###############################################################
 # Data formatting
 # ###############################################################

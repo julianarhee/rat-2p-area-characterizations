@@ -761,21 +761,21 @@ def dilate_mask_centers(maskcenters, kernel_size=9):
     return dilated_masks
 
 
-def get_roi_centroids(masks):
-    '''Calculate center of soma, then return centroid coords.
-    '''
-    centroids=[]
-    for roi in range(masks.shape[0]):
-        img = masks[roi, :, :].copy()
-        x, y = np.where(img>0)
-        centroid = ( round(sum(x) / len(x)), round(sum(y) / len(x)) )
-        centroids.append(centroid)
-    
-    nrois_total = masks.shape[0]
-    ctr_df = pd.DataFrame(centroids, columns=['x', 'y'], index=range(nrois_total))
-
-    return ctr_df
-
+#def get_roi_centroids(masks):
+#    '''Calculate center of soma, then return centroid coords.
+#    '''
+#    centroids=[]
+#    for roi in range(masks.shape[0]):
+#        img = masks[roi, :, :].copy()
+#        y, x = np.where(img>0)
+#        centroid = ( round(sum(x) / len(x)), round(sum(y) / len(x)) )
+#        centroids.append(centroid)
+#    
+#    nrois_total = masks.shape[0]
+#    ctr_df = pd.DataFrame(centroids, columns=['x', 'y'], index=range(nrois_total))
+#
+#    return ctr_df
+#
 def mask_rois(masks, value_array, mask_thr=0.1, return_array=False):
     '''
     dim 0 of mask_array (nrois, d1, d2) must be same as len(value_array)

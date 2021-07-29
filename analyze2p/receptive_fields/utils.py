@@ -1020,9 +1020,10 @@ def average_rfs(rfdf):
         meanrf = curr_rfdf.groupby(['cell']).mean().reset_index()
         mean_thetas = curr_rfdf.groupby(['cell'])['theta'].apply(spstats.circmean, low=0, high=2*np.pi).values
         meanrf['theta'] = mean_thetas
-        meanrf['visual_area'] = [visual_area for _ in  np.arange(0, len(assigned_with_rfs))] # reassign area
-        meanrf['experient'] = ['average_rfs' if len(g['experiment'].values)>1 \
-                                else str(g['experiment'].unique()) for c, g in curr_rfdf.groupby(['cell'])]
+        meanrf['visual_area'] = visual_area # reassign area
+        meanrf['experiment'] = ['average_rfs' if len(g['experiment'].values)>1 \
+                                else str(g['experiment'].unique()) \
+                                for c, g in curr_rfdf.groupby(['cell'])]
         #meanrf['experiment'] = ['average_rfs' for _ in np.arange(0, len(assigned_with_rfs))]
 
         # Add the meta/non-numeric info
@@ -1033,7 +1034,7 @@ def average_rfs(rfdf):
         final_rf = update_rf_metrics(final_rf, scale_sigma=True)
         rf_.append(final_rf)
 
-    final_rfdf = pd.concat(r_).reset_index(drop=True)
+    final_rfdf = pd.concat(rf_).reset_index(drop=True)
 
     return final_rfdf
 
