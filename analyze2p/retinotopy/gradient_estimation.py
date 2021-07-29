@@ -33,11 +33,12 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from pipeline.python.utils import convert_range
 from pipeline.python.utils import natural_keys, label_figure, colorbar, turn_off_axis_ticks
-from pipeline.python import utils as putils
-from pipeline.python.retinotopy import utils as ret_utils
-from pipeline.python.retinotopy import segment_retinotopy as seg #et_utils
+#from pipeline.python import utils as putils
+import analyze2p.retinotopy.utils as ret_utils
+import analyze2p.retinotopy.segment_retinotopy as seg 
 
-from pipeline.python.rois import utils as roi_utils
+import analyze2p.extraction.rois as roi_utils
+
 from pipeline.python.paradigm import utils as par_utils
 from pipeline.python.coregistration import align_fov as coreg
 from pipeline.python.classifications import evaluate_receptivefield_fits as evalrf
@@ -50,6 +51,15 @@ from scipy.interpolate import SmoothBivariateSpline
 from sklearn.linear_model import LinearRegression, Ridge, Lasso
 import scipy.stats as spstats
 import sklearn.metrics as skmetrics #import mean_squared_error
+
+
+#%% Gradient/scatter analysis functions
+def predict_cortex_position(regr, cond='az', points=None):
+    g_intercept = float(regr[regr.cond==cond]['intercept'])
+    g_slope = float(regr[regr.cond==cond]['coefficient'])
+    predicted_ctx_x = (points - g_intercept) / g_slope
+
+    return predicted_ctx_x
 
 
 #%%
@@ -1240,7 +1250,7 @@ def roi_gradients(animalid, session, fov, retinorun='retino_run1',
     return az_fill, el_fill, params, RETID
 
 
-def pixel_gradients(animalid, session, fov, retinorun='retino_run1', 
+def pixel_gradients(datakey, retinorun='retino_run1', 
                 traceid='traces001', mag_thr=0.003, delay_map_thr=1, 
                 cmap='nipy_spectral', smooth_fwhm=7, use_phase_smooth=False, smooth_spline=1,
                 full_cmap_range=True, dst_dir=None, rootdir='/n/coxfs01/2p-data'): 
@@ -1250,20 +1260,22 @@ def pixel_gradients(animalid, session, fov, retinorun='retino_run1',
                 #rootdir='/n/coxfs01/2p-data'): 
                 
     #%% Load data metainfo
-    retinoid, RETID = ret_utils.load_retino_analysis_info(animalid, 
-                            session, fov, retinorun, traceid, use_pixels=True)
+    retinoid, RETID = ret_utils.load_retino_analysis_info(datakey,
+                            retinorun, traceid, use_pixels=True)
     data_id = '_'.join([animalid, session, fov, retinorun, retinoid])
     print("DATA ID: %s" % data_id)
 
     # Load MW info and SI info
-    mwinfo = ret_utils.load_mw_info(animalid, session, fov, retinorun)
-    scaninfo = ret_utils.get_protocol_info(animalid, session, fov, run=retinorun) 
+    mwinfo = ret_utils.load_mw_info(datakey, retinorun)
+    scaninfo = ret_utils.get_protocol_info(datakey, run=retinorun) 
     trials_by_cond = scaninfo['trials']
 
     # Set current animal's retino output dir
     curr_dst_dir = dst_dir
     if curr_dst_dir is None:
-        run_dir = os.path.join(rootdir, animalid, session, fov, retinorun)
+        session, animalid, fovnum = hutils.split_datakey_str(datakey)
+        run_dir = glob.glob(os.path.join(rootdir, animalid, session, \
+                        'FOV%i_' % fovnum, retinorun))[0]
         curr_dst_dir = os.path.join(run_dir, 'retino_analysis', 'retino_structure')
         if not os.path.exists(curr_dst_dir):
             os.makedirs(curr_dst_dir)
@@ -1493,8 +1505,9 @@ def gradient_full_fov(opts): #options):
                                                   return_cmap=True)
 
     # Get gradients
+    datakey = '%s_%s_fov%i' % (session, animalid, int(fov.split('_')[0][3:]))
     if use_pixels:
-        az_fill, el_fill, params, RETID = pixel_gradients(animalid, session, fov,
+        az_fill, el_fill, params, RETID = pixel_gradients(datakey,
                             retinorun=retinorun, traceid=traceid, 
                             mag_thr=mag_thr, cmap=cmap_name, 
                             smooth_fwhm=smooth_fwhm, smooth_spline=smooth_spline)                
