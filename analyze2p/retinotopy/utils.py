@@ -19,16 +19,29 @@ from scipy import misc,interpolate,stats,signal
 import analyze2p.utils as hutils
 #from py3utils import natural_keys
 
+import analyze2p.extraction.rois as roiutils
+
 # Data selection
-def get_average_mag_across_pixels(animalid, session, fov, rootdir='/n/coxfs01/2p-data'):
+def get_average_mag_across_pixels(datakey, retinorun=None,
+                                rootdir='/n/coxfs01/2p-data'):
+    '''
+    Averages magnitude across trials and cond, and
+    get average mag value for a given retino run. 
+    '''
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
+    fov='FOV%i_zoom2p0x' % fovn
+
     magratios=[]
+    search_run = 'retino_run' if retinorun is None else retinorun    
     retinoruns = [os.path.split(r)[-1] for r \
-                  in glob.glob(os.path.join(rootdir, animalid, session, fov, 'retino_run*'))]
-    
+                    in glob.glob(os.path.join(rootdir, animalid, session, 
+                    'FOV%i_*' % fovn, '%s*' % search_run))] 
     for retinorun in retinoruns:
         try:
-            retinoid, RETID = load_retino_analysis_info(animalid, session, fov, retinorun, use_pixels=True)
-            assert RETID is not None, "Error loading analysis: %s (%s, %s, %s)" % (retinorun, animalid, session, fov)
+            retinoid, RETID = load_retino_analysis_info(\
+                                datakey, retinorun, use_pixels=True)
+            assert RETID is not None, \
+                "Error loading analysis: %s (%s)" % (retinorun, datakey)
 
             magratio, phase, trials_by_cond = fft_results_by_trial(RETID)
             mean_mag = magratio.mean(axis=0).mean()
@@ -37,7 +50,7 @@ def get_average_mag_across_pixels(animalid, session, fov, rootdir='/n/coxfs01/2p
             print(e)
             continue
 
-    return magratios
+    return pd.DataFrame(magratios)
 
 def select_strongest_retinorun(projection_df):
     d_=[]
@@ -89,7 +102,8 @@ def get_final_maps(magratios_soma, phases_soma, trials_by_cond=None,
     #### Mean mag ratios
     if isinstance(magmaps, dict):
         magmaps = pd.concat(magmaps, axis=1)
-    mags_by_cond = pd.DataFrame(magmaps[['right', 'left']].mean(axis=1), columns=['mag_az'])
+    mags_by_cond = pd.DataFrame(magmaps[['right', 'left']]\
+                        .mean(axis=1), columns=['mag_az'])
     mags_by_cond['mag_el'] = magmaps[['top', 'bottom']].mean(axis=1)
     
     #### Reprt
@@ -117,7 +131,8 @@ def arrays_to_maps(magratio, phase, trials_by_cond, use_cont=False,
                             dims=(512, 512), ds_factor=2, cond='right',
                             mag_thr=None, mag_perc=0.05, return_map=True):
     if mag_thr is None:
-        mag_thr = magratio.max().max()*mag_perc
+        mag_thr = -np.inf # Set to neg infinity for NO filter
+        #mag_thr = magratio.max().max()*mag_perc
 
     currmags = magratio[trials_by_cond[cond]].copy()
     currmags_mean = currmags.mean(axis=1)
@@ -152,7 +167,11 @@ def arrays_to_maps(magratio, phase, trials_by_cond, use_cont=False,
     return currmags_map, currphase_map_c, mag_thr
 
 def absolute_maps_from_conds(magratio, phase, trials_by_cond=None, mag_thr=0.01,
-                                dims=(512, 512), ds_factor=2, return_map=True, verbose=False):
+                        dims=(512, 512), ds_factor=2, return_map=True, verbose=False):
+    '''Calculate absolute maps and delay maps from conditions'''
+    if mag_thr is None:
+        mag_thr = -np.inf
+
     use_cont=False # doens't matter, should be equiv now
     magmaps = {}
     phasemaps = {}
@@ -160,16 +179,18 @@ def absolute_maps_from_conds(magratio, phase, trials_by_cond=None, mag_thr=0.01,
     if trials_by_cond is not None:
         for cond in trials_by_cond.keys():
             magmaps[cond], phasemaps[cond], magthrs[cond] = arrays_to_maps(
-                                                        magratio, phase, trials_by_cond,
-                                                        cond=cond, use_cont=use_cont,
-                                                        mag_thr=mag_thr, dims=dims,
-                                                        ds_factor=ds_factor, return_map=return_map)
+                                                magratio, phase, trials_by_cond,
+                                                cond=cond, use_cont=use_cont,
+                                                mag_thr=mag_thr, dims=dims,
+                                                ds_factor=ds_factor, 
+                                                return_map=return_map)
     else:
         non_nan_ix = magratio[magratio<mag_thr].dropna().index.tolist()
         magmaps = magratio.copy()
         magmaps.loc[non_nan_ix] = np.nan
-        
-        phasemaps = phase.apply(correct_phase_wrap) # make continuous, from 0 to 2pi
+        # Make continuous, from 0 to 2pi 
+        phasemaps = phase.apply(correct_phase_wrap) 
+        # Don't include low-responding pix for phase calc
         phasemaps.loc[non_nan_ix] = np.nan
         
     ph_left = phasemaps['left'].copy()
@@ -181,21 +202,28 @@ def absolute_maps_from_conds(magratio, phase, trials_by_cond=None, mag_thr=0.01,
 
     absolute_az = (ph_left - ph_right) / 2.
     delay_az = (ph_left + ph_right) / 2.
-
     absolute_el = (ph_bottom - ph_top) / 2.
     delay_el = (ph_bottom + ph_top) / 2.
 
-    vmin, vmax = (-np.pi, np.pi) # Now in range (-np.pi, np.pi)
+    # Reset range
+    vmin, vmax = (-np.pi, np.pi) 
     if verbose:
         print("got absolute:", np.nanmin(absolute_az), np.nanmax(absolute_az))
         print("Delay:", np.nanmin(delay_az), np.nanmax(delay_az))
 
     return magmaps, absolute_az, absolute_el, delay_az, delay_el
 
-def filter_by_delay_map(absolute_az, absolute_el, delay_az, delay_el, delay_map_thr=0.5, 
-                        return_delay=True):
-    delay_diff = abs(delay_az-delay_el)
 
+def filter_by_delay_map(absolute_az, absolute_el, delay_az, delay_el, 
+                        delay_map_thr=0.5, return_delay=True):
+    '''
+    Good pixels/cells should have delay close to 0 on absolute maps.
+    Keep delay_map_thr low to filter harder.
+    '''
+    if delay_map_thr is None:
+        delay_map_thr = np.inf # Set to inf. if None (no filter)
+
+    delay_diff = abs(delay_az-delay_el)
     filt_az = absolute_az.copy()
     filt_az[delay_diff>delay_map_thr] = np.nan
 
@@ -321,10 +349,11 @@ def load_fov_image(RETID):
 
     return zimg
 
-def load_mw_info(animalid, session, fov, run_name='retino', rootdir='/n/coxfs01/2p-data'):
-    parsed_fpaths = glob.glob(os.path.join(rootdir, animalid, session, fov,
-                                    '%s*' % run_name,
-                                    'paradigm', 'files', 'parsed_trials*.json'))
+def load_mw_info(datakey, run_name='retino', rootdir='/n/coxfs01/2p-data'):
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
+    parsed_fpaths = glob.glob(os.path.join(rootdir, animalid, session, 
+                                'FOV%i_*' % fovn, '%s*' % run_name,
+                                'paradigm', 'files', 'parsed_trials*.json'))
     assert len(parsed_fpaths)==1, "Unable to find correct parsed trials path: %s" % str(parsed_fpaths)
     with open(parsed_fpaths[0], 'r') as f:
         mwinfo = json.load(f)
@@ -332,17 +361,20 @@ def load_mw_info(animalid, session, fov, run_name='retino', rootdir='/n/coxfs01/
     return mwinfo
 
 
-def get_protocol_info(animalid, session, fov, run='retino_run1', rootdir='/n/coxfs01/2p-data'):
-
-    run_dir = os.path.join(rootdir, animalid, session, fov, run)
-    mwinfo = load_mw_info(animalid, session, fov, run, rootdir=rootdir)
+def get_protocol_info(datakey, run='retino_run1', rootdir='/n/coxfs01/2p-data'):
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
+    run_dir = glob.glob(os.path.join(rootdir, animalid, session, 
+                                    'FOV%i_*' % fovn, run))[0]
+    mwinfo = load_mw_info(datakey, run_name=run, rootdir=rootdir)
 
     si_fpath = glob.glob(os.path.join(run_dir, '*.json'))[0]
     with open(si_fpath, 'r') as f:
         scaninfo = json.load(f)
 
-    conditions = list(set([cdict['stimuli']['stimulus'] for trial_num, cdict in mwinfo.items()]))
-    trials_by_cond = dict((cond, [int(k) for k, v in mwinfo.items() if v['stimuli']['stimulus']==cond]) \
+    conditions = list(set([cdict['stimuli']['stimulus'] \
+                        for trial_num, cdict in mwinfo.items()]))
+    trials_by_cond = dict((cond, [int(k) for k, v in mwinfo.items() \
+                        if v['stimuli']['stimulus']==cond]) \
                            for cond in conditions)
     n_frames = scaninfo['nvolumes']
     fr = scaninfo['frame_rate']
@@ -380,14 +412,16 @@ def get_protocol_info(animalid, session, fov, run='retino_run1', rootdir='/n/cox
 
     return scaninfo
 
-def load_retino_analysis_info(animalid, session, fov, run='retino', roiid=None, retinoid=None, 
+def load_retino_analysis_info(datakey, run='retino', roiid=None, retinoid=None, 
                               use_pixels=False, rootdir='/n/coxfs01/2p-data'):
 
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
+    fov='FOV%i_zoom2p0x' % fovn
+
     retinoid=None; RID=None;
-
-    run_dir = glob.glob(os.path.join(rootdir, animalid, session, '%s*' % fov, '%s*' % run))[0]
+    run_dir = glob.glob(os.path.join(rootdir, animalid, session, \
+                        'FOV%i_*' % fovn, '%s*' % run))[0]
     fov = os.path.split(os.path.split(run_dir)[0])[-1]
-
     try:
         retinoids_fpath = glob.glob(os.path.join(run_dir, 'retino_analysis', \
                                         'analysisids_*.json'))[0]
@@ -396,13 +430,15 @@ def load_retino_analysis_info(animalid, session, fov, run='retino', roiid=None, 
        
         if use_pixels:
             roi_analyses = [r for r, rinfo in rids.items() \
-                                    if rinfo['PARAMS']['roi_type'] == 'pixels']
+                            if rinfo['PARAMS']['roi_type'] == 'pixels']
         else:
             if roiid is not None:
-                roi_analyses = [r for r, rinfo in rids.items() if 'roi_id' in rinfo['PARAMS'].keys() and rinfo['PARAMS']['roi_id']==roiid]
+                roi_analyses = [r for r, rinfo in rids.items() \
+                            if 'roi_id' in rinfo['PARAMS'].keys() \
+                            and rinfo['PARAMS']['roi_id']==roiid]
             else: 
                 roi_analyses = [r for r, rinfo in rids.items() \
-                                    if rinfo['PARAMS']['roi_type'] != 'pixels']
+                            if rinfo['PARAMS']['roi_type'] != 'pixels']
         if retinoid not in roi_analyses:
             # use most recent roi analysis
             retinoid = sorted(roi_analyses, key=hutils.natural_keys)[-1]
@@ -427,21 +463,28 @@ def fft_results_by_trial(RETID):
                                                 trialinfo_filepath)
     return magratio, phase, trials_by_cond
 
-def trials_to_dataframes(processed_fpaths, conditions_fpath):
 
+def trials_to_dataframes(processed_fpaths, conditions_fpath):
+    '''
+    Open outupt files (from do_retinoanalysis.py) and return 
+    processed data for each trial and condition
+    Works for pixels or for ROIs.
+    '''
     # Get condition / trial info:
     with open(conditions_fpath, 'r') as f:
         conds = json.load(f)
-    cond_list = list(set([cond_dict['stimuli']['stimulus'] for trial_num, cond_dict in conds.items()]))
+    cond_list = list(set([cond_dict['stimuli']['stimulus'] \
+                    for trial_num, cond_dict in conds.items()]))
     trials_by_cond = dict((cond, [int(k) for k, v in conds.items() \
-                                  if v['stimuli']['stimulus']==cond]) for cond in cond_list)
+                    if v['stimuli']['stimulus']==cond]) for cond in cond_list)
 
     excluded_tifs = []
     for cond, tif_list in trials_by_cond.items():
         for tifnum in tif_list:
             processed_tif = [f for f in processed_fpaths if 'File%03d' % tifnum in f]
             if len(processed_tif) == 0:
-                print("---(%s) No analysis found for file: %s" % (conditions_fpath, tifnum))
+                print("---(%s) No analysis found for file: %s" \
+                            % (conditions_fpath, tifnum))
                 excluded_tifs.append(tifnum)
         trials_by_cond[cond] = [t for t in tif_list if t not in excluded_tifs]
     trial_list = [int(t) for t in conds.keys() if int(t) not in excluded_tifs]
@@ -449,8 +492,8 @@ def trials_to_dataframes(processed_fpaths, conditions_fpath):
     fits = []
     phases = []
     mags = []
-    for trial_num, trial_fpath in zip(sorted(trial_list), sorted(processed_fpaths, key=hutils.natural_keys)):
-
+    for trial_num, trial_fpath \
+        in zip(sorted(trial_list), sorted(processed_fpaths, key=hutils.natural_keys)):
         #print("%i: %s" % (trial_num, os.path.split(trial_fpath)[-1]))
         df = h5py.File(trial_fpath, 'r')
         fits.append(pd.Series(data=df['var_exp_array'][:], name=trial_num))
@@ -464,30 +507,36 @@ def trials_to_dataframes(processed_fpaths, conditions_fpath):
 
     return fit, magratio, phase, trials_by_cond
 
+
 def extract_from_fft_results(fft_soma):
     '''
-    Return magratios_soma, phases_soma
+    Return magratios_soma, phases_soma as dataframe
     '''
     # Create dataframe of magratios -- each column is a condition
     magratios_soma = pd.DataFrame(dict((cond, k[0]) for cond, k in fft_soma.items()))
     phases_soma = pd.DataFrame(dict((cond, k[1]) for cond, k in fft_soma.items()))
+
     return magratios_soma, phases_soma
 
 
-def load_fft_results(animalid, session, fov, retinorun='retino_run1', trace_type='corrected',
+def load_fft_results(datakey, retinorun='retino_run1', trace_type='corrected',
                      traceid='traces001', roiid=None, use_pixels=False,
                      detrend_after_average=True, in_negative=False,
                      rootdir='/n/coxfs01/2p-data', verbose=False, create_new=False):
+    
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
     fft_results=None
-    run_dir = os.path.join(rootdir, animalid, session, fov, retinorun)
+    run_dir = glob.glob(os.path.join(rootdir, animalid, session, \
+                            'FOV%i_*' % fovn, retinorun))
     try:
         # RETID = load_retinoanalysis(run_dir, traceid)
-        retinoid, RETID = load_retino_analysis_info(animalid, session, fov, 
+        retinoid, RETID = load_retino_analysis_info(datakey, 
                                     use_pixels=use_pixels, roiid=roiid)
 
         assert RETID is not None
     except AssertionError as e: #Exception as e:
-        print("[%s, %s, %s] NO retino <$s> for rois w/ %s\n...check dir: %s" % (animalid, session, fov, retinorun, traceid, run_dir))
+        print("[%s] NO retino <%s> for rois w/ %s\n...check dir: %s" \
+                    % (datakey, retinorun, traceid, run_dir))
         #create_new=True
         return None
 
@@ -505,11 +554,11 @@ def load_fft_results(animalid, session, fov, retinorun='retino_run1', trace_type
             create_new=True
 
     if create_new:
-
         # Load MW info and SI info
-        mwinfo = load_mw_info(animalid, session, fov, retinorun)
-        scaninfo = get_protocol_info(animalid, session, fov, run=retinorun) # load_si(run_dir)
-        tiff_paths = tiff_fpaths = sorted(glob.glob(os.path.join(RETID['SRC'], '*.tif')), key=hutils.natural_keys)
+        mwinfo = load_mw_info(datakey, retinorun)
+        scaninfo = get_protocol_info(datakey, run=retinorun) # load_si(run_dir)
+        tiff_paths = sorted(glob.glob(os.path.join(RETID['SRC'], '*.tif')), 
+                                key=hutils.natural_keys)
         if verbose:
             print("Found %i tifs" % len(tiff_paths))
 
@@ -520,13 +569,14 @@ def load_fft_results(animalid, session, fov, retinorun='retino_run1', trace_type
 
         #### Load raw and process traces -- returns average trace for condition
         # retino_dpath = os.path.join(analysis_dir, 'traces', 'extracted_traces.h5')
-        np_traces = load_roi_traces(animalid, session, fov, run=retinorun,
-                        analysisid=retinoid, trace_type='neuropil', detrend_after_average=detrend_after_average)
-        soma_traces = load_roi_traces(animalid, session, fov, run=retinorun,
-                        analysisid=retinoid, trace_type=trace_type, detrend_after_average=detrend_after_average)
-
+        np_traces = load_roi_traces(datakey, run=retinorun,
+                            analysisid=retinoid, trace_type='neuropil', 
+                            detrend_after_average=detrend_after_average)
+        soma_traces = load_roi_traces(datakey, run=retinorun,
+                            analysisid=retinoid, trace_type=trace_type, 
+                            detrend_after_average=detrend_after_average)
         # Do fft
-        n3_frames = scaninfo['stimulus']['n_frames']
+        n_frames = scaninfo['stimulus']['n_frames']
         frame_rate = scaninfo['stimulus']['frame_rate']
         stim_freq_idx = scaninfo['stimulus']['stim_freq_idx']
 
@@ -551,6 +601,64 @@ def load_fft_results(animalid, session, fov, retinorun='retino_run1', trace_type
             pkl.dump(fft_results, f, protocol=2)
 
     return fft_results
+
+
+def get_retino_fft(datakey, curr_cells=None, traceid='traces001', 
+                   mag_thr=None, delay_thr=None, create_new=False,
+                   use_pixels=False):
+    '''
+    Get retino phase/mag for AZ and EL by datakey and assigned cells.
+    Set mag_thr to super low # if don't want to threshold yet.
+    If >1 retinorun, pick the best one (based on max. mag-ratio).
+    Set mag_thr=None, delay_thr=None for NO filters.
+    '''
+    df=None
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
+    fov='FOV%i_zoom2p0x' % fovn
+    try:
+        roiid = roiutils.get_roiid_from_traceid(animalid, session, fov, 
+                                                traceid=traceid)
+    except Exception as e:
+        print("[%s] Unable to get roiid (%s)" % (datakey, traceid))
+        print(e)
+        roiid=None
+    # Select best retino run (if there are multiple)
+    all_retinos = get_average_mag_across_pixels(datakey)
+    try:
+        retinorun = all_retinos.loc[all_retinos[1].idxmax()][0]
+    except Exception as e:
+        print(e)
+        print(all_retinos)
+    # Load fft results
+    fft_results = load_fft_results(datakey, roiid=roiid,
+                                    retinorun=retinorun, traceid=traceid, 
+                                    create_new=create_new, use_pixels=use_pixels)
+    if fft_results is None:
+        return None
+
+    fft_soma = fft_results['fft_soma']
+    # Create dataframe of magratios -- each column is a condition
+    conds=['left', 'right', 'bottom', 'top']
+    df_=None
+    try:
+        magratios_soma, phases_soma = extract_from_fft_results(fft_soma)
+        assert all([a in magratios_soma.columns for a in conds]), \
+                "Incorrect N conditions (%s)" % str(magratios_soma.columns)
+        # Get maps
+        df_ = get_final_maps(magratios_soma, phases_soma, 
+                        trials_by_cond=None, mag_thr=mag_thr, delay_thr=delay_thr)
+        # Select cells
+        if df_ is not None:
+            if curr_cells is None:
+                cell_cells = df.index.to_numpy()
+            cell_ids = curr_cells['cell'].unique()
+            df = df_.loc[cell_ids].copy()
+            df['retinorun'] = retinorun
+    except Exception as e:
+        print(e)
+        return None
+
+    return df
 
 
 def do_fft_analysis(avg_traces, sorted_idxs, stim_freq_idx):
@@ -594,13 +702,15 @@ def do_fft_analysis(avg_traces, sorted_idxs, stim_freq_idx):
 # Traces/preprocessing
 # -----------------------------------------------------------------------------
 # preprocessing ---------------
-def load_roi_traces(animalid, session, fov, run='retino_run1', analysisid='analysis002',
+def load_roi_traces(datakey, run='retino_run1', analysisid='analysis002',
                 trace_type='corrected', detrend_after_average=True, verbose=False,
                 rootdir='/n/coxfs01/2p-data'):
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
     if verbose:
         print("... loading traces (%s)" % trace_type)
-    retinoid_path = glob.glob(os.path.join(rootdir, animalid, session, fov, '%s*' % run,
-                                'retino_analysis', 'analysisids_*.json'))[0]
+    retinoid_path = glob.glob(os.path.join(rootdir, animalid, session, 
+                           'FOV%i_*' % fovn, '%s*' % run,
+                            'retino_analysis', 'analysisids_*.json'))[0]
     with open(retinoid_path, 'r') as f:
         RIDS = json.load(f)
     eligible = [r for r, res in RIDS.items() if res['PARAMS']['roi_type']!='pixels']
@@ -613,11 +723,14 @@ def load_roi_traces(animalid, session, fov, run='retino_run1', analysisid='analy
     if verbose:
         print("... loading traces from: %s" % analysis_dir)
     retino_dpath = os.path.join(analysis_dir, 'traces', 'extracted_traces.h5')
-    scaninfo = get_protocol_info(animalid, session, fov, run=run)
+    scaninfo = get_protocol_info(datakey, run=run)
     temporal_ds = RIDS[analysisid]['PARAMS']['downsample_factor']
     traces = load_roi_traces_from_file(retino_dpath, scaninfo, trace_type=trace_type,
-                                    temporal_ds=temporal_ds, detrend_after_average=detrend_after_average)
+                                    temporal_ds=temporal_ds, 
+                                    detrend_after_average=detrend_after_average)
+
     return traces
+
 
 def load_roi_traces_from_file(retino_dpath, scaninfo, trace_type='corrected',
                             temporal_ds=None, detrend_after_average=False):

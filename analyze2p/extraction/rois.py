@@ -16,22 +16,6 @@ import analyze2p.utils as hutils
 
 
 # Calculations
-def get_roi_centroids(masks):
-    '''Calculate center of soma, then return centroid coords.
-    '''
-    centroids=[]
-    for roi in range(masks.shape[0]):
-        img = masks[roi, :, :].copy()
-        x, y = np.where(img>0)
-        centroid = ( round(sum(x) / len(x)), round(sum(y) / len(x)) )
-        centroids.append(centroid)
-    
-    nrois_total = masks.shape[0]
-    ctr_df = pd.DataFrame(centroids, columns=['y', 'x'], index=range(nrois_total))
-    print("test")
-    return ctr_df
-
-
 
 # Loading
 def load_roi_assignments(animalid, session, fov, retinorun='retino_run1', 
@@ -71,7 +55,7 @@ def get_masks_and_centroids(dk, traceid='traces001',
 
     return zimg, masks, centroids
 
-def get_roi_centroids(masks):
+def get_roi_centroids(masks, xlabel='x', ylabel='y'):
     '''Calculate center of soma, then return centroid coords.
     '''
     if np.isnan(masks.max()):
@@ -84,7 +68,7 @@ def get_roi_centroids(masks):
         centroids.append(centroid)
     
     nrois_total = masks.shape[0]
-    ctr_df = pd.DataFrame(centroids, columns=['x', 'y'], index=range(nrois_total))
+    ctr_df = pd.DataFrame(centroids, columns=[ylabel, xlabel], index=range(nrois_total))
 
     return ctr_df
 
@@ -324,4 +308,19 @@ def transform_fov_posdf(posdf, fov_keys=('fov_xpos', 'fov_ypos'),
     posdf['ap_pos'] = [t[1] for t in t_coords]
 
     return posdf
+
+
+def get_transformation_matrix(u1, u2):
+    a, b = u1[0], u1[1]
+    c, d = u2[0], u2[1]
+
+    a_21 = 1. / ( (-a*d/b) + c)
+    a_11 = (-d/b) * a_21
+
+    a_22 = 1./((-c*b/a)+d)
+    a_12 = (-c/a) * a_22
+
+    M = np.array( [ [a_11, a_12], [a_21, a_22] ])
+    
+    return M
 

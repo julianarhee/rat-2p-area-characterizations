@@ -38,6 +38,7 @@ np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
 import analyze2p.utils as hutils
 import analyze2p.extraction.rois as roiutils
 #import analyze2p.gratings.utils as utils
+import analyze2p.retinotopy.utils as retutils
 
 # ###############################################################
 # Analysis specific
@@ -569,7 +570,7 @@ def load_responsive_neuraldata(experiment, traceid='traces001',
                               responsive_test=responsive_test, 
                               responsive_thr=responsive_thr, n_stds=n_stds)
     elif experiment=='retino':
-        retinodata = load_aggregate_retinodata(traceid=traceid, 
+        retinodata = get_aggregate_retinodata(traceid=traceid, 
                                 mag_thr=retino_thr, delay_thr=retino_delay)
         NDATA = get_responsive_retino(retinodata, mag_thr=retino_thr)
     elif experiment in ['rfs', 'rfs10']:
@@ -794,10 +795,13 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
 
 
 
-def get_aggregate_data_filepath(experiment, traceid='traces001', response_type='dff', 
+def get_aggregate_filepath(experiment, traceid='traces001', response_type='dff', 
                         epoch='stimulus', 
                        responsive_test='ROC', responsive_thr=0.05, n_stds=0.0,
                        aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+    '''Get filepath for specified aggregate data
+    (prev called get_aggregate_data_filepath()
+    '''
     #### Get DATA   
     data_dir = os.path.join(aggregate_dir, 'data-stats')
     data_desc_base = create_dataframe_name(traceid=traceid, 
@@ -811,6 +815,7 @@ def get_aggregate_data_filepath(experiment, traceid='traces001', response_type='
     return data_outfile #print(data_desc)
     
 
+
 def create_dataframe_name(traceid='traces001', response_type='dff', 
                              epoch='stimulus',
                              responsive_test='ROC', responsive_thr=0.05, n_stds=0.0): 
@@ -818,6 +823,80 @@ def create_dataframe_name(traceid='traces001', response_type='dff',
     data_desc = 'trialmeans_%s_%s-thr-%.2f_%s_%s' \
                     % (traceid, str(responsive_test), responsive_thr, response_type, epoch)
     return data_desc
+
+
+def get_aggregate_retinodata(traceid='traces001', 
+                        mag_thr=None, delay_thr=None, return_missing=False,
+                        visual_areas=['V1', 'Lm', 'Li'],
+                        create_new=False, redo_fov=False,
+                        aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+    '''
+    Load or create aggregate retinodata for all datasets specified.
+    Includes ALL assigned cells (ret_cells). 
+    Use get_responsive_retino() to filter by mag_thr.
+    
+    Returns df with phase and magnitude (columns) for 
+    AZ/EL conditions for ALL cells.
+    '''
+    sdata, cells0 = get_aggregate_info(visual_areas=visual_areas, return_cells=True)
+    meta = sdata[sdata.experiment=='retino'].copy() 
+    # Only get cells for current experiment
+    all_dkeys = [(va, dk) for (va, dk), g in meta.groupby(['visual_area', 'datakey'])]
+    CELLS = pd.concat([g for (va, dk), g in cells0.groupby(['visual_area', 'datakey'])\
+                    if (va, dk) in all_dkeys])
+
+    retinodata=None
+    print("Aggregating retinodata and saving")
+    # Create output path
+    stats_dir = os.path.join(aggregate_dir, 'data-stats')
+    retino_dfile = os.path.join(stats_dir, 'aggr_retinodata.pkl')
+        
+    if not create_new:
+        try:
+            with open(retino_dfile, 'rb') as f:
+                retinodata = pkl.load(f)
+        except Exception as e:
+            traceback.print_exc()
+            create_new=True
+            
+    if create_new:
+        r_=[]; errs=[];
+        for (va, dk), curr_cells in CELLS.groupby(['visual_area', 'datakey']):
+            df = retutils.get_retino_fft(dk, curr_cells=curr_cells, 
+                                    mag_thr=mag_thr, delay_thr=delay_thr,
+                                    create_new=redo_fov)
+            if df is None:
+                errs.append((va, dk))
+                continue
+            #assert 'retinorun' in df.columns
+            df['visual_area'] = va
+            df['datakey'] = dk
+            df['cell'] = df.index
+            r_.append(df)
+        retinodata = pd.concat(r_, axis=0).reset_index(drop=True)
+        with open(retino_dfile, 'wb') as f:
+            pkl.dump(retinodata, f, protocol=2)
+    if return_missing:
+        return retinodata, errs
+    else:
+        return retinodata
+
+def get_responsive_retino(retinodata, mag_thr=0.01):
+    '''
+    retinodata (df): columns are phase and mag for AZ/EL conds (rows=cells).
+    Expects aggregate data (cycles by visual area and datakey).
+    Returns retino data for cells responsive (mag_thr)
+    '''
+    # get responsive
+    p_ = []
+    for (va, dk), rdf in retinodata.dropna().groupby(['visual_area', 'datakey']):
+        pass_ = np.where(rdf[['mag_az', 'mag_el']].mean(axis=1)>mag_thr)[0]
+        df_ = rdf.iloc[pass_]
+        p_.append(df_)
+    retino_responsive = pd.concat(p_, axis=0)
+
+    return retino_responsive
+
 
 def get_aggregate_data(experiment, traceid='traces001', 
                     response_type='dff', epoch='stimulus', 
@@ -944,7 +1023,7 @@ def load_aggregate_data(experiment, traceid='traces001', response_type='dff', ep
     ''' 
     MEANS=None
     SDF=None
-    data_outfile = get_aggregate_data_filepath(experiment, traceid=traceid, 
+    data_outfile = get_aggregate_filepath(experiment, traceid=traceid, 
                         response_type=response_type, epoch=epoch,
                         responsive_test=responsive_test, 
                         responsive_thr=responsive_thr, n_stds=n_stds,
@@ -1636,7 +1715,7 @@ def aggregate_and_save(experiment, traceid='traces001',
     sdata = get_aggregate_info(traceid=traceid)
     
     #### Get DATA   
-    data_outfile = get_aggregate_data_filepath(experiment, traceid=traceid, 
+    data_outfile = get_aggregate_filepath(experiment, traceid=traceid, 
                         response_type=response_type, epoch=epoch,
                         responsive_test=responsive_test, 
                         responsive_thr=responsive_thr, n_stds=n_stds,
