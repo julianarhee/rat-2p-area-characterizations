@@ -31,17 +31,14 @@ import _pickle as pkl
 
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from pipeline.python.utils import convert_range
-from pipeline.python.utils import natural_keys, label_figure, colorbar, turn_off_axis_ticks
-#from pipeline.python import utils as putils
+import analyze2p.utils as hutils
+import analyze2p.plotting as pplot
 import analyze2p.retinotopy.utils as ret_utils
 import analyze2p.retinotopy.segment_retinotopy as seg 
-
 import analyze2p.extraction.rois as roi_utils
 
-from pipeline.python.paradigm import utils as par_utils
-from pipeline.python.coregistration import align_fov as coreg
-from pipeline.python.classifications import evaluate_receptivefield_fits as evalrf
+import analyze2p.coregistration.align_fov as coreg
+import analyze2p.fit_rfs.evaluate_receptivefield_fits as evalrf
 
 from scipy import misc,interpolate,stats,signal,ndimage
 from matplotlib.colors import LinearSegmentedColormap
@@ -397,7 +394,7 @@ def plot_retinomap_processing_pixels(filt_az, azim_smoothed, azim_fillnan, az_fi
     ax.set_ylabel('Azimuth')
     ax.set_title('abs map (delay thr=%.2f)' % delay_map_thr)
     if show_cbar:
-        colorbar(im0)
+        pplot.colorbar(im0)
 
 
     ax = axn[0, 1]
@@ -407,7 +404,7 @@ def plot_retinomap_processing_pixels(filt_az, azim_smoothed, azim_fillnan, az_fi
         im0=ax.imshow(azim_smoothed, cmap=cmap_phase)
     ax.set_title('spatial smooth (%i)' % smooth_fwhm)
     if show_cbar:
-        colorbar(im0)
+        pplot.colorbar(im0)
 
 
     ax = axn[0, 2]
@@ -417,7 +414,7 @@ def plot_retinomap_processing_pixels(filt_az, azim_smoothed, azim_fillnan, az_fi
         im0 = ax.imshow(azim_fillnan, cmap=cmap_phase)
     ax.set_title('filled NaNs (spline=(%i, %i))' % (smooth_spline_x, smooth_spline_y))
     if show_cbar:
-        colorbar(im0)
+        pplot.colorbar(im0)
  
     ax = axn[0, 3]
     if full_cmap_range:
@@ -426,7 +423,7 @@ def plot_retinomap_processing_pixels(filt_az, azim_smoothed, azim_fillnan, az_fi
         im0 = ax.imshow(az_fill, cmap=cmap_phase)
     ax.set_title('final')
     if show_cbar:
-        colorbar(im0)
+        pplot.colorbar(im0)
 
     ax = axn[1, 0]
     if full_cmap_range:
@@ -435,7 +432,7 @@ def plot_retinomap_processing_pixels(filt_az, azim_smoothed, azim_fillnan, az_fi
         im1=ax.imshow(filt_el, cmap=cmap_phase)
     ax.set_ylabel('Altitude')
     if show_cbar:
-        colorbar(im1)
+        pplot.colorbar(im1)
 
     ax = axn[1, 1]
     if full_cmap_range:
@@ -443,7 +440,7 @@ def plot_retinomap_processing_pixels(filt_az, azim_smoothed, azim_fillnan, az_fi
     else:
         im1=ax.imshow(elev_smoothed, cmap=cmap_phase) 
     if show_cbar:
-        colorbar(im1)
+        pplot.colorbar(im1)
 
 
     ax = axn[1, 2]
@@ -453,7 +450,7 @@ def plot_retinomap_processing_pixels(filt_az, azim_smoothed, azim_fillnan, az_fi
         im1=ax.imshow(elev_fillnan, cmap=cmap_phase)
     #ax.set_title('filled NaNs')
     if show_cbar:
-        colorbar(im1)
+        pplot.colorbar(im1)
 
 
     ax = axn[1, 3]
@@ -463,11 +460,11 @@ def plot_retinomap_processing_pixels(filt_az, azim_smoothed, azim_fillnan, az_fi
         im1 = ax.imshow(el_fill, cmap=cmap_phase)
     #ax.set_title('final')
     if show_cbar:
-        colorbar(im1)
+        pplot.colorbar(im1)
 
     pl.subplots_adjust(wspace=0.8, hspace=0.2)
     for ax in axn.flat:
-        turn_off_axis_ticks(ax, despine=False)
+        pplot.turn_off_axis_ticks(ax, despine=False)
     return fig
 
 
@@ -1136,7 +1133,7 @@ def roi_gradients(animalid, session, fov, retinorun='retino_run1',
     fig, ax = pl.subplots()
     roi_utils.plot_neuropil_masks(masks_soma, masks_np, zimg, ax=ax)
     ax.set_title('soma + neuropil masks')
-    label_figure(fig, data_id)
+    pplot.label_figure(fig, data_id)
     pl.savefig(os.path.join(curr_dst_dir, 'soma-v-neuropil-masks.png'))
     pl.close()
 
@@ -1229,7 +1226,7 @@ def roi_gradients(animalid, session, fov, retinorun='retino_run1',
                                    elev_smoothed, el_fill, 
                                    cmap=cmap_phase, vmin=vmin, vmax=vmax, 
                                    smooth_fwhm=smooth_fwhm)
-    putils.label_figure(fig, data_id)
+    pplot.label_figure(fig, data_id)
     figname = 'soma_neuropil_dilate-%i_smooth-%i_%s_magthr-%.3f' % (kernel_size, smooth_fwhm, pass_criterion, mag_thr )
     pl.savefig(os.path.join(curr_dst_dir, '%s.png' % figname))
 
@@ -1318,7 +1315,7 @@ def pixel_gradients(datakey, retinorun='retino_run1',
     fig = ret_utils.plot_phase_and_delay_maps(abs_az, abs_el, 
                                         delay_az_shift, delay_el_shift,
                                         cmap=cmap_phase, vmin=vmin, vmax=vmax)
-    putils.label_figure(fig, data_id)
+    pplot.label_figure(fig, data_id)
     pl.savefig(os.path.join(curr_dst_dir, 'input_maps.svg'))
     pl.close()
 
@@ -1369,7 +1366,7 @@ def pixel_gradients(datakey, retinorun='retino_run1',
                                            full_cmap_range=full_cmap_range,
                                            smooth_fwhm=smooth_fwhm, smooth_spline=smooth_spline,
                                            delay_map_thr=delay_map_thr)
-    putils.label_figure(fig, data_id)
+    pplot.label_figure(fig, data_id)
     figname = 'pixelmaps_smooth-%i_magthr-%.3f_delaymapthr-%.2f' % (smooth_fwhm, mag_thr, delay_map_thr)
     pl.savefig(os.path.join(curr_dst_dir, '%s.png' % figname))
 
@@ -1500,18 +1497,13 @@ def gradient_full_fov(opts): #options):
     if use_pixels:
         mag_thr = 0.003 
 
-    if cmap_name=='nic_Edge':
-        screen, cmap_phase = ret_utils.get_retino_legends(cmap_name=cmap_name, zero_center=True, 
-                                                  return_cmap=True)
-
     # Get gradients
     datakey = '%s_%s_fov%i' % (session, animalid, int(fov.split('_')[0][3:]))
     if use_pixels:
         az_fill, el_fill, params, RETID = pixel_gradients(datakey,
                             retinorun=retinorun, traceid=traceid, 
                             mag_thr=mag_thr, cmap=cmap_name, 
-                            smooth_fwhm=smooth_fwhm, smooth_spline=smooth_spline)                
-                
+                            smooth_fwhm=smooth_fwhm, smooth_spline=smooth_spline)        
         vmin, vmax = (params['vmin'], params['vmax'])
         smooth_fwhm = params['smooth_fwhm']
         mag_thr = params['mag_thr']
@@ -1526,8 +1518,7 @@ def gradient_full_fov(opts): #options):
                             retinorun=retinorun, traceid=traceid, 
                             mag_thr=mag_thr, pass_criterion=pass_criterion,
                             plot_examples=plot_examples, cmap=cmap_name, 
-                            smooth_fwhm=smooth_fwhm) 
-        
+                            smooth_fwhm=smooth_fwhm)  
         vmin, vmax = (params['vmin'], params['vmax'])
         kernel_size = params['kernel_size']
         smooth_fwhm = params['smooth_fwhm']
@@ -1536,7 +1527,8 @@ def gradient_full_fov(opts): #options):
         curr_dst_dir = params['dst_dir']
         data_id = params['data_id']
 
-        figname_str = 'dilate-%i_smooth-%i_%s_magthr-%.3f' % (kernel_size, smooth_fwhm, pass_criterion, mag_thr)
+        figname_str = 'dilate-%i_smooth-%i_%s_magthr-%.3f'\
+                         % (kernel_size, smooth_fwhm, pass_criterion, mag_thr)
         gradient_source = '%s_thr-%.3f' % (pass_criterion, mag_thr)
 
     # Get colormap
@@ -1554,10 +1546,10 @@ def gradient_full_fov(opts): #options):
     screen_max = screen['azimuth_deg']/2.
     screen_min = -screen_max
 
-    img_az = convert_range(az_fill, oldmin=vmin, oldmax=vmax, 
+    img_az = hutils.convert_range(az_fill, oldmin=vmin, oldmax=vmax, 
                             newmin=screen_min, newmax=screen_max) \
                                     if plot_degrees else az_fill.copy()
-    img_el = convert_range(el_fill, oldmin=vmin, oldmax=vmax,
+    img_el = hutils.convert_range(el_fill, oldmin=vmin, oldmax=vmax,
                             newmin=screen_min, newmax=screen_max) \
                                     if plot_degrees else el_fill.copy()
     grad_az = calculate_gradients(img_az)
@@ -1573,14 +1565,14 @@ def gradient_full_fov(opts): #options):
 
     plot_str = 'degrees' if plot_degrees else ''
     fig = plot_retinomap_gradients(grad_az, grad_el, cmap=cmap_phase)
-    putils.label_figure(fig, data_id)
+    pplot.label_figure(fig, data_id)
     
     figname = 'gradients_%s__%s' % (plot_str, figname_str)
     pl.savefig(os.path.join(curr_dst_dir, '%s.svg' % figname))
     print('-- [f] %s' % figname)
 
     fig = plot_unit_vectors(grad_az, grad_el)
-    label_figure(fig, data_id)
+    pplot.label_figure(fig, data_id)
     pl.subplots_adjust(left=0.1, wspace=0.5)
     figname = 'unitvec_%s__%s' % (plot_str, figname_str)
     pl.savefig(os.path.join(curr_dst_dir, '%s.svg' % figname))
@@ -1603,7 +1595,7 @@ def gradient_full_fov(opts): #options):
 
     d1, d2 = grad_az['image'].shape
     fig = test_plot_projections(projections, ncyc=5, startcyc=800, imshape=(d1,d2))
-    label_figure(fig, data_id)
+    pplot.label_figure(fig, data_id)
     pl.subplots_adjust(left=0.1, wspace=0.5)
     figname = 'test_projections__%s' % (figname_str) 
     pl.savefig(os.path.join(curr_dst_dir, '%s.png' % figname))
@@ -1663,7 +1655,7 @@ def gradient_full_fov(opts): #options):
                                              spacing=regr_plot_spacing, 
                                              regr_color=regr_line_color)
 
-    label_figure(fig, data_id)
+    pplot.label_figure(fig, data_id)
     pl.subplots_adjust(left=0.1, wspace=0.5)
     figname = 'Proj_versus_Retinopos__%s' % (figname_str)
     pl.savefig(os.path.join(curr_dst_dir, '%s.svg' % figname))
@@ -1776,7 +1768,7 @@ def gradient_within_visual_area(opts): #options):
                                     cmap_phase=cmap_phase,
                                     contour_lc='w', contour_lw=2)
         pl.subplots_adjust(wspace=0.5, hspace=0.5, top=0.8)
-        putils.label_figure(fig, data_id)
+        pplot.label_figure(fig, data_id)
         fig.suptitle(curr_visual_area)
 
         figname = 'gradients_%s' % curr_visual_area
@@ -1809,7 +1801,7 @@ def gradient_within_visual_area(opts): #options):
 
         d1, d2 = grad_az['image'].shape
         fig = test_plot_projections(projections, ncyc=5, startcyc=800, imshape=(d1,d2))
-        label_figure(fig, data_id)
+        pplot.label_figure(fig, data_id)
         pl.subplots_adjust(left=0.1, wspace=0.5)
         figname = 'test_projections__%s' % curr_visual_area #% (figname_str) 
         pl.savefig(os.path.join(curr_dst_dir, '%s.png' % figname))
@@ -1869,7 +1861,7 @@ def gradient_within_visual_area(opts): #options):
                                                  spacing=regr_plot_spacing, 
                                                  regr_color=regr_line_color)
 
-        label_figure(fig, data_id)
+        pplot.label_figure(fig, data_id)
         pl.subplots_adjust(left=0.1, wspace=0.5)
         figname = 'Proj_versus_Retinopos__%s' % curr_visual_area #% (figname_str)
         pl.savefig(os.path.join(curr_dst_dir, '%s.svg' % figname))
