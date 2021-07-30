@@ -16,9 +16,7 @@ import sys
 import traceback
 import matplotlib as mpl
 mpl.use('agg')
-import rf_utils as rfutils
-import py3utils as p3
-import plotting as pplot
+import analyze2p.receptive_fields.utils as rfutils
 
 
 def extract_options(options):
@@ -43,8 +41,10 @@ def extract_options(options):
     parser.add_option('-M', '--resp', action='store', dest='response_type', default='dff', \
                       help="Response metric to use for creating RF maps (default: dff)")
     
-    parser.add_option('--new', action='store_true', dest='create_new', default=False, \
+    parser.add_option('--do-fits', action='store_true', dest='do_fits', default=False, \
                       help="Flag to refit all rois")
+    parser.add_option('--do-eval', action='store_true', dest='do_eval', default=False, \
+                      help="Flag to do new evaluation on all fit rois")
 
     # pretty plotting options
     parser.add_option('--pretty', action='store_true', dest='make_pretty_plots', default=False, \
@@ -84,6 +84,12 @@ def extract_options(options):
                       help="flag to reload/reprocess data arrays")
     parser.add_option('-n', '--nproc', action='store', dest='n_processes', default=1, 
                       help="N processes")
+    parser.add_option('-B', '--boot', action='store', dest='n_bootstrap_iters', default=500, 
+                      help="N processes")
+    parser.add_option('-s', '--resample', action='store', dest='n_resamples', default=10, 
+                      help="N processes")
+
+
 
     parser.add_option('--sphere', action='store_true', 
                         dest='do_spherical_correction', default=False, help="N processes")
@@ -112,9 +118,12 @@ def main(options):
     
     response_type = optsE.response_type
     do_spherical_correction = optsE.do_spherical_correction
-    
+    n_bootstrap_iters = optsE.n_bootstrap_iters
+    n_resamples = optsE.n_resamples 
     #response_thr = optsE.response_thr
-    create_new= optsE.create_new
+    #create_new= optsE.create_new
+    do_fits = optsE.do_fits
+    do_eval = optsE.do_eval
 
     fit_thr = float(optsE.fit_thr) 
     post_stimulus_sec = float(optsE.post_stimulus_sec)
@@ -127,9 +136,13 @@ def main(options):
 
     n_processes = int(optsE.n_processes)
     test_subset=False
+    print("--------------------------------------------")
+    print("FITTING")
+    print("--------------------------------------------")
 
-    fit_results, fit_params = rfutils.fit_2d_receptive_fields(animalid, session, fov, 
-                                run, traceid, trace_type=trace_type, 
+    fit_results, fit_params, trialdata = rfutils.fit_2d_rfs(
+                                animalid, session, fov, run, traceid, 
+                                trace_type=trace_type, 
                                 post_stimulus_sec=post_stimulus_sec,
                                 scaley=scaley,
                                 fit_thr=fit_thr,
@@ -137,7 +150,7 @@ def main(options):
                                 #visual_area=visual_area, select_rois=select_rois,
                                 response_type=response_type, #response_thr=response_thr, 
                                 do_spherical_correction=do_spherical_correction,
-                                create_new=create_new,
+                                create_new=do_fits,
                                 make_pretty_plots=make_pretty_plots, 
                                 nrois_plot=int(optsE.nrois_plot),
                                 ellipse_ec=optsE.ellipse_ec, 
@@ -147,11 +160,22 @@ def main(options):
                                 linecolor=optsE.linecolor, cmap=optsE.cmap, 
                                 legend_lw=optsE.legend_lw, 
                                 plot_format=plot_format, n_processes=n_processes, 
-                                test_subset=test_subset)
+                                test_subset=test_subset, 
+                                return_trialdata=True)
     
     print("--- fit %i rois total ---" % (len(fit_results.keys())))
 
     #%
+    print("--------------------------------------------")
+    print("EVALUATING")
+    print("--------------------------------------------")
+    datakey = '%s_%s_fov%i' % (session, animalid, int(fov.split('_')[0][3:]))
+    evaldf = rfutils.do_evaluation(datakey, fit_results, fit_params, trialdata,
+                n_bootstrap_iters=n_bootstrap_iters, n_resamples=n_resamples, ci=0.95,
+                pass_criterion='all', model='ridge', 
+                plot_boot_distns=True, 
+                deviant_color='dodgerblue', plot_all_cis=False,
+                create_new=do_eval, rootdir='/n/coxfs01/2p-data')
 
     print("((( RFs done! )))))")
        

@@ -155,6 +155,16 @@ def convert_uint16(tracemat):
     return arr
 
 
+# Calculationgs
+def get_empirical_ci(stat, ci=0.95):
+    p = ((1.0-ci)/2.0) * 100
+    lower = np.percentile(stat, p) #max(0.0, np.percentile(stat, p))
+    p = (ci+((1.0-ci)/2.0)) * 100
+    upper = np.percentile(stat, p) # min(1.0, np.percentile(x0, p))
+    #print('%.1f confidence interval %.2f and %.2f' % (alpha*100, lower, upper))
+    return lower, upper
+
+
 
 # Test function for module  
 def _test():
