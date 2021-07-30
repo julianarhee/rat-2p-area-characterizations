@@ -21,6 +21,7 @@ import scipy.optimize as opt
 import analyze2p.aggregate_datasets as aggr 
 import analyze2p.plotting as pplot
 import analyze2p.utils as hutils
+import analyze2p.extraction.rois as roiutils
 
 from matplotlib.patches import Ellipse, Rectangle, Polygon
 from shapely.geometry.point import Point
@@ -322,6 +323,9 @@ def rfits_to_df(fitr, roi_list=None, fit_params={},
                           'sigma_x': [fitr[r]['sigma_x'] for r in roi_list],
                           'sigma_y': [fitr[r]['sigma_y'] for r in roi_list],
                           'theta': [fitr[r]['theta'] % (2*np.pi) for r in roi_list],
+                          'offset': [fitr[r]['offset'] for r in roi_list],
+                          'amplitude': [fitr[r]['amplitude'] for r in roi_list],
+
                           'r2': [fitr[r]['r2'] for r in roi_list]},
                               index=roi_list)
 
@@ -516,27 +520,37 @@ def convert_fit_to_coords(fitdf0, fit_params, scale_sigma=True,
     '''
     fitdf = fitdf0.copy()
     sigma_scale = sigma_scale if scale_sigma else 1.0
-    grid_points, cart_values, sphr_values = coordinates_for_transformation(fit_params)
-    
-    if fit_params['do_spherical_correction']:
+    #grid_points, cart_values, sphr_values = coordinates_for_transformation(fit_params)
+    #print(fit_params.keys())
+
+    if 'do_spherical_correction' not in fit_params.keys():
+        # TMP until can run all of fit_rf again
+        newdf = convert_fit_to_coords_og(fitdf, fit_params['row_vals'], 
+                                                fit_params['col_vals'])
+
+    elif fit_params['do_spherical_correction']:
+        grid_points, cart_values, sphr_values = coordinates_for_transformation(fit_params)
+
         # Upsampled, with spherical correction
         converted = fitdf.apply(apply_scaling_to_df, 
                                 args=(grid_points, sphr_values), axis=1)
-    else:
-        # This is just upsampling
-        converted = fitdf.apply(apply_scaling_to_df, 
-                                args=(grid_points, cart_values), axis=1)
-    newdf = pd.DataFrame([[x0, y0, sx*sigma_scale, sy*sigma_scale] \
+        newdf = pd.DataFrame([[x0, y0, sx*sigma_scale, sy*sigma_scale] \
                         for x0, y0, sx, sy in converted.values], index=converted.index, 
                         columns=['x0', 'y0', 'sigma_x', 'sigma_y'])
+    else:
+        # This is just upsampling
+        #converted = fitdf.apply(apply_scaling_to_df, 
+        #                        args=(grid_points, cart_values), axis=1)
+        newdf = convert_fit_to_coords_og(fitdf, fit_params['row_vals'], 
+                                                fit_params['col_vals'])
 
     fitdf[['sigma_x', 'sigma_y', 'x0', 'y0']] = newdf[['sigma_x', 'sigma_y', 'x0', 'y0']]
 
     return fitdf
 
 
-def convert_fit_to_coords_ORIG(fitdf, row_vals, col_vals, rid=None):
-    
+def convert_fit_to_coords_og(fitdf, row_vals, col_vals, rid=None):
+    df_=None 
     if rid is not None:
         xx = hutils.convert_range(fitdf['x0'][rid], 
                             newmin=min(col_vals), newmax=max(col_vals), 
@@ -563,8 +577,9 @@ def convert_fit_to_coords_ORIG(fitdf, row_vals, col_vals, rid=None):
         sigma_y = hutils.convert_range(abs(fitdf['sigma_y']), 
                             newmin=0, newmax=max(row_vals)-min(row_vals), 
                             oldmax=len(row_vals)-1, oldmin=0)
-    
-    return xx, yy, sigma_x, sigma_y
+   
+    df_ = pd.DataFrame({'x0': xx, 'y0': yy, 'sigma_x': sigma_x, 'sigma_y': sigma_y}) 
+    return df_ #xx, yy, sigma_x, sigma_y
 
 
 
@@ -657,14 +672,13 @@ def load_eval_results(datakey, experiment='rfs',
     '''
     session, animalid, fovn = hutils.split_datakey_str(datakey)
     eval_results=None; eval_params=None;            
-    if fit_desc is None:
-        fit_desc = get_fit_desc(response_type=response_type,
-                                do_spherical_correction=do_spherical_correction)
-    run_name = experiment.split('_')[1] if 'combined' in experiment else experiment
     try: 
-        #print("Checking to load: %s" % fit_desc)
         if rfdir is None:
-            rfdir = glob.glob(os.path.join(rootdir, animalid, session, 
+            run_name = experiment.split('_')[1] if 'combined' in experiment else experiment
+            if fit_desc is None:
+                fit_desc = get_fit_desc(response_type=response_type,
+                                        do_spherical_correction=do_spherical_correction)
+                rfdir = glob.glob(os.path.join(rootdir, animalid, session, 
                         'FOV%i_*' % fovn, '*%s_*' % run_name, 'traces/%s*' % traceid, 
                         'receptive_fields', '%s*' % fit_desc))[0]
         evaldir = os.path.join(rfdir, 'evaluation')
@@ -768,7 +782,7 @@ def cycle_and_load(rfmeta, assigned_cells, fit_desc=None, traceid='traces001', f
                                                 experiment=curr_rfname, 
                                                 traceid=traceid, 
                                                 fit_desc=fit_desc)   
-                fit_rois = sorted(eval_results['data']['cell'].unique())
+                fit_rois = sorted(eval_results['bootdf']['cell'].unique())
                 assert eval_results is not None, \
                     '-- no good (%s, %s)), skipping' % (datakey, experiment)
             except Exception as e: 
@@ -777,9 +791,13 @@ def cycle_and_load(rfmeta, assigned_cells, fit_desc=None, traceid='traces001', f
         else:
             fit_rois = sorted(list(fit_results.keys()))
 
+        if len(fit_rois)==0:
+            continue
+
         scale_sigma = fit_params['scale_sigma']
         sigma_scale = fit_params['sigma_scale']
-        rfit_df = rfits_to_df(fit_results, scale_sigma=scale_sigma, 
+        rfit_df = rfits_to_df(fit_results, fit_params=fit_params,
+                        scale_sigma=scale_sigma, 
                         sigma_scale=sigma_scale,
                         roi_list=fit_rois)
 
@@ -1500,13 +1518,17 @@ def plot_rf_map(rfmap, cmap='inferno', ax=None):
    
     return ax
 
-def plot_rf_ellipse(fitr, ax=None, sigma_scale=2.35, scale_sigma=True):
+def plot_rf_ellipse(df_, ax=None, sigma_scale=2.35, scale_sigma=True):
       
     sigma_scale = sigma_scale if scale_sigma else 1.0
-    
-    # Draw ellipse: 
-    amp_f, x0_f, y0_f, sigx_f, sigy_f, theta_f, offset_f = fitr['popt']
-    
+    if isinstance(df_, (pd.Series, pd.DataFrame)):
+        params = ['amplitude', 'x0', 'y0', 'sigma_x', 'sigma_y', 'theta', 'offset', 'r2']
+        amp_f, x0_f, y0_f, sigx_f, sigy_f, theta_f, offset_f, r2 = df_[params] 
+    else:
+        amp_f, x0_f, y0_f, sigx_f, sigy_f, theta_f, offset_f = df_['popt']
+        r2 = df_['r2']
+
+    # Draw ellipse:  
     if ax is None:
         fig, ax = pl.subplots()
         ax.set_ylim([y0_f-sigy_f*2., y0_f+sigy_f*2.])
@@ -1515,7 +1537,7 @@ def plot_rf_ellipse(fitr, ax=None, sigma_scale=2.35, scale_sigma=True):
     ell = Ellipse((x0_f, y0_f), abs(sigx_f)*sigma_scale, abs(sigy_f)*sigma_scale, 
                     angle=np.rad2deg(theta_f), alpha=0.5, edgecolor='w') #theta_f)
     ax.add_patch(ell)
-    ax.text(0, -1, 'r2=%.2f, theta=%.2f' % (fitr['r2'], theta_f), color='k')
+    ax.text(0, -1, 'r2=%.2f, theta=%.2f' % (r2, theta_f), color='k')
 
     return ax
 
@@ -1524,7 +1546,7 @@ def plot_fit_results(fitr, ax=None):
         fig, ax = pl.subplots()
     im2 = ax.imshow(fitr['pcov'])
     ax.set_yticks(np.arange(0, 7))
-    ax.set_yticklabels(['amp', 'x0', 'y0', 'sigx', 'sigy', 'theta', 'offset'], rotation=0)
+    ax.set_yticklabels(['amplitude', 'x0', 'y0', 'sigx', 'sigy', 'theta', 'offset'], rotation=0)
     
     divider = make_axes_locatable(ax)
     cax2 = divider.append_axes('right', size='5%', pad=0.05)
@@ -1789,8 +1811,9 @@ def do_2d_fit(rfmap, nx=None, ny=None, verbose=False):
         offset=0
         initial_guess = (amplitude, int(x0), int(y0), sigma_x, sigma_y, theta, offset)
         valid_ixs = ~np.isnan(rfmap)
-        popt, pcov = opt.curve_fit(twoD_gauss, (xx[valid_ixs], yy[valid_ixs]), rfmap[valid_ixs].ravel(), 
-                                   p0=initial_guess, maxfev=2000)
+        popt, pcov = opt.curve_fit(twoD_gauss, (xx[valid_ixs], yy[valid_ixs]), 
+                                    rfmap[valid_ixs].ravel(), 
+                                    p0=initial_guess, maxfev=2000)
         fitr = twoD_gauss((xx, yy), *popt)
 
         # Get residual sum of squares 
@@ -1965,8 +1988,8 @@ def fit_2d_rfs(animalid, session, fov, run, traceid,
                                     do_spherical_correction=do_spherical_correction, 
                                     fit_params=fit_params, data_identifier=data_id)             
     #
-    fitdf = rfits_to_df(fit_results, scale_sigma=False, convert_coords=False,
-                        fit_params=fit_params)
+    fitdf = rfits_to_df(fit_results, fit_params=fit_params, scale_sigma=False, 
+                        convert_coords=False )
  
     fit_roi_list = fitdf[fitdf['r2']>fit_params['fit_thr']]\
                 .sort_values('r2', axis=0, ascending=False).index.tolist()
@@ -1987,9 +2010,8 @@ def fit_2d_rfs(animalid, session, fov, run, traceid,
         print("Error plotting best RFs grid")
 
     try:
-        fitdf = rfits_to_df(fit_results, scale_sigma=False, 
-                        convert_coords=True,
-                        fit_params=fit_params)
+        fitdf = rfits_to_df(fit_results, fit_params=fit_params,
+                        scale_sigma=False, convert_coords=True)
  
         dk = '%s_%s_fov%i' % (session, animalid, int(fov.split('_')[0][3:]))
         sdf = aggr.get_stimuli(dk, run_name)
@@ -2151,7 +2173,7 @@ def load_trialdata(fit_params, return_traces=False):
         return trialdata, labels
 
 def do_evaluation(datakey, fit_results, fit_params, trialdata,
-                n_bootstrap_iters=1000, n_resamples=20, ci=0.95,
+                n_bootstrap_iters=1000, n_resamples=None, ci=0.95,
                 pass_criterion='all', model='ridge', 
                 plot_boot_distns=True, deviant_color='dodgerblue', plot_all_cis=False,
                 n_processes=1,
@@ -2161,12 +2183,8 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
     rfdir = fit_params['rfdir'] 
     fit_desc = fit_params['fit_desc'] 
     evaldir = os.path.join(rfdir, 'evaluation')
-    roidir = os.path.join(evaldir, 
-                'rois_%i-iters_%i-resample' % (n_bootstrap_iters, n_resamples))
-    if not os.path.exists(roidir):
-        os.makedirs(roidir) 
-    if os.path.exists(os.path.join(evaldir, 'rois')):
-        shutil.rmtree(os.path.join(evaldir, 'rois'))
+    if n_resamples is None:
+        n_resamples = int(trialdata.groupby(['config']).count().min().unique())
 
     #%% Do bootstrap analysis    
     print("-evaluating (%s)-" % str(create_new))
@@ -2185,6 +2203,7 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
             # traceback.print_exc()
             create_new=True
 
+
     if create_new: 
         if trialdata is None:
             trialdata, labels = load_trialdata(fit_params)
@@ -2200,56 +2219,70 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
         print("... doing rf evaluation")
         eval_results = evaluate_rfs(roidf_list, fit_params, 
                                     n_processes=n_processes) 
+        save_eval_results(eval_results, fit_params)
+
     if eval_results is None: 
         return None
+
 
     ##------------------------------------------------
     fitdf = rfits_to_df(fit_results, fit_params=fit_params, 
                             scale_sigma=fit_params['scale_sigma'], 
                             sigma_scale=fit_params['sigma_scale'])
     fitdf = fitdf[fitdf['r2']>fit_params['fit_thr']]
-
+    fit_rois = fitdf.index.tolist()
     data_id = '|'.join([datakey, fit_desc])
+
+    # Identify cells w fit params within CIs
+    pass_cis = check_reliable_fits(fitdf, eval_results['cis']) 
+    # Update eval results
+    eval_results.update({'pass_cis': pass_cis})
+    # Identify reliable fits (params fall within CIs)
+    reliable_rois = get_reliable_fits(eval_results['pass_cis'], 
+                                      pass_criterion=pass_criterion)
+    eval_results.update({'reliable_rois': reliable_rois})
+    # Save
+    save_eval_results(eval_results, fit_params)
+    print("%i out of %i cells w. R2>0.5 are reliable (95%% CI)" 
+            % (len(reliable_rois), len(fit_rois)))
+    # Plotting
+    roidir = os.path.join(evaldir, 
+                'rois_%i-iters_%i-resample' % (n_bootstrap_iters, n_resamples))
+    if not os.path.exists(roidir):
+        os.makedirs(roidir) 
+    if os.path.exists(os.path.join(evaldir, 'rois')):
+        shutil.rmtree(os.path.join(evaldir, 'rois'))
+    # Plot distribution of params w/ 95% CI
     if plot_boot_distns:
         print("... plotting boot distn") #.\n(to: %s" % outdir)
         plot_eval_summary(fitdf, fit_results, eval_results, 
-                          reliable_rois=fit_rois, #reliable_rois,
                           sigma_scale=fit_params['sigma_scale'], 
                           scale_sigma=fit_params['scale_sigma'],
                           outdir=roidir, plot_format='svg', 
                           data_id=data_id)
-
-    # Identify cells w fit params within CIs
-    pass_cis = check_reliable_fits(fitdf, eval_results['cis']) 
-    # Identify reliable fits (params fall within CIs)
-    reliable_rois = get_reliable_fits(eval_results['pass_cis'], 
-                                      pass_criterion=pass_criterion)
-    # Plot distribution of params w/ 95% CI
-    print("%i out of %i cells w. R2>0.5 are reliable (95%% CI)" 
-            % (len(reliable_rois), len(fit_rois)))
-    # Update eval results
-    eval_results.update({'reliable_rois': reliable_rois})
-    eval_results.update({'pass_cis': pass_cis})
-    save_eval_results(eval_results, fit_params)
-
-
-    # Figure out if there are any deviants
-    fovcoords = roiutils.load_roi_coords(animalid, session, 'FOV%i_zoom2p0x' % fovnum,
-                                      traceid=traceid, create_new=False)
-    posdf = pd.concat([fitdf[['x0', 'y0']].copy(), 
-                       fovcoords['roi_positions'].copy()], axis=1) 
-    posdf = posdf.rename(columns={'x0': 'xpos_rf', 'y0': 'ypos_rf',
-                                  'ml_pos': 'xpos_fov', 'ap_pos': 'ypos_fov'})
-
-    marker_size=30; fill_marker=True; marker='o';
-    reg_results = regr_rf_fov(posdf, eval_results, fit_params, 
-                                     data_id=data_id, 
-                                     pass_criterion=pass_criterion, model=model,
-                                     marker=marker, marker_size=marker_size, 
-                                     fill_marker=fill_marker, 
-                                     deviant_color=deviant_color)
     
-    return eval_results, eval_params
+#    # Figure out if there are any deviants
+     # TODO:  DO THIS< but with projected fov coords
+     # Compare CIs of each cell to the regression model CIs.
+
+#    session, animalid, fovn = hutils.split_datakey_str(datakey)
+#    traceid = fit_params['rfdir'].split('/traces/')[1].split('_')[0] 
+#    fovcoords = roiutils.load_roi_coords(animalid, session, 'FOV%i_zoom2p0x' % fovn,
+#                                      traceid=traceid, create_new=False)
+#    posdf = pd.concat([fitdf,
+#                   fovcoords['roi_positions'].loc[fitdf.index]], axis=1)
+#    posdf = posdf.rename(columns={'x0': 'xpos_rf', 'y0': 'ypos_rf',
+#                                  'ml_pos': 'xpos_fov', 'ap_pos': 'ypos_fov'})
+#
+#    marker_size=30; fill_marker=True; marker='o';
+#    reg_results = regr_rf_fov(posdf, eval_results, fit_params, 
+#                                     data_id=data_id, 
+#                                     pass_criterion=pass_criterion, model=model,
+#                                     marker=marker, marker_size=marker_size, 
+#                                     fill_marker=fill_marker, 
+#                                     deviant_color=deviant_color)
+    
+    return eval_results
 
 from functools import partial
 
@@ -2311,19 +2344,18 @@ def evaluate_rfs(roidf_list, fit_params, n_processes=1):
         
     #print("... doing bootstrap analysis for param fits.")
     start_t = time.time()
-    bootstrap_results = pool_evaluation(roidf_list, fit_params, 
+    bootdf_list = pool_evaluation(roidf_list, fit_params, 
                                                 n_processes=n_processes)
     end_t = time.time() - start_t
     print("Multiple processes: {0:.2f}sec".format(end_t))
-    print("--- %i results" % len(bootstrap_results))
+    print("--- %i results" % len(bootdf_list))
 
-    if len(bootstrap_results)==0:
+    if len(bootdf_list)==0:
         return eval_results #None
 
     # Create dataframe of bootstrapped data
-    bootdata = pd.concat(bootstrap_results)
-    
-    bootdata = convert_fit_to_coords(bootdata, fit_params)
+    bootdf = pd.concat(bootdf_list)    
+    bootdf = convert_fit_to_coords(bootdf, fit_params)
  
 #    if do_spherical_correction is False: 
 #        bootdata = convert_fit_to_coorsd(bootdata, fit_params)
@@ -2333,22 +2365,23 @@ def evaluate_rfs(roidf_list, fit_params, n_processes=1):
 #        bootdata['sigma_x'] = sigx
 #        bootdata['sigma_y'] = sigy
 
-    bootdata['sigma_x'] = bootdata['sigma_x'] * sigma_scale
-    bootdata['sigma_y'] = bootdata['sigma_y'] * sigma_scale
-    theta_vs = bootdata['theta'].values.copy()
-    bootdata['theta'] = theta_vs % (2*np.pi)
+    bootdf['sigma_x'] = bootdf['sigma_x'] * sigma_scale
+    bootdf['sigma_y'] = bootdf['sigma_y'] * sigma_scale
+    theta_vs = bootdf['theta'].values.copy()
+    bootdf['theta'] = theta_vs % (2*np.pi)
 
     # Calculate confidence intervals
-    bootdata = bootdata.dropna()
-    bootcis = get_cis_for_params(bootdata, ci=fit_params['evaluation']['ci'])
+    bootdf = bootdf.dropna()
+    bootcis = get_cis_for_params(bootdf, ci=fit_params['evaluation']['ci'])
 
     # Plot bootstrapped distn of x0 and y0 parameters for each roi (w/ CIs)
-    counts = bootdata.groupby(['cell']).count()['x0']
+    counts = bootdf.groupby(['cell']).count()['x0']
+    n_bootstrap_iters = fit_params['evaluation']['n_bootstrap_iters']
     unreliable = counts[counts < n_bootstrap_iters*0.5].index.tolist()
     print("%i cells seem to have <50%% iters with fits" % len(unreliable))
     
-    eval_results = {'data': bootdata, 
-                    'params': bootparams, 
+    eval_results = {'bootdf': bootdf, 
+                    'params': fit_params, 
                     'cis': bootcis, 
                     'unreliable': unreliable}
     # Save
@@ -2362,6 +2395,13 @@ def save_eval_results(eval_results, fit_params):
     rfdir = fit_params['rfdir']
     evaldir = os.path.join(rfdir, 'evaluation')
     rf_eval_fpath = os.path.join(evaldir, 'evaluation_results.pkl')
+    with open(rf_eval_fpath, 'wb') as f:
+        pkl.dump(eval_results, f, protocol=2)
+
+    rf_params_fpath = os.path.join(rfdir, 'fit_param.json')
+    with open(rf_params_fpath, 'w') as f:
+        json.dump(fit_params, f, indent=4, sort_keys=True)
+
     return
  
 
@@ -2378,32 +2418,33 @@ def save_eval_results(eval_results, fit_params):
 def bootstrap_rf_params(roi_df, fit_params={},
                         sigma_scale=2.35 ):     
 
+    param_order =['amplitude', 'x0', 'y0', 'sigma_x', 'sigma_y', 'theta', 'offset', 'r2']
+
     do_spherical_correction=fit_params['do_spherical_correction']
     row_vals = fit_params['row_vals']
     col_vals = fit_params['col_vals']
     n_resamples = fit_params['evaluation']['n_resamples']
     n_bootstrap_iters = fit_params['evaluation']['n_bootstrap_iters']
- 
+    
+    xres=1 if do_spherical_correction else float(np.unique(np.diff(row_vals)))
+    yres=1 if do_spherical_correction else float(np.unique(np.diff(col_vals)))
+    sigma_scale=1 if do_spherical_correction else sigma_scale
+    sigma_scale=1 if do_spherical_correction else sigma_scale
+    min_sigma=2.5; max_sigma=50;
+
     paramsdf = None
     try:
         if not terminating.is_set():
             time.sleep(1)
             
-        xres=1 if do_spherical_correction else float(np.unique(np.diff(row_vals)))
-        yres=1 if do_spherical_correction else float(np.unique(np.diff(col_vals)))
-        sigma_scale=1 if do_spherical_correction else sigma_scale
-        sigma_scale=1 if do_spherical_correction else sigma_scale
-        min_sigma=2.5; max_sigma=50;
-
         if do_spherical_correction:
-            grid_points, cart_values, sphr_values = coordinates_for_transformation(fit_params)
+            grid_points, cart_vals, sphr_vals = coordinates_for_transformation(fit_params)
 
         # Get all trials for each config (indices = trial reps, columns = conditions)
         roi = int(np.unique([r for r in roi_df.columns if r not in ['config', 'trial']])) 
-        rdf = roi_df[[roi, 'config']]
         responses_df = pd.concat([pd.Series(g[roi], name=c)\
                         .reset_index(drop=True)\
-                        for c, g in rdf.groupby(['config'])], axis=1).dropna(axis=0)        
+                        for c, g in roi_df.groupby(['config'])], axis=1).dropna(axis=0)        
         # Bootstrap distN of responses (rand w replacement):
 #        grouplist = [group_configs(group, response_type) \
 #                        for config, group in rdf.groupby(['config'])]
@@ -2411,19 +2452,20 @@ def bootstrap_rf_params(roi_df, fit_params={},
 
         # Get mean response across re-sampled trials for each condition 
         # (i.e., each position). Do this n-bootstrap-iters times
-        boot_ = pd.concat([responses_df.sample(n_resamples, replace=True).mean(axis=0) 
+        # cols = boot iters, rows = configs
+        bootresp_ = pd.concat([responses_df.sample(n_resamples, replace=True).mean(axis=0) 
                                 for ni in range(n_bootstrap_iters)], axis=1)
 
         # Reshape array so that it matches for fitrf changs 
         # (should match .reshape(ny, nx))
         nx=len(col_vals)
         ny=len(row_vals)
-        bootdf = boot_.apply(reshape_array_for_nynx, args=(nx, ny))
+        bootresp = bootresp_.apply(reshape_array_for_nynx, args=(nx, ny))
 
         # Fit receptive field for each set of bootstrapped samples 
         bparams = []; #x0=[]; y0=[];
-        for ii in bootdf.columns:
-            response_vector = bootdf[ii].values
+        for ii in bootresp.columns:
+            response_vector = bootresp[ii].values
             # nx=len(col_vals), ny=len(row_vals)
             rfmap = get_rf_map(response_vector, nx, ny) 
             fitr, fit_y = do_2d_fit(rfmap, nx=nx, ny=ny) 
@@ -2432,7 +2474,7 @@ def bootstrap_rf_params(roi_df, fit_params={},
                 if do_spherical_correction:
                     # Correct for spher correction, if nec
                     x0_f, y0_f, sigx_f, sigy_f = get_scaled_sigmas(
-                                                        grid_points, sphr_values,
+                                                        grid_points, sphr_vals,
                                                         x0_f, y0_f,
                                                         sigx_f, sigy_f, theta_f,
                                                         convert=True)
@@ -2452,12 +2494,9 @@ def bootstrap_rf_params(roi_df, fit_params={},
                 bparams.append(tuple(curr_fit_results)) #(fitr['popt'])
         if len(bparams)==0:
             return None
-
-        bparams = np.array(bparams)   
-        paramsdf = pd.DataFrame(data=bparams, 
-            columns=['amp', 'x0', 'y0', 'sigma_x', 'sigma_y', 'theta', 'offset', 'r2'])
-        paramsdf['cell'] = [rdf.index[0] for _ in range(bparams.shape[0])]
-   
+        paramsdf = pd.DataFrame(data=np.array(bparams), 
+                                columns=param_order)
+        paramsdf['cell'] = roi    
     except KeyboardInterrupt:
         print("----exiting----")
         terminating.set()
@@ -2495,7 +2534,7 @@ def check_reliable_fits(meas_df, boot_cis):
     return pass_cis
 
 # Plotting - EVAL
-def plot_eval_summary(meas_df, fit_results, eval_results, plot_rois=[],
+def plot_eval_summary(fitdf, fit_results, eval_results,
                         sigma_scale=2.35, scale_sigma=True, 
                         outdir='/tmp/rf_fit_evaluation', plot_format='svg',
                         data_id='DATA ID'):
@@ -2503,18 +2542,17 @@ def plot_eval_summary(meas_df, fit_results, eval_results, plot_rois=[],
     For all fit ROIs, plot summary of results (fit + evaluation).
     Expect that meas_df has R2>fit_thr, since those are the ones that get bootstrap evaluation 
     '''
-    bootdata = eval_results['data']
-    roi_list = meas_df.index.tolist() #sorted(bootdata['cell'].unique())
-    
+    bootdfs = eval_results['bootdf']
+    roi_list = fitdf.index.tolist() #sorted(bootdata['cell'].unique())
+     
     for ri, rid in enumerate(sorted(roi_list)):
         if ri % 20 == 0:
             print("... plotting eval summary (%i of %i)" % (int(ri+1), len(roi_list))) 
-        _fitr = fit_results[rid]
-        _bootdata = bootdata[bootdata['cell']==rid]
-        fig = plot_roi_evaluation(rid, meas_df, _fitr, _bootdata, 
-                                        scale_sigma=scale_sigma, sigma_scale=sigma_scale)
-        if rid in plot_rois:
-            fig.suptitle('rid %i**' % rid)
+        rfmap = fit_results[rid]['data']
+        bootdf_roi = bootdfs[bootdfs['cell']==rid]
+        fig = plot_roi_evaluation(rid, fitdf.loc[rid], rfmap, bootdf_roi, 
+                                  scale_sigma=scale_sigma, sigma_scale=sigma_scale)
+        fig.suptitle('rid %i**' % rid)
         pplot.label_figure(fig, data_id)
         pl.savefig(os.path.join(outdir, 'roi%05d.%s' % (int(rid+1), plot_format)))
         pl.close()
@@ -2533,27 +2571,270 @@ def plot_bootstrapped_distribution(boot_values, true_x, ci=0.95, ax=None, param_
    
     return ax
 
-def plot_roi_evaluation(rid, meas_df, _fitr, _bootdata, ci=0.95, 
+def plot_roi_evaluation(rid, fitdf_roi, rfmap, bootdf_roi, ci=0.95, 
                              scale_sigma=True, sigma_scale=2.35):
     
     fig, axn = pl.subplots(2,3, figsize=(10,6))
     ax = axn.flat[0]
-    ax = plot_rf_map(_fitr['data'], cmap='inferno', ax=ax)
-    ax = plot_rf_ellipse(_fitr['fit_r'], ax=ax, scale_sigma=scale_sigma)
+    ax = plot_rf_map(rfmap, cmap='inferno', ax=ax)
+    ax = plot_rf_ellipse(fitdf_roi, ax=ax, scale_sigma=scale_sigma)
     params = ['sigma_x', 'sigma_y', 'theta', 'x0', 'y0']
     ai=0
     for param in params:
         ai += 1
         try:
             ax = axn.flat[ai]
-            ax = plot_bootstrapped_distribution(_bootdata[param], meas_df[param][rid], 
-                                                    ci=ci, ax=ax, param_name=param)
+            ax = plot_bootstrapped_distribution(bootdf_roi[param].values, 
+                                                fitdf_roi[param], 
+                                                ci=ci, ax=ax, param_name=param)
             pl.subplots_adjust(wspace=0.7, hspace=0.5, top=0.8)
             fig.suptitle('rid %i' % rid)
         except Exception as e:
-            print("!! eval error (plot_boot_distn): rid %i, param %s" % (rid, param))
-            #traceback.print_exc()
+            print("!! eval error (plot_boot_distn): rid %i, param %s" \
+                % (rid, param))
+            traceback.print_exc()
             
     return fig
 
+
+# Check scatter
+# ----------------------------------------------------------------------     
+#%% FITTING FUNCTIONS
+# ----------------------------------------------------------------------
+from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.model_selection import train_test_split
+import scipy.stats as spstats
+import sklearn.metrics as skmetrics #import mean_squared_error
+
+def regr_rf_fov(posdf, fit_params, eval_results, 
+                model='ridge', pass_criterion='all', data_id='ID', 
+                deviant_color='magenta', marker='o', 
+                marker_size=20, fill_marker=True):
+    print("~regressing rf on fov~")
+    reliable_rois = eval_results['reliable_rois']
+
+    evaldir = os.path.join(fit_params['rfdir'], 'evaluation')
+    fig = plot_linear_regr_by_condition( posdf.loc[reliable_rois],model=model)
+    pl.subplots_adjust(top=0.9, bottom=0.1, hspace=0.5)
+    pplot.label_figure(fig, data_id)
+    pl.savefig(os.path.join(evaldir, 'RFpos_v_CTXpos_split_axes.svg'))   
+    pl.close()
+   
+    #%% Compare regression fit to bootstrapped params 
+    reg_results = compare_regr_to_boot_params(eval_results, posdf, 
+                                        outdir=evaldir, data_id=data_id, 
+                                        pass_criterion=pass_criterion, model=model, 
+                                        deviant_color=deviant_color, marker=marker,
+                                        marker_size=marker_size, 
+                                        fill_marker=fill_marker)
+
+    #%% Identify "deviants" based on spatial coordinates
+    print('%i reliable of %i fit (thr>.5) | regr R2=%.2f' \
+                % (len(reg_results['reliable_rois']), 
+                   len(meas_df), reg_results['azimuth']['regr_R2']))
+
+    return reg_results #deviants
+
+def plot_linear_regr_by_condition(posdf, model='ridge'):
+    
+    fig, axes = pl.subplots(2, 3, figsize=(10, 6))
+    for ri, cond in enumerate(['azimuth', 'elevation']):
+        # Do fit
+        axname = 'xpos' if cond=='azimuth' else 'ypos' 
+        yv = posdf['%s_rf' % axname].values
+        xv = posdf['%s_fov' % axname].values    
+        try:
+            fitv, regr = fit_linear_regr(xv, yv, return_regr=True, model=model)
+        except Exception as e:
+            traceback.print_exc()
+            print("Error fitting cond %s" % cond)
+            continue
+        # Evaluate fit
+        rmse = np.sqrt(skmetrics.mean_squared_error(yv, fitv))
+        r2 = float(skmetrics.r2_score(yv, fitv))
+        print("[%s] Mean squared error: %.2f | Variance score: %.2f" % (cond, rmse, r2))
+
+        # Plot 
+        ax=axes[ri, 0]
+        ax.set_title(cond, fontsize=12, loc='left')
+        ax.scatter(xv, yv, c='k', alpha=0.5)
+        ax.set_ylabel('RF position (rel. deg.)')
+        ax.set_xlabel('FOV position (um)')
+        #ax.set_xlim([0, ylim])
+        #sns.despine(offset=1, trim=True, ax=ax)
+        ax.plot(xv, fitv, 'r')
+        ax.set_xlim([0, 1200])
+        #ax.set_ylim()    
+        r, p = spstats.pearsonr(posdf['%s_fov' % axname], posdf['%s_rf' % axname]) 
+        corr_str = 'pearson=%.2f (p=%.2f)' % (r, p)
+        ax.plot(ax.get_xlim()[0], ax.get_ylim()[0], alpha=0, label=corr_str)
+        ax.legend(loc='upper right', fontsize=8)
+    
+        ax = axes[ri, 1]
+        residuals = fitv - yv
+        ax.hist(residuals, histtype='step', color='k')
+        #sns.despine(offset=1, trim=True, ax=ax)
+        ax.set_xlabel('residuals')
+        ax.set_ylabel('counts')
+        maxval = max (abs(residuals))
+        ax.set_xlim([-maxval, maxval])
+         
+        ax = axes[ri, 2]
+        r2_vals = posdf['r2'].values
+        ax.scatter(r2_vals, abs(residuals), c='k', alpha=0.5)
+        ax.set_xlabel('r2')
+        ax.set_ylabel('abs(residuals)')       
+        if model=='ridge':
+            regr = Ridge()
+        elif model=='Lasso':
+            regr = Lasso()
+        else:
+            model = 'ols'
+            regr = LinearRegression()
+        # Add some metrics
+        regr.fit(r2_vals.reshape(-1, 1), residuals.reshape(-1, 1)) #, yv)
+        r2_dist_corr = regr.predict(r2_vals.reshape(-1, 1))
+        ax.plot(r2_vals, r2_dist_corr, 'r', label=model)
+        #sns.despine(offset=1, trim=True, ax=ax)
+        r, p = spstats.pearsonr(r2_vals, np.abs(residuals))
+        corr_str2 = 'pearson=%.2f (p=%.2f)' % (r, p)
+        ax.plot(ax.get_xlim()[0], ax.get_xlim()[-1], alpha=0, label=corr_str2)
+        ax.legend(loc='upper right', fontsize=8)
+    
+    pl.subplots_adjust(hspace=0.5, wspace=0.5)    
+    return fig
+
+
+
+ 
+def plot_linear_regr(xv, yv, ax=None,  model='ridge', 
+                     marker='o', marker_size=30, alpha=1.0, marker_color='k',
+                     linestyle='_', linecolor='r'):
+    try:
+        fitv, regr = fit_linear_regr(xv, yv, return_regr=True, model=model)
+    except Exception as e:
+        traceback.print_exc()
+        print("... no lin fit")
+        return None
+
+    if ax is none:
+        fig, ax = pl.subplots()
+        
+    rmse = np.sqrt(skmetrics.mean_squared_error(yv, fitv))
+    r2 = float(skmetrics.r2_score(yv, fitv))
+    print("[%s] Mean squared error: %.2f" % (cond, rmse))
+    print('[%s] Variance score: %.2f' % (cond, r2))
+    
+    ax.scatter(xv, yv, c=marker_color, marker=marker, s=marker_size, alpha=alpha)
+    ax.plot(xv, fitv, linestyle, color=linecolor, label=model)
+    ax.set_xlim([0, 1200])
+    #ax.set_ylim()    
+    eq_str = 'y=%.2fx + %.2f' % (regr.coef_[0], regr.intercept_[0])
+    ax.set_title(eq_str, loc='left', fontsize=12)
+ 
+    r, p = spstats.pearsonr(xv, yv) #.abs())
+    corr_str = 'pearson=%.2f (p=%.2f)' % (r, p)
+    ax.plot(ax.get_xlim()[0], ax.get_ylim()[0], alpha=0, label=corr_str)
+    ax.legend(loc='upper right', fontsize=8)
+
+    return regr
+
+def fit_linear_regr(xvals, yvals, return_regr=False, model='ridge'):
+    if model=='ridge':
+        regr = Ridge()
+    elif model=='Lasso':
+        regr = Lasso()
+    else:
+        model = 'ols'
+        regr = LinearRegression()
+
+    if len(xvals.shape) == 1:
+        xvals = np.array(xvals).reshape(-1, 1)
+        yvals = np.array(yvals).reshape(-1, 1)
+    else:
+        xvals = np.array(xvals)
+        yvals = np.array(yvals)
+    if any(np.isnan(xvals)) or any(np.isnan(yvals)):
+        print("NAN")
+        #print(np.where(np.isnan(xvals)))
+        #print(np.where(np.isnan(yvals)))
+    regr.fit(xvals, yvals)
+    fitv = regr.predict(xvals)
+    if return_regr:
+        return fitv.reshape(-1), regr
+    else:
+        return fitv.reshape(-1)
+
+
+def compare_regr_to_boot_params(eval_results, posdf, xlim=None, ylim=None, 
+                                pass_criterion='all', model='ridge', 
+                                deviant_color='dodgerblue', marker='o',
+                                marker_size=20, fill_marker=True,
+                                outdir='/tmp', data_id='DATAID',
+                                plot_all_cis=False):
+
+    '''
+    deviants:  
+        Cells w/ good RF fits (boostrapped, measured lies within some CI), but
+               even CI lies outside of estimated regression CI
+    bad_fits:  
+        Cells w/ measured RF locations that do not fall within 
+                the CI from bootstrapping
+    
+    To get all "pass" rois, include all returned ROIs with fits that are NOT in bad_fits.
+    '''
+    bootdata = eval_results['data']
+    bootcis = eval_results['cis']
+    fit_rois = [int(k) for k, g in bootdata.groupby(['cell'])]    
+    pass_rois = eval_results['pass_cis'].index.tolist()
+    pass_cis = eval_results['pass_cis'].copy()
+    reliable_rois = get_reliable_fits(eval_results['pass_cis'], 
+                                        pass_criterion=pass_criterion)
+    
+    #% # Plot bootstrapped param CIs + regression CI
+    xaxis_lim = max([xlim, ylim])
+    reg_results = {}
+
+    for cond in ['azimuth', 'elevation']:
+        fig, regr, regci, reliable_c, deviants, bad_fits = do_regr_on_fov_cis(
+                                                        bootdata, bootcis,
+                                                        posdf, cond=cond,
+                                                        model=model, 
+                                                        roi_list=[], #reliable_rois,
+                                                        deviant_color=deviant_color,
+                                                        fill_marker=fill_marker,
+                                                        marker=marker, 
+                                                        marker_size=marker_size,
+                                                        xaxis_lim=xlim) #xaxis_lim)
+        # Get some stats from linear regr
+        rmse = np.sqrt(skmetrics.mean_squared_error(regr['yv'], regr['fitv']))
+        r2 = skmetrics.r2_score(regr['yv'], regr['fitv'])
+        pearson_r, pearson_p = spstats.pearsonr(regr['xv'], regr['yv'])
+
+
+        pass_rois = [i for i in fit_rois if i not in bad_fits]
+        reg_results[cond] = {'cis': [tuple(ci) for ci in regci], 
+                            'deviants': deviants, 
+                            'bad_fits': bad_fits, 
+                            'pass_rois': pass_rois,
+                            'reliable_rois': reliable_rois,
+                            'regr_coef': float(regr['regr'].coef_[0]), #r_coef,
+                            'regr_int': float(regr['regr'].intercept_[0]),
+                            'regr_R2': r2, 'regr_RMSE': rmse, 
+                            'regr_pearson_p': pearson_p, 'regr_pearson_r': pearson_r}
+ 
+        pplot.label_figure(fig, data_id)
+        pl.savefig(os.path.join(outdir, 'VF2RF_regr_deviants_%s%s.svg' \
+                                                    % (cond, filter_str)))
+        pl.close()
+
+    reg_results['reliable_rois'] = reliable_rois
+    reg_results['pass_criterion'] = pass_criterion
+   
+    with open(os.path.join(outdir, 'regr_results_deviants_bycond.json'), 'w') as f:
+        json.dump(reg_results, f, indent=4)    
+    print("--- saved roi info after evaluation.")
+  
+    return reg_results
+   
 

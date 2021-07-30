@@ -35,22 +35,20 @@ def extract_options(options):
                       help="name of run dir containing tiffs to be processed (ex: rfs)")
     parser.add_option('-t', '--traceid', action='store', dest='traceid', default='traces001', \
                       help="name of traces ID [default: traces001]")
-    parser.add_option('-d', '--data-type', action='store', dest='trace_type', default='corrected', \
+    parser.add_option('-d', '--data-type', action='store', dest='trace_type', 
+                      default='corrected', \
                       help="Trace type to use for analysis [default: corrected]")
        
     parser.add_option('-M', '--resp', action='store', dest='response_type', default='dff', \
                       help="Response metric to use for creating RF maps (default: dff)")
     
-    parser.add_option('--do-fits', action='store_true', dest='do_fits', default=False, \
-                      help="Flag to refit all rois")
-    parser.add_option('--do-eval', action='store_true', dest='do_eval', default=False, \
-                      help="Flag to do new evaluation on all fit rois")
-
     # pretty plotting options
-    parser.add_option('--pretty', action='store_true', dest='make_pretty_plots', default=False, \
+    parser.add_option('--pretty', action='store_true', dest='make_pretty_plots', 
+                      default=False, \
                       help="Flag to make pretty plots for roi fits")
     parser.add_option('-f', '--ellipse-fc', action='store', dest='ellipse_fc', 
-                      default='none', help="[prettyplots] Ellipse face color (default:none)")
+                      default='none', 
+                      help="[prettyplots] Ellipse face color (default:none)")
     parser.add_option('-e', '--ellipse-ec', action='store', dest='ellipse_ec', 
                       default='w', help="[prettyplots] Ellipse edge color (default:w)")
     parser.add_option('-l', '--ellipse-lw', action='store', dest='ellipse_lw', 
@@ -58,7 +56,8 @@ def extract_options(options):
     parser.add_option('--no-ellipse', action='store_false', dest='plot_ellipse', 
                       default=True, help="[prettyplots] Flag to NOT plot fit RF as ellipse")
     parser.add_option('-L', '--linecolor', action='store', dest='linecolor', 
-                      default='darkslateblue', help="[prettyplots] Color for traces (default:darkslateblue)")
+                      default='darkslateblue', 
+                      help="[prettyplots] Color for traces (default:darkslateblue)")
     parser.add_option('-c', '--cmap', action='store', dest='cmap', 
                       default='bone', help="[prettyplots] Cmap for RF maps (default:bone)")
     parser.add_option('-W', '--legend-lw', action='store', dest='legend_lw', 
@@ -84,12 +83,16 @@ def extract_options(options):
                       help="flag to reload/reprocess data arrays")
     parser.add_option('-n', '--nproc', action='store', dest='n_processes', default=1, 
                       help="N processes")
+
     parser.add_option('-B', '--boot', action='store', dest='n_bootstrap_iters', default=500, 
-                      help="N processes")
-    parser.add_option('-s', '--resample', action='store', dest='n_resamples', default=10, 
-                      help="N processes")
+                      help="N bootstrap iterations (default: 500)")
+    parser.add_option('-s', '--resample', action='store', dest='n_resamples', default=None, 
+                      help="N resamples (default: None, just takes min. N trials)")
 
-
+    parser.add_option('--do-fits', action='store_true', dest='do_fits', default=False, \
+                      help="Flag to refit all rois")
+    parser.add_option('--do-eval', action='store_true', dest='do_eval', default=False, \
+                      help="Flag to do new evaluation on all fit rois")
 
     parser.add_option('--sphere', action='store_true', 
                         dest='do_spherical_correction', default=False, help="N processes")
@@ -118,8 +121,8 @@ def main(options):
     
     response_type = optsE.response_type
     do_spherical_correction = optsE.do_spherical_correction
-    n_bootstrap_iters = optsE.n_bootstrap_iters
-    n_resamples = optsE.n_resamples 
+    n_bootstrap_iters = int(optsE.n_bootstrap_iters)
+    n_resamples = None if optsE.n_resamples in ['None', None] else int(optsE.n_resamples)
     #response_thr = optsE.response_thr
     #create_new= optsE.create_new
     do_fits = optsE.do_fits
