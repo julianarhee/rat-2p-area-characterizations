@@ -262,6 +262,54 @@ def stacked_neuraldf_to_unstacked(ndf): #neuraldf):
 # ###############################################################
 # Data selection 
 # ###############################################################
+def count_n_responsive(NDATA0, u_dkeys=None):
+    '''Returns counts by visual area, datakey'''
+    if u_dkeys is None:
+        counts = NDATA0[['visual_area', 'datakey','cell']].drop_duplicates()\
+                .groupby(['visual_area', 'datakey']).count().reset_index()
+        u_dkeys = drop_repeats(counts) 
+  
+    NDATA = pd.concat([g for (va, dk), g in NDATA0\
+                           .groupby(['visual_area', 'datakey'])\
+                          if (va, dk) in u_dkeys])       
+    counts = NDATA[['visual_area', 'datakey','cell']].drop_duplicates()\
+            .groupby(['visual_area', 'datakey']).count().reset_index()\
+            .rename(columns={'cell': 'n_responsive'})
+    
+    return counts, u_dkeys
+
+def count_n_total(assigned_cells, u_dkeys):
+    '''Count the number of cells per datakey (UNIQUE)'''
+    incl_cells = pd.concat([g for (va, dk), g in assigned_cells\
+                                .groupby(['visual_area', 'datakey'])\
+                                if (va, dk) in u_dkeys])
+    n_total = incl_cells.groupby(['visual_area', 'datakey'])\
+                            .count()['cell'].reset_index()\
+                            .rename(columns={'cell': 'n_total'})
+
+    return n_total
+
+def count_n_cells(NDATA, name='n_cells'):
+    counts = NDATA[['visual_area', 'datakey','cell']].drop_duplicates()\
+            .groupby(['visual_area', 'datakey']).count().reset_index()\
+            .rename(columns={'cell': name})
+ 
+    return counts
+
+def get_best_fit(CELLS, resp_desc, traceid='traces001', metric='gof'):
+    gdata, no_fits, missing_ = osi.aggregate_ori_fits(CELLS, traceid=traceid, 
+                                fit_desc=resp_desc, return_missing=True, 
+                                verbose=False) 
+    # Get best GoF for each 
+    best_ixs = gdata.groupby(['visual_area', 'datakey', 'cell'])['gof']\
+                    .transform(max) == gdata[metric]
+    assert gdata.loc[best_ixs].groupby(['visual_area', 'datakey', 'cell'])\
+            .count().max().max()==1
+    bestg = gdata.loc[best_ixs].copy()
+    bestg = hutils.split_datakey(bestg)
+    return bestg
+    
+
 def select_assigned_cells(cells0, sdata, experiments=[]):
     '''
     Return assigned cells for a specified experiment.
@@ -389,6 +437,10 @@ def select_best_fovs(counts_by_fov, criterion='max', colname='cell'):
     incl = pd.concat(incl_dsets, axis=0).reset_index(drop=True)
 
     return incl.drop_duplicates()
+
+
+
+# ------------------------------------------------
 
 def add_roi_positions(rfdf, calculate_position=False, traceid='traces001'):
     '''
@@ -553,7 +605,7 @@ def load_responsive_neuraldata(experiment, traceid='traces001',
                       responsive_test='nstds', responsive_thr=10,n_stds=2.5,
                       retino_thr=0.01, retino_delay=0.5):
     '''
-    Load aggregate data for each FOV, with correctly assigned cells (NDATA).
+    Load ALL aggregate data for ALL FOV, with correctly assigned cells (NDATA).
     --> calls get_aggregate_data()
 
     Only cells that pass specified responsivity tests are included.
