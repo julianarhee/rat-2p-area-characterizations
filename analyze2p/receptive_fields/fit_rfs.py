@@ -22,15 +22,20 @@ import analyze2p.receptive_fields.utils as rfutils
 def extract_options(options):
     
     parser = optparse.OptionParser()
-    parser.add_option('-D', '--root', action='store', dest='rootdir', default='/n/coxfs01/2p-data',\
-                      help='data root dir (root project dir containing all animalids) [default: /n/coxfs01/2pdata]')
-    parser.add_option('-i', '--animalid', action='store', dest='animalid', default='', help='Animal ID')
+    
+    parser.add_option('-D', '--root', action='store', dest='rootdir', 
+                    default='/n/coxfs01/2p-data',\
+                    help='data root dir (root project dir containing all animalids) [default: /n/coxfs01/2pdata]')
+    parser.add_option('-i', '--datakey', action='store', dest='datakey', default='', help='datakey (YYYYMMDD_JCxx_fov1')
 
     # Set specific session/run for current animal:
-    parser.add_option('-S', '--session', action='store', dest='session', default='', \
-                      help='session dir (format: YYYMMDD_ANIMALID')
-    parser.add_option('-A', '--fov', action='store', dest='fov', default='FOV1_zoom2p0x', \
-                      help="acquisition folder (ex: 'FOV1_zoom3x') [default: FOV1_zoom2p0x]")
+#    parser.add_option('-i', '--animalid', action='store', dest='animalid', default='', help='Animal ID')
+#
+#    parser.add_option('-S', '--session', action='store', dest='session', default='', \
+#                      help='session dir (format: YYYMMDD_ANIMALID')
+#    parser.add_option('-A', '--fov', action='store', dest='fov', default='FOV1_zoom2p0x', \
+#                      help="acquisition folder (ex: 'FOV1_zoom3x') [default: FOV1_zoom2p0x]")
+
     parser.add_option('-R', '--run', action='store', dest='run', default='rfs', \
                       help="name of run dir containing tiffs to be processed (ex: rfs)")
     parser.add_option('-t', '--traceid', action='store', dest='traceid', default='traces001', \
@@ -108,9 +113,10 @@ def main(options):
     optsE = extract_options(options)
     
     rootdir = optsE.rootdir
-    animalid = optsE.animalid
-    session = optsE.session
-    fov = optsE.fov
+    datakey = optsE.datakey
+    #animalid = optsE.animalid
+    #session = optsE.session
+    #fov = optsE.fov
     run = optsE.run
     traceid = optsE.traceid
     trace_type = optsE.trace_type
@@ -144,7 +150,7 @@ def main(options):
     print("--------------------------------------------")
 
     fit_results, fit_params, trialdata = rfutils.fit_2d_rfs(
-                                animalid, session, fov, run, traceid, 
+                                datakey, run, traceid, 
                                 trace_type=trace_type, 
                                 post_stimulus_sec=post_stimulus_sec,
                                 scaley=scaley,
@@ -172,7 +178,7 @@ def main(options):
     print("--------------------------------------------")
     print("EVALUATING")
     print("--------------------------------------------")
-    datakey = '%s_%s_fov%i' % (session, animalid, int(fov.split('_')[0][3:]))
+    #datakey = '%s_%s_fov%i' % (session, animalid, int(fov.split('_')[0][3:]))
     evaldf = rfutils.do_evaluation(datakey, fit_results, fit_params, trialdata,
                 n_bootstrap_iters=n_bootstrap_iters, n_resamples=n_resamples, ci=0.95,
                 pass_criterion='all', model='ridge', 
