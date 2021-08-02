@@ -27,16 +27,15 @@ import pylab as pl
 import seaborn as sns
 import pandas as pd
 import tifffile as tf
-import cPickle as pkl
+import _pickle as pkl
 import matplotlib.colors as mcolors
 import sklearn.metrics as skmetrics 
 import seaborn as sns
 
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from pipeline.python import utils as putils
-from pipeline.python.retinotopy import utils as ret_utils
-from pipeline.python.rois import utils as roi_utils
-from pipeline.python.coregistration import align_fov as coreg
+from pipeline.python.retinotopy import utils as retutils
+from pipeline.python.rois import utils as roiutils
+#from pipeline.python.coregistration import align_fov as coreg
 #from pipeline.python.classifications import gradient_estimation as grd
 from pipeline.python.classifications import aggregate_data_stats as aggr
 
@@ -123,55 +122,6 @@ def plot_gradients_in_area(labeled_image, img_az, img_el, grad_az, grad_el,
     return fig
 
 
-def plot_segmentation_steps(img_az, img_el, surface=None, O=None, S_thr=None, params=None,
-                            cmap='viridis', labeled_image=None, region_props=None, 
-                            label_color='w', lw=1):
-    
-    sign_map_thr = 0 if params is None else params['sign_map_thr']
-
-    fig, axf = pl.subplots(2, 3, figsize=(8,8))
-    axn = axf.flat
-
-    ax=axn[0]; #ax.set_title(proc_info_str, loc='left', fontsize=12)
-    im0 = ax.imshow(surface, cmap='gray'); ax.axis('off');
-
-    ax=axn[1]
-    im0 = ax.imshow(img_az, cmap=cmap); ax.axis('off');
-    putils.colorbar(im0, label='az')
-
-    ax=axn[2]
-    im0 = ax.imshow(img_el, cmap=cmap); ax.axis('off');
-    putils.colorbar(im0, label='el')
-
-    ax=axn[3]; ax.set_title('Sign Map, O');
-    im0 = ax.imshow(O, cmap='jet'); ax.axis('off');
-    
-    ax=axn[4]; ax.set_title('Visual Field Patches\n(std_thr=%.2f)' % sign_map_thr)
-    im = ax.imshow(S_thr, cmap='jet'); ax.axis('off');
-
-    cbar_ax = fig.add_axes([0.35, 0.1, 0.3, 0.02])
-    cbar_ticks = np.linspace(-1, 1, 5)
-    fig.colorbar(im, cax=cbar_ax, orientation='horizontal', ticks=cbar_ticks)
-    cbar_ax.tick_params(size=0)
-
-    ax = axn[5]
-    ax.imshow(labeled_image)
-    for ri, region in enumerate(region_props): 
-        ax.text(region.centroid[1], region.centroid[0], 
-                '%i' % region.label, fontsize=24, color=label_color)
-#     for index in np.arange(0, len(region_props)):
-#         label = region_props[index].label
-#         contour = skmeasure.find_contours(labeled_image == label, 0.5)[0]
-#         ax.plot(contour[:, 1], contour[:, 0], label_color)
-    contours = skmeasure.find_contours(labeled_image, level=0)
-    for contour in contours:
-        ax.plot(contour[:, 1], contour[:, 0], label_color, lw=lw)
-        
-    ax.set_title('Labeled (%i patches)' % len(region_props))
-    ax.axis('off')
-
-    return fig
-
 def overlay_contours(labeled_image, ax=None, lc='w', lw=2):
     if ax is None:
         fig, ax = pl.subplots()
@@ -188,103 +138,14 @@ def overlay_contours(labeled_image, ax=None, lc='w', lw=2):
 
     return ax
 
-def overlay_all_contours(labeled_image, ax=None, lc='w', lw=2):
-    if ax is None:
-        fig, ax = pl.subplots()
-    
-    label_ids = [l for l in np.unique(labeled_image) if l!=0]
-    #print(label_ids)
-    #for label in label_ids: # range(1, labeled_image.max()):
-        #contour = skmeasure.find_contours(labeled_image == label, 0.5)[-1]
-        #print(label, len(contour))
-        #ax.plot(contour[:, 1], contour[:, 0], lc, lw=lw)
-    contours = skmeasure.find_contours(labeled_image, level=0)
-    for contour in contours:
-        ax.plot(contour[:, 1], contour[:, 0], lc, lw=lw)
-
-    return ax
-
 
 
 # --------------------------------------------------------------------
 # segmentation
 # -------------------------------------------------------------------- 
-def segment_areas(img_az, img_el, sign_map_thr=0.5):
-    from pipeline.python.classifications import gradient_estimation as grd
-
-    # Calculate gradients
-    # ---------------------------------------------------------
-    h_map = img_el.copy()
-    v_map = img_az.copy()
-    [h_gy, h_gx] = np.array(grd.gradient_phase(h_map))
-    [v_gy, v_gx] = np.array(grd.gradient_phase(v_map))
-
-    h_gdir = np.arctan2(h_gy, h_gx) # gradient direction
-    v_gdir = np.arctan2(v_gy, v_gx)
-
-    # Create sign map
-    # ---------------------------------------------------------
-    gdiff = v_gdir-h_gdir
-    gdiff = (gdiff + math.pi) % (2*math.pi) - math.pi
-
-    #O=-1*np.sin(gdiff)
-    O=np.sin(gdiff) # LEFT goes w/ BOTTOM.  RIGHT goes w/ TOP.
-    S=np.sign(O) # Discretize into patches
-
-    # Calculate STD, and threshold to separate areas (simple morph. step)
-    # ---------------------------------------------------------
-    O_sigma = np.nanstd(O)
-    S_thr = np.zeros(np.shape(O))
-    S_thr[O>(O_sigma*sign_map_thr)] = 1
-    S_thr[O<(-1*O_sigma*sign_map_thr)] = -1
-    
-    return O, S_thr
-
-def segment_and_label(S_thr, min_region_area=500):
-    from pipeline.python.classifications import gradient_estimation as grd
-
-    # Create segmented + labeled map
-    # ---------------------------------------------------------
-    filled_smap = grd.fill_nans(S_thr)
-    labeled_image_tmp, n_labels = skmeasure.label(
-                                 filled_smap, background=0, return_num=True)
-
-    image_label_overlay = label2rgb(labeled_image_tmp) #, image=segmented_img) 
-    print(labeled_image_tmp.shape, image_label_overlay.shape)
-    rprops_ = skmeasure.regionprops(labeled_image_tmp, filled_smap)
-    region_props = [r for r in rprops_ if r.area > min_region_area]
-    
-    # Relabel image
-    labeled_image = np.zeros(labeled_image_tmp.shape)
-    for ri, rprop in enumerate(region_props):
-        new_label = int(ri+1)
-        labeled_image[labeled_image_tmp==rprop.label] = new_label
-        rprop.label = new_label
-        region_props[ri] = rprop
-        
-    return region_props, labeled_image 
-
 # --------------------------------------------------------------------
 # data loading/saving
 # -------------------------------------------------------------------- \
-def load_segmentation_results(animalid, session, fov, retinorun='retino_run1', 
-                                rootdir='/n/coxfs01/2p-data'):
-    
-    retino_seg_dir = os.path.join(rootdir, animalid, session, fov, retinorun, 
-                              'retino_analysis', 'segmentation')
-    
-    results_fpath = os.path.join(retino_seg_dir, 'results.pkl')
-    assert os.path.exists(results_fpath), "Segmentation not found: %s" % results_fpath
-    with open(results_fpath, 'r') as f:
-        results = pkl.load(f)
-
-    params_fpath = os.path.join(retino_seg_dir, 'params.json')
-    assert os.path.exists(params_fpath), "Segmentation params not found: %s" % params_fpath
-    with open(params_fpath, 'r') as f:
-        params = json.load(f)
-    
-    return results, params
-
 def load_roi_assignments(animalid, session, fov, retinorun='retino_run1', 
                             rootdir='/n/coxfs01/2p-data'):
     
@@ -329,13 +190,13 @@ def get_cells_by_area(sdata, excluded_datasets=[], return_missing=False, verbose
                 continue
  
         for varea, rlist in roi_assignments.items():
-            if putils.isnumber(varea):
+            if hutils.isnumber(varea):
                 continue
              
             tmpd = pd.DataFrame({'cell': list(set(rlist))})
             metainfo = {'visual_area': varea, 'animalid': animalid, 'session': session,
                         'fov': fov, 'fovnum': g['fovnum'].values[0], 'datakey': g['datakey'].values[0]}
-            tmpd = putils.add_meta_to_df(tmpd, metainfo)
+            tmpd = hutils.add_meta_to_df(tmpd, metainfo)
             d_.append(tmpd)
 
     cells = pd.concat(d_, axis=0).reset_index(drop=True)
@@ -370,12 +231,12 @@ def calculate_gradients(curr_segmented_mask, img_az, img_el):
 def get_transformed_rois(animalid, session, fov, retinorun='retino_run1', 
                         roi_id=None, traceid='traces001'):
     if roi_id is None:
-        roi_id = roi_utils.get_roiid_from_traceid(animalid, session, fov, traceid=traceid)
-    roi_masks, zprog_img = roi_utils.load_roi_masks(animalid, session, fov, rois=roi_id)
+        roi_id = roiutils.get_roiid_from_traceid(animalid, session, fov, traceid=traceid)
+    roi_masks, zprog_img = roiutils.load_roi_masks(animalid, session, fov, rois=roi_id)
     print("Loaded rois: %s" % roi_id)
     d1, d2, nrois = roi_masks.shape
 
-    pixel_size = putils.get_pixel_size()    
+    pixel_size = hutils.get_pixel_size()    
     # pixel_size = (pixel_size[0]*ds_factor, pixel_size[1]*ds_factor)
     roi_masks_tr = np.dstack([coreg.transform_2p_fov(roi_masks[:, :, i].astype(float), pixel_size)                    for i in np.arange(0, nrois)]) # transform/orient
     roi_masks = roi_masks_tr.astype(bool).astype(int)
@@ -421,86 +282,12 @@ def assign_rois_to_visual_area(animalid, session, fov, retinorun='retino_run1',r
     return roi_assignments
 
 
-def plot_labeled_rois(labeled_image, roi_assignments, roi_masks, cmap='colorblind', 
-                        surface=None, ax=None, contour_lw=1, contour_lc='w'):
-    
-    d1, d2, nr = roi_masks.shape
-    
-    defined_names = [k for k in roi_assignments.keys() if not(putils.isnumber(k))]
-
-    color_list = sns.color_palette('colorblind', n_colors=len(defined_names))
-    color_dict = dict((k, v) for k, v in zip(defined_names, color_list))
-
-    # Plot rois on visual areas
-    roi_int_img = np.zeros((d1, d2,4), dtype=float) #*np.nan
-
-    for area_name, roi_list in roi_assignments.items():
-        rc = color_dict[area_name] if area_name in defined_names else (0.5, 0.5, 0.5, 1)
-        for ri in roi_list:
-            curr_msk = roi_masks[:, :, ri].copy() #* color_list[0]
-            roi_int_img[curr_msk>0, :] = [rc[0], rc[1], rc[2], 1] 
-
-    if ax is None:
-        fig, ax = pl.subplots(figsize=(3,4))
-    
-    if surface is not None:
-        ax.imshow(surface, cmap='gray')
-    ax.imshow(roi_int_img)
-    ax = overlay_all_contours(labeled_image, ax=ax, lw=contour_lw, lc=contour_lc)
-
-    lhandles = putils.custom_legend_markers(colors=color_list, labels=defined_names)
-    bbox_to_anchor=(1.6, 1)
-    ax.legend(handles=lhandles, bbox_to_anchor=bbox_to_anchor)
-    
-    return ax
-
-
-def plot_labeled_areas(filt_azim_r, filt_elev_r, surface_2p, label_keys,
-                        labeled_image_2p, labeled_image_incl, region_props, 
-                        cmap_phase='nipy_spectral', pos_multiplier=(1,1)):
-
-    fig, axn = pl.subplots(1,3, figsize=(9,3))
-    ax=axn[0]
-    ax.imshow(surface_2p, cmap='gray')
-    ax.set_title('Azimuth')
-    im0 = ax.imshow(filt_azim_r, cmap=cmap_phase)
-    putils.colorbar(im0)
-    ax = overlay_all_contours(labeled_image_2p, ax=ax, lw=2, lc='k')
-    putils.turn_off_axis_ticks(ax, despine=False)
-
-    ax=axn[1]
-    ax.imshow(surface_2p, cmap='gray')
-    im1=ax.imshow(filt_elev_r, cmap=cmap_phase)
-    putils.colorbar(im1)
-    ax.set_title('Elevation')
-    ax = overlay_all_contours(labeled_image_2p, ax=ax, lw=2, lc='k')
-    putils.turn_off_axis_ticks(ax, despine=False)
-
-    ax=axn[2]
-    ax.imshow(surface_2p, cmap='gray')
-    labeled_image_incl_2p = cv2.resize(labeled_image_incl, (surface_2p.shape[1], surface_2p.shape[0]))
-    ax.imshow(labeled_image_incl_2p, cmap='jet', alpha=0.5)
-    ax = overlay_all_contours(labeled_image_2p, ax=ax, lw=2, lc='k')
-
-    area_ids = [k[1] for k in label_keys]
-    for region in region_props:
-        if region.label in area_ids:
-            region_name = str([k[0] for k in label_keys if k[1]==region.label][0])
-            ax.text(region.centroid[1]*pos_multiplier[0], 
-                    region.centroid[0]*pos_multiplier[1], 
-                    '%s (%i)' % (region_name, region.label), fontsize=18, color='r')
-            print(region_name, region.area)
-    ax.set_title('Labeled (%i patches)' % len(area_ids))
-    putils.turn_off_axis_ticks(ax, despine=False)
-
-    return fig
-
-
 # processing
-def load_processed_maps(animalid, session, fov, retinorun='retino_run1', 
+def load_processed_maps(datakey, retinorun='retino_run1', 
                         rootdir='/n/coxfs01/2p-data'):
-
-    results_dir = glob.glob(os.path.join(rootdir, animalid, session, fov, retinorun, 'retino_analysis',
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
+    results_dir = glob.glob(os.path.join(rootdir, animalid, session, \
+                            'FOV%i_*' % fovn, retinorun, 'retino_analysis',
                             'segmentation'))
     assert len(results_dir)==1, "No segmentation results, %s" % retinorun
      
@@ -513,13 +300,13 @@ def load_processed_maps(animalid, session, fov, retinorun='retino_run1',
 
     return pmaps, pparams
 
-def get_processed_maps(animalid, session, fov, retinorun='retino_run1', 
-                        analysis_id=None, create_new=False, pix_mag_thr=0.002, delay_map_thr=1, 
+def get_processed_maps(datakey, retinorun='retino_run1', 
+                        analysis_id=None, create_new=False, 
+                        pix_mag_thr=0.002, delay_map_thr=1, 
                         rootdir='/n/coxfs01/2p-data'):
-
     if not create_new:
         try:
-            pmaps, pparams = load_processed_maps(animalid, session, fov, retinorun, rootdir=rootdir)
+            pmaps, pparams = load_processed_maps(datakey, retinorun, rootdir=rootdir)
         except Exception as e:
             print(e)
             print(" -- procssing maps now...")
@@ -528,20 +315,20 @@ def get_processed_maps(animalid, session, fov, retinorun='retino_run1',
     if create_new:
         # Load data metainfo
         print("Current run: %s" % retinorun)
-        retinoid, RETID = ret_utils.load_retino_analysis_info(animalid, session, fov, retinorun, 
-                                                              use_pixels=True)
-        data_id = '_'.join([animalid, session, fov, retinorun, retinoid])
+        retinoid, RETID = retutils.load_retino_analysis_info(datakey, retinorun, 
+                                                             use_pixels=True)
+        data_id = '_'.join([datakey, retinorun, retinoid])
         print("DATA ID: %s" % data_id)
-        curr_dst_dir = os.path.join(rootdir, animalid, session, fov, retinorun, 
-                                        'retino_analysis', 'segmentation')
+       
+        rundir = RETID['DST'].split('/analysis')[0] 
+        curr_dst_dir = os.path.join(rundir,'retino_analysis', 'segmentation')
         # Load MW info and SI info
-        mwinfo = ret_utils.load_mw_info(animalid, session, fov, retinorun)
-        scaninfo = ret_utils.get_protocol_info(animalid, session, fov, run=retinorun) 
+        mwinfo = retutils.load_mw_info(datakey, retinorun)
+        scaninfo = retutils.get_protocol_info(datakey, run=retinorun) 
         trials_by_cond = scaninfo['trials']
      
         # Get run results
-        magratio, phase, trials_by_cond = ret_utils.fft_results_by_trial(RETID)
-
+        magratio, phase, trials_by_cond = retutils.fft_results_by_trial(RETID)
         d2 = scaninfo['pixels_per_line']
         d1 = scaninfo['lines_per_frame']
         print("Original dims: [%i, %i]" % (d1, d2))
@@ -549,29 +336,31 @@ def get_processed_maps(animalid, session, fov, retinorun='retino_run1',
         print('Data were downsampled by %i.' % ds_factor)
 
         # Get pixel size
-        pixel_size = putils.get_pixel_size()
+        pixel_size = hutils.get_pixel_size()
         pixel_size_ds = (pixel_size[0]*ds_factor, pixel_size[1]*ds_factor)
 
         # #### Get maps
         abs_vmin, abs_vmax = (-np.pi, np.pi)
-        absolute_az, absolute_el, delay_az, delay_el = ret_utils.absolute_maps_from_conds(
-                                                                magratio, phase, trials_by_cond,
-                                                                mag_thr=pix_mag_thr, dims=(d1, d2),
-                                                                plot_conditions=False, 
-                                                                ds_factor=ds_factor)
-
-        fig = ret_utils.plot_phase_and_delay_maps(absolute_az, absolute_el, 
+        absolute_az, absolute_el, delay_az, delay_el = retutils.absolute_maps_from_conds(
+                                                        magratio, phase, 
+                                                        trials_by_cond,
+                                                        mag_thr=pix_mag_thr, 
+                                                        dims=(d1, d2),
+                                                        plot_conditions=False, 
+                                                        ds_factor=ds_factor)
+        fig = retutils.plot_phase_and_delay_maps(absolute_az, absolute_el, 
                                                   delay_az, delay_el,
                                                   cmap='nipy_spectral', 
-                                                   vmin=abs_vmin, vmax=abs_vmax)
+                                                  vmin=abs_vmin, vmax=abs_vmax)
 
         # #### Filter where delay map is not uniform (Az v El)
-        fig, filt_az, filt_el = ret_utils.filter_by_delay_map(absolute_az, absolute_el, 
-                                                            delay_az, delay_el, 
-                                                            delay_map_thr=delay_map_thr, plot=True)
-        filt_azim_r = coreg.transform_2p_fov(filt_az, pixel_size_ds, normalize=False)
-        filt_elev_r = coreg.transform_2p_fov(filt_el, pixel_size_ds, normalize=False)
-        putils.label_figure(fig, data_id)
+        fig, filt_az, filt_el = retutils.filter_by_delay_map(absolute_az, absolute_el, 
+                                                    delay_az, delay_el, 
+                                                    delay_map_thr=delay_map_thr, 
+                                                    plot=True)
+        filt_azim_r = retutils.transform_2p_fov(filt_az, pixel_size_ds, normalize=False)
+        filt_elev_r = retutils.transform_2p_fov(filt_el, pixel_size_ds, normalize=False)
+        pplot.label_figure(fig, data_id)
         pl.savefig(os.path.join(curr_dst_dir, 'delay_map_filters.png'))
 
         # Save processing results + params
@@ -581,8 +370,8 @@ def get_processed_maps(animalid, session, fov, retinorun='retino_run1',
                  filtered_az=filt_az, filtered_el=filt_el,
                  filtered_az_scaled=filt_azim_r, filtered_el_scaled=filt_elev_r)
 
+        # load
         pmaps = np.load(processedmaps_fpath)
-
         processedparams_fpath = os.path.join(curr_dst_dir, 'processing_params.json')
         pparams = {'pixel_mag_thr': pix_mag_thr,
                     'ds_factor': ds_factor,
@@ -604,7 +393,7 @@ def smooth_maps(start_az, start_el, smooth_fwhm=12, smooth_spline=2, fill_nans=T
                 start_with_transformed=True, use_phase_smooth=False, ds_factor=2):
     from pipeline.python.classifications import gradient_estimation as grd
 
-    pixel_size = putils.get_pixel_size()
+    pixel_size = hutils.get_pixel_size()
     pixel_size_ds = (pixel_size[0]*ds_factor, pixel_size[1]*ds_factor)
 
     smooth_spline_x = smooth_spline if smooth_spline_x is None else smooth_spline_x
@@ -618,11 +407,11 @@ def smooth_maps(start_az, start_el, smooth_fwhm=12, smooth_spline=2, fill_nans=T
 
     print("start", np.nanmin(start_az), np.nanmax(start_az))
     if use_phase_smooth:
-        azim_smoothed = ret_utils.smooth_phase_nans(start_az, smooth_fwhm, sz)
-        elev_smoothed = ret_utils.smooth_phase_nans(start_el, smooth_fwhm, sz)
+        azim_smoothed = retutils.smooth_phase_nans(start_az, smooth_fwhm, sz)
+        elev_smoothed = retutils.smooth_phase_nans(start_el, smooth_fwhm, sz)
     else:
-        azim_smoothed = ret_utils.smooth_neuropil(start_az, smooth_fwhm=smooth_fwhm)
-        elev_smoothed = ret_utils.smooth_neuropil(start_el, smooth_fwhm=smooth_fwhm)
+        azim_smoothed = retutils.smooth_neuropil(start_az, smooth_fwhm=smooth_fwhm)
+        elev_smoothed = retutils.smooth_neuropil(start_el, smooth_fwhm=smooth_fwhm)
     print("smoothed", np.nanmin(azim_smoothed), np.nanmax(azim_smoothed))
 
     if fill_nans:
@@ -661,8 +450,8 @@ def smooth_maps(start_az, start_el, smooth_fwhm=12, smooth_spline=2, fill_nans=T
         print("fillnan", np.nanmin(azim_fillnan), np.nanmax(azim_fillnan))
     else:
         
-        azim_fillnan = ret_utils.smooth_neuropil(azim_smoothed, smooth_fwhm=smooth_fwhm)
-        elev_fillnan = ret_utils.smooth_neuropil(elev_smoothed, smooth_fwhm=smooth_fwhm)
+        azim_fillnan = retutils.smooth_neuropil(azim_smoothed, smooth_fwhm=smooth_fwhm)
+        elev_fillnan = retutils.smooth_neuropil(elev_smoothed, smooth_fwhm=smooth_fwhm)
     # Transform FOV to match widefield
     az_fill = coreg.transform_2p_fov(azim_fillnan, pixel_size, normalize=False) if not start_with_transformed else azim_fillnan
     el_fill = coreg.transform_2p_fov(elev_fillnan, pixel_size, normalize=False) if not start_with_transformed else elev_fillnan
@@ -684,7 +473,7 @@ def smooth_processed_maps(animalid, session, fov, retinorun='retino_run1',
     from pipeline.python.classifications import gradient_estimation as grd
 
     if cmap_phase=='nic_Edge':
-        _, cmap_phase = ret_utils.get_retino_legends(cmap_name=cmap_phase, zero_center=True, 
+        _, cmap_phase = retutils.get_retino_legends(cmap_name=cmap_phase, zero_center=True, 
                                                    return_cmap=True)
 
     pmaps, pparams = get_processed_maps(animalid, session, fov, retinorun=retinorun,
@@ -708,7 +497,7 @@ def smooth_processed_maps(animalid, session, fov, retinorun='retino_run1',
     start_el = filt_elev_r.copy() if start_with_transformed else filt_el.copy()
 
     # Get smooth sparams
-    pixel_size = putils.get_pixel_size()
+    pixel_size = hutils.get_pixel_size()
     pixel_size_ds = (pixel_size[0]*ds_factor, pixel_size[1]*ds_factor)
     um_per_pix = np.mean(pixel_size) if start_with_transformed else np.mean(pixel_size_ds)
     smooth_fwhm = int(round(target_sigma_um/um_per_pix))  # int(25*pix_per_deg) #11
@@ -734,7 +523,7 @@ def smooth_processed_maps(animalid, session, fov, retinorun='retino_run1',
                                                smooth_spline=smooth_spline,
                                                delay_map_thr=delay_map_thr, 
                                                full_cmap_range=False, show_cbar=True)
-    putils.label_figure(fig, data_id)        
+    hutils.label_figure(fig, data_id)        
     figname = 'pixelmaps_smooth-%i_magthr-%.3f_delaymapthr-%.2f' % (smooth_fwhm, pix_mag_thr, delay_map_thr)
     pl.savefig(os.path.join(curr_dst_dir, '%s.png' % figname))
     print(curr_dst_dir, figname)
@@ -774,13 +563,13 @@ def load_final_maps(animalid, session, fov, retinorun='retino_run1', return_scre
         pparams = json.load(f)
 
     if return_screen:
-        screen = putils.get_screen_dims()
+        screen = hutils.get_screen_dims()
         screen_max = screen['azimuth_deg']/2.
         screen_min = -screen_max
         vmin, vmax = (-np.pi, np.pi)
-        img_az = putils.convert_range(az_fill, oldmin=vmin, oldmax=vmax, 
+        img_az = hutils.convert_range(az_fill, oldmin=vmin, oldmax=vmax, 
                                 newmin=screen_min, newmax=screen_max)
-        img_el = putils.convert_range(el_fill, oldmin=vmin, oldmax=vmax,
+        img_el = hutils.convert_range(el_fill, oldmin=vmin, oldmax=vmax,
                                 newmin=screen_min, newmax=screen_max) 
         return img_az, img_el, pparams
     else:
@@ -822,7 +611,7 @@ def plot_morphological_steps(S, closing_s1, opening_s1, dilation,
 
     ax=axn[3]
     im=ax.imshow(dilation, cmap='jet')
-    putils.colorbar(im)
+    pplot.colorbar(im)
     ax.set_title('dilation (%i)' % dilate_k)
 
     return f
@@ -876,10 +665,10 @@ if __name__ == '__main__':
     # -------------------------------------------------------------------
 
     #### Some aggregate plotting stuff
-    visual_areas, area_colors = putils.set_threecolor_palette()
-    dpi = putils.set_plot_params(lw_axes=2)
+    visual_areas, area_colors = pplot.set_threecolor_palette()
+    dpi = pplot.set_plot_params(lw_axes=2)
 
-    screen, cmap_phase = ret_utils.get_retino_legends(cmap_name=cmap_name, zero_center=True, 
+    screen, cmap_phase = retutils.get_retino_legends(cmap_name=cmap_name, zero_center=True, 
                                                        return_cmap=True)
 
     #### Set output dirs
@@ -929,21 +718,21 @@ if __name__ == '__main__':
 
 
     # screen info
-    screen = putils.get_screen_dims()
+    screen = hutils.get_screen_dims()
     screen_max = screen['azimuth_deg']/2.
     screen_min = -screen_max
 
     #### Convert to screen units
     vmin, vmax = (-np.pi, np.pi)
-    img_az = putils.convert_range(az_fill, oldmin=vmin, oldmax=vmax, newmin=screen_min, newmax=screen_max)
-    img_el = putils.convert_range(el_fill, oldmin=vmin, oldmax=vmax, newmin=screen_min, newmax=screen_max)
+    img_az = hutils.convert_range(az_fill, oldmin=vmin, oldmax=vmax, newmin=screen_min, newmax=screen_max)
+    img_el = hutils.convert_range(el_fill, oldmin=vmin, oldmax=vmax, newmin=screen_min, newmax=screen_max)
     vmin, vmax = (screen_min, screen_max)   
 
     #### Get surface img
-    surface_img = ret_utils.load_2p_surface(animalid, session, fov, ch_num=1, retinorun=retinorun)
-    pixel_size = putils.get_pixel_size()
-    surface_2p = coreg.transform_2p_fov(surface_img, pixel_size, normalize=False)
-    surface_2p = putils.adjust_image_contrast(surface_2p, clip_limit=10.0, tile_size=5)
+    surface_img = retutils.load_2p_surface(animalid, session, fov, ch_num=1, retinorun=retinorun)
+    pixel_size = hutils.get_pixel_size()
+    surface_2p = retutils.transform_2p_fov(surface_img, pixel_size, normalize=False)
+    surface_2p = pplot.adjust_image_contrast(surface_2p, clip_limit=10.0, tile_size=5)
     #fig, ax = pl.subplots(figsize=(4,3))
     #ax.imshow(surface_2p, cmap='gray')
 
@@ -1129,8 +918,8 @@ if __name__ == '__main__':
     traceid= 'traces001'
     roi_id = None
     if roi_id is None:
-        roi_id = roi_utils.get_roiid_from_traceid(animalid, session, fov, traceid=traceid)
-    r_masks, zprog_img = roi_utils.load_roi_masks(animalid, session, fov, rois=roi_id)
+        roi_id = roiutils.get_roiid_from_traceid(animalid, session, fov, traceid=traceid)
+    r_masks, zprog_img = roiutils.load_roi_masks(animalid, session, fov, rois=roi_id)
     print("Loaded rois: %s" % roi_id)
     d1, d2, nrois = r_masks.shape
 

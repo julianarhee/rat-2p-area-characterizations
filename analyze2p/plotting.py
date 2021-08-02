@@ -28,7 +28,7 @@ from .stats import do_mannwhitney
 np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)       
 
 import re
-
+import cv2
 from matplotlib.patches import PathPatch
 
 
@@ -594,4 +594,19 @@ def label_group_bar_table(ax, df, offset=0.2, lw=1):
         add_line(ax, pos*scale , xpos)
         xpos -= offset
 
+
+# Visualizing fov
+def adjust_image_contrast(img, clip_limit=2.0, tile_size=10):#(10,10)):
+    img[img<-50] = 0
+    normed = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
+
+    # Convert to 8-bit
+    img8 = cv2.convertScaleAbs(normed)
+
+    # Equalize hist:
+    tg = tile_size if isinstance(tile_size, tuple) else (tile_size, tile_size)
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tg)
+    eq = clahe.apply(img8)
+
+    return eq
 

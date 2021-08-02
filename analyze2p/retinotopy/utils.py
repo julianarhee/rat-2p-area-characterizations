@@ -20,6 +20,10 @@ import analyze2p.utils as hutils
 #from py3utils import natural_keys
 
 import analyze2p.extraction.rois as roiutils
+import analyze2p.utils as hutils
+import analyze2p.plotting as pplot
+
+import scipy.stats as spstats
 
 # Data selection
 def get_average_mag_across_pixels(datakey, retinorun=None,
@@ -213,6 +217,72 @@ def absolute_maps_from_conds(magratio, phase, trials_by_cond=None, mag_thr=0.01,
 
     return magmaps, absolute_az, absolute_el, delay_az, delay_el
 
+def plot_phase_and_delay_maps(absolute_az, absolute_el, delay_az, delay_el, 
+                                cmap='nipy_spectral', vmin=-np.pi, vmax=np.pi, 
+                                elev_cutoff=0.56):
+    if cmap=='nic_Edge':
+        screen, cmap = get_retino_legends(cmap_name=cmap, zero_center=True, 
+                                                  return_cmap=True)
+
+    abs_vmin, abs_vmax = (-np.pi, np.pi)
+    del_vmin, del_vmax = (0, 2.*np.pi)
+
+    fig, axes = pl.subplots(2,2)
+    az_mean = spstats.circmean(absolute_az[~np.isnan(absolute_az)], low=abs_vmin, high=abs_vmax)
+    az_std = spstats.circstd(absolute_az[~np.isnan(absolute_az)], low=abs_vmin, high=abs_vmax)
+    im1 = axes[0,0].imshow(absolute_az, cmap=cmap, vmin=abs_vmin, vmax=abs_vmax)
+    axes[0,0].set_title('Azimuth', fontsize=12, loc='left')
+    axes[0,0].set_title('mean AZ %.2f (+/- %.2f)' % (az_mean, az_std), fontsize=8, loc='left')
+    pplot.colorbar(im1)
+
+    el_mean = spstats.circmean(absolute_el[~np.isnan(absolute_el)], low=abs_vmin, high=abs_vmax)
+    el_std = spstats.circstd(absolute_el[~np.isnan(absolute_el)], low=abs_vmin, high=abs_vmax)
+    im2 = axes[0,1].imshow(absolute_el, cmap=cmap, vmin=abs_vmin, vmax=abs_vmax)
+    axes[0,1].set_title('mean EL %.2f (+/- %.2f)' % (el_mean, el_std), fontsize=8, loc='left')
+    pplot.colorbar(im2)
+
+    # Print some info to plot
+    d_az_mean = spstats.circmean(delay_az[~np.isnan(delay_az)], low=del_vmin, high=del_vmax)
+    d_az_std = spstats.circstd(delay_az[~np.isnan(delay_az)], low=del_vmin, high=del_vmax)
+    im1b=axes[1,0].imshow(delay_az, cmap=cmap, vmin=del_vmin, vmax=del_vmax)
+    axes[1,0].set_title('mean del %.2f (+/- %.2f)' % (d_az_mean, d_az_std),
+                        loc='left', fontsize=8)
+    pplot.colorbar(im1b)
+
+    d_el_mean = spstats.circmean(delay_el[~np.isnan(delay_el)], low=del_vmin, high=del_vmax)
+    d_el_std = spstats.circstd(delay_el[~np.isnan(delay_el)], low=del_vmin, high=del_vmax)
+    im2b=axes[1,1].imshow(delay_el, cmap=cmap, vmin=del_vmin, vmax=del_vmax)
+    axes[1,1].set_title('mean del %.2f (+/- %.2f)' % (d_el_mean, d_el_std),
+                        loc='left', fontsize=8)
+    pplot.colorbar(im2b)
+
+    cbar1_orientation='horizontal'
+    cbar1_axes = [0.35, 0.85, 0.1, 0.1]
+    cbar2_orientation='vertical'
+    cbar2_axes = [0.75, 0.85, 0.1, 0.1]
+
+    cbaxes = fig.add_axes(cbar1_axes) 
+    cb = pl.colorbar(im1, cax = cbaxes, orientation=cbar1_orientation)  
+    cb.ax.axis('off')
+    cb.outline.set_visible(False)
+
+
+    cbaxes = fig.add_axes(cbar2_axes) 
+    cb = pl.colorbar(im2, cax = cbaxes, orientation=cbar2_orientation)
+    #cb.ax.set_ylim([cb.norm(-np.pi*top_cutoff), cb.norm(np.pi*top_cutoff)])
+    cb.ax.axhline(y=cb.norm(vmin*elev_cutoff), color='w', lw=1)
+    cb.ax.axhline(y=cb.norm(vmax*elev_cutoff), color='w', lw=1)
+    cb.ax.axis('off')
+    cb.outline.set_visible(False)
+    pl.subplots_adjust(top=0.8, hspace=0.5, wspace=0.5)
+
+    for ax in axes.flat:
+        ax.axis('off')
+ 
+    return fig
+
+
+
 
 def filter_by_delay_map(absolute_az, absolute_el, delay_az, delay_el, 
                         delay_map_thr=0.5, return_delay=True):
@@ -331,6 +401,25 @@ def scale_2p_fov(transformed_image, pixel_size=(2.312, 1.888)):
 # -----------------------------------------------------------------------------
 # MW/protocol loading
 # -----------------------------------------------------------------------------
+
+def load_2p_surface(datakey, ch_num=1, retinorun='retino_run1', 
+                    rootdir='/n/coxfs01/2p-data'):
+    from skimage.measure import block_reduce
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
+    run_dir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovn, 
+                        retinorun))[0]
+    fov_imgs = glob.glob(os.path.join(run_dir, 'processed', 'processed*', 
+                                'mcorrected_*mean_deinterleaved',\
+                                'Channel%02d' % ch_num, 'File*', '*.tif')) 
+    imlist = []
+    for anat in fov_imgs:
+        im = tf.imread(anat)
+        imlist.append(im)
+    surface_img = np.array(imlist).mean(axis=0)
+    
+    return surface_img
+
+
 def load_fov_image(RETID):
 
     ds_factor = int(RETID['PARAMS']['downsample_factor'])
@@ -1144,4 +1233,115 @@ def convert_absolute_magmap(cond_data, smooth_fwhm=7, smooth=True, power_metric=
     return combined_mag_map #_shift
 
 
+# PLOTTING
+from matplotlib.colors import LinearSegmentedColormap
 
+def create_legend(screen, zero_center=False):
+    screen_x = screen['azimuth_deg']
+    screen_y = screen['azimuth_deg'] #screen['altitude_deg']
+
+    x = np.linspace(0, 2*np.pi, int(round(screen_x)))
+    y = np.linspace(0, 2*np.pi, int(round(screen_y)) )
+    xv, yv = np.meshgrid(x, y)
+
+    az_legend = (2*np.pi) - xv
+    el_legend = yv
+
+    newmin = -0.5*screen_x if zero_center else 0
+    newmax = 0.5*screen_x if zero_center else screen_x
+    
+    az_screen = hutils.convert_range(az_legend, newmin=newmin, newmax=newmax, 
+                                oldmin=0, oldmax=2*np.pi)
+    el_screen = hutils.convert_range(el_legend, newmin=newmin, newmax=newmax, 
+                                oldmin=0, oldmax=2*np.pi)
+
+    return az_screen, el_screen
+
+
+def save_legend(az_screen, screen, cmap, cmap_name='cmap_name', cond='cond', dst_dir='/tmp'):
+    screen_min = int(round(az_screen.min()))
+    screen_max = int(round(az_screen.max()))
+    #print("min/max:", screen_min, screen_max)
+    
+    fig, ax = pl.subplots()
+    im = ax.imshow(az_screen, cmap=cmap)
+    #ax.invert_xaxis()
+   
+    # Max value is twice the 0-centered value, or just the full value if not 0-cent
+    max_v = screen['azimuth_deg'] #az_screen.max()*2.0 if screen_min < 0 else az_screen.max() #screen_max
+  
+    # Get actual screen edges
+    midp = max_v/2.
+    yedge_from_bottom = midp + screen['altitude_deg']/2.
+    yedge_from_top = midp - screen['altitude_deg']/2.
+    screen_edges_y = (-screen['altitude_deg']/2., screen['altitude_deg']/2.)
+
+    if cond=='azimuth':
+        ax.set_xticks(np.linspace(0, max_v, 5))
+        ax.set_xticklabels([int(round(i)) for i \
+                                in np.linspace(screen_min, screen_max, 5)][::-1])
+        ax.set_yticks([])
+        ax.set_yticklabels([])
+        ax.tick_params(axis='x', length=0)
+        ax.set_xlim(ax.get_xlim()[::-1])
+    
+    else:
+
+        ax.set_yticks(np.linspace(0, min(az_screen.shape), 5))
+        ax.set_yticklabels([int(round(i)) for i \
+                                in np.linspace(screen_min, screen_max, 5)])
+        ax.set_xticks([])
+        ax.set_xticklabels([])
+        ax.tick_params(axis='y', length=0)
+
+        #ax.axhline(y=yedge_from_bottom, color='w', lw=2)
+        #ax.axhline(y=yedge_from_top, color='w', lw=2)
+        #print(screen_edges_y)
+        ax.set_ylim(ax.get_ylim()[::-1])
+
+    ax.axhline(y=yedge_from_bottom, color='w', lw=2)
+    ax.axhline(y=yedge_from_top, color='w', lw=2)
+
+    ax.set_frame_on(False)
+    pl.colorbar(im, ax=ax, shrink=0.7)
+
+    figname = '%s_pos_%s_LEGEND_abs' % (cond, cmap_name)
+    pl.savefig(os.path.join(dst_dir, '%s.svg' % figname))
+
+    print(dst_dir, figname)
+
+    return
+
+
+    
+def make_legends(cmap='nipy_spectral', cmap_name='nipy_spectral', zero_center=False,
+                 dst_dir='/n/coxfs01/julianarhee/aggregate-data/retinotopy'):
+
+    screen = hutils.get_screen_dims()
+    azi_legend, alt_legend = create_legend(screen, zero_center=zero_center)
+   
+    if dst_dir is not None:
+        save_legend(azi_legend, screen, cmap=cmap, 
+                        cmap_name=cmap_name, cond='azimuth', dst_dir=dst_dir)
+        save_legend(alt_legend, screen, cmap=cmap, 
+                        cmap_name=cmap_name, cond='elevation', dst_dir=dst_dir)
+        
+    screen.update({'azi_legend': azi_legend,
+                   'alt_legend': alt_legend})
+    return screen
+
+
+def get_retino_legends(cmap_name='nic_edge', zero_center=True, return_cmap=False,
+                    cmap_dir='/n/coxfs01/julianarhee/colormaps', 
+                    dst_dir='/n/coxfs01/julianarhee/aggregate-visual-areas/retinotopy'):
+    #colormap = 'nic_Edge'
+    #cmapdir = os.path.join(aggr_dir, 'colormaps')
+    cdata = np.loadtxt(os.path.join(cmap_dir, cmap_name) + ".txt")
+    cmap_phase = LinearSegmentedColormap.from_list(cmap_name, cdata[::-1])
+    screen = make_legends(cmap=cmap_phase, cmap_name=cmap_name, zero_center=zero_center,
+                            dst_dir=dst_dir)
+    if return_cmap:
+        return screen, cmap_phase
+    else:
+        return screen
+ 

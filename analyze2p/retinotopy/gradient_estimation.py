@@ -33,12 +33,9 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import analyze2p.utils as hutils
 import analyze2p.plotting as pplot
-import analyze2p.retinotopy.utils as ret_utils
+import analyze2p.retinotopy.utils as retutils
 import analyze2p.retinotopy.segment_retinotopy as seg 
-import analyze2p.extraction.rois as roi_utils
-
-import analyze2p.coregistration.align_fov as coreg
-import analyze2p.fit_rfs.evaluate_receptivefield_fits as evalrf
+import analyze2p.extraction.rois as roiutils
 
 from scipy import misc,interpolate,stats,signal,ndimage
 from matplotlib.colors import LinearSegmentedColormap
@@ -58,33 +55,37 @@ def predict_cortex_position(regr, cond='az', points=None):
 
     return predicted_ctx_x
 
+def fit_linear_regr(xvals, yvals, return_regr=False, model='ridge'):
+    if model=='ridge':
+        regr = Ridge()
+    elif model=='Lasso':
+        regr = Lasso()
+    else:
+        model = 'ols'
+        regr = LinearRegression()
+
+    if len(xvals.shape) == 1:
+        xvals = np.array(xvals).reshape(-1, 1)
+        yvals = np.array(yvals).reshape(-1, 1)
+    else:
+        xvals = np.array(xvals)
+        yvals = np.array(yvals)
+    if any(np.isnan(xvals)) or any(np.isnan(yvals)):
+        print("NAN")
+        #print(np.where(np.isnan(xvals)))
+        #print(np.where(np.isnan(yvals)))
+    regr.fit(xvals, yvals)
+    fitv = regr.predict(xvals)
+    if return_regr:
+        return fitv.reshape(-1), regr
+    else:
+        return fitv.reshape(-1)
+
+
 
 #%%
 # Functions for dilating and smoothing masks
 # =======================================================================
-from scipy import ndimage as nd
-def fill_nans(data, invalid=None):
-    """
-    Replace the value of invalid 'data' cells (indicated by 'invalid') 
-    by the value of the nearest valid data cell
-
-    Input:
-        data:    numpy array of any dimension
-        invalid: a binary array of same shape as 'data'. True cells set where data
-                 value should be replaced.
-                 If None (default), use: invalid  = np.isnan(data)
-
-    Output: 
-        Return a filled array. 
-    """
-    #import numpy as np
-    #import scipy.ndimage as nd
-
-    if invalid is None: invalid = np.isnan(data)
-
-    ind = nd.distance_transform_edt(invalid, return_distances=False, return_indices=True)
-    return data[tuple(ind)]
-
 
 from scipy.interpolate import SmoothBivariateSpline
 def fill_and_smooth_nans(img, kx=1, ky=1):
@@ -131,54 +132,6 @@ def fill_and_smooth_nans(img, kx=1, ky=1):
     
     #print(z.shape, znew.shape)
     return zfinal #:znew #.T #a
-
-def fill_and_smooth_nans_missing(img, kx=1, ky=1):
-    '''
-    Smooths image and fills over NaNs. Useful for dealing with holes from neuropil masks
-    '''
-    y, x = np.meshgrid(np.arange(0, img.shape[1]), np.arange(0, img.shape[0]))
-    x = x.astype(float)
-    y = y.astype(float)
-    z = img.copy()
-
-    #x[np.isnan(z)] = np.nan
-    #y[np.isnan(z)] = np.nan
-
-#    x=x.ravel()
-#    x=(x[~np.isnan(x)])
-#    y=y.ravel()
-#    y=(y[~np.isnan(y)])
-#    z=z.ravel()
-#    z=(z[~np.isnan(z)])
-    xx = x.copy()
-    yy = y.copy()
-    xx[np.isnan(z)] = np.nan
-    yy[np.isnan(z)] = np.nan
-
-    xx=xx.ravel()
-    xx=(xx[~np.isnan(xx)])
-    yy=yy.ravel()
-    yy=(yy[~np.isnan(yy)])
-    zz=z.ravel()
-    zz=(zz[~np.isnan(zz)])
-
-
-    xnew = np.arange(x.min(), x.max()+1) #np.arange(9,11.5, 0.01)
-    ynew = np.arange(y.min(), y.max()+1) #np.arange(10.5,15, 0.01)
-
-    f = SmoothBivariateSpline(xx, yy, zz, kx=kx,ky=ky)
-    znew=np.transpose(f(xnew, ynew))
-
-    znew[np.isnan(z.T)] = np.nan
-
-    # make sure limits are preserved
-    orig_min = np.nanmin(img)
-    orig_max = np.nanmax(img)
-    zfinal = znew.copy()
-    zfinal[znew<orig_min] = orig_min
-    zfinal[znew>orig_max] = orig_max
- 
-    return zfinal.T #znew.T #a
 
 def dilate_mask_centers(maskcenters, kernel_size=9):
     '''Calculate center of soma, then dilate to create masks for smoothed  neuropil
@@ -371,404 +324,9 @@ def plot_retinomap_processing(azim_phase_soma, azim_phase_np, azim_smoothed, az_
 
     return fig
 
-
-def plot_retinomap_processing_pixels(filt_az, azim_smoothed, azim_fillnan, az_fill,
-                            filt_el, elev_smoothed, elev_fillnan, el_fill,
-                            cmap_phase='nipy_spectral', show_cbar=False,
-                            vmin=-np.pi, vmax=np.pi, full_cmap_range=True,
-                            smooth_fwhm=7, delay_map_thr=1, smooth_spline=(1,1)):
-
-    if isinstance(smooth_spline, tuple):
-        smooth_spline_x, smooth_spline_y = smooth_spline
-    else:
-        smooth_spline_x = smooth_spline
-        smooth_spline_y = smooth_spline
-
-    fig, axn = pl.subplots(2,4, figsize=(12,6))
-
-    ax = axn[0,0]
-    if full_cmap_range:
-        im0=ax.imshow(filt_az, cmap=cmap_phase, vmin=vmin, vmax=vmax)
-    else:
-        im0=ax.imshow(filt_az, cmap=cmap_phase)
-    ax.set_ylabel('Azimuth')
-    ax.set_title('abs map (delay thr=%.2f)' % delay_map_thr)
-    if show_cbar:
-        pplot.colorbar(im0)
-
-
-    ax = axn[0, 1]
-    if full_cmap_range:
-        im0=ax.imshow(azim_smoothed, cmap=cmap_phase, vmin=vmin, vmax=vmax)
-    else:
-        im0=ax.imshow(azim_smoothed, cmap=cmap_phase)
-    ax.set_title('spatial smooth (%i)' % smooth_fwhm)
-    if show_cbar:
-        pplot.colorbar(im0)
-
-
-    ax = axn[0, 2]
-    if full_cmap_range:
-        im0 = ax.imshow(azim_fillnan, cmap=cmap_phase, vmin=vmin, vmax=vmax)
-    else:
-        im0 = ax.imshow(azim_fillnan, cmap=cmap_phase)
-    ax.set_title('filled NaNs (spline=(%i, %i))' % (smooth_spline_x, smooth_spline_y))
-    if show_cbar:
-        pplot.colorbar(im0)
- 
-    ax = axn[0, 3]
-    if full_cmap_range:
-        im0 = ax.imshow(az_fill, cmap=cmap_phase, vmin=vmin, vmax=vmax)
-    else:
-        im0 = ax.imshow(az_fill, cmap=cmap_phase)
-    ax.set_title('final')
-    if show_cbar:
-        pplot.colorbar(im0)
-
-    ax = axn[1, 0]
-    if full_cmap_range:
-        im1=ax.imshow(filt_el, cmap=cmap_phase, vmin=vmin, vmax=vmax)
-    else:
-        im1=ax.imshow(filt_el, cmap=cmap_phase)
-    ax.set_ylabel('Altitude')
-    if show_cbar:
-        pplot.colorbar(im1)
-
-    ax = axn[1, 1]
-    if full_cmap_range:
-        im1=ax.imshow(elev_smoothed, cmap=cmap_phase, vmin=vmin, vmax=vmax)
-    else:
-        im1=ax.imshow(elev_smoothed, cmap=cmap_phase) 
-    if show_cbar:
-        pplot.colorbar(im1)
-
-
-    ax = axn[1, 2]
-    if full_cmap_range:
-        im1=ax.imshow(elev_fillnan, cmap=cmap_phase, vmin=vmin, vmax=vmax)
-    else:
-        im1=ax.imshow(elev_fillnan, cmap=cmap_phase)
-    #ax.set_title('filled NaNs')
-    if show_cbar:
-        pplot.colorbar(im1)
-
-
-    ax = axn[1, 3]
-    if full_cmap_range:
-        im1= ax.imshow(el_fill, cmap=cmap_phase, vmin=vmin, vmax=vmax)
-    else:
-        im1 = ax.imshow(el_fill, cmap=cmap_phase)
-    #ax.set_title('final')
-    if show_cbar:
-        pplot.colorbar(im1)
-
-    pl.subplots_adjust(wspace=0.8, hspace=0.2)
-    for ax in axn.flat:
-        pplot.turn_off_axis_ticks(ax, despine=False)
-    return fig
-
-
 # =======================================================================
 # Gradient functions
 # =======================================================================
-import math
-
-def py_ang(v1, v2):
-    """ Returns the angle in radians between vectors 'v1' and 'v2'    """
-    cosang = np.dot(v1, v2)
-    sinang = la.norm(np.cross(v1, v2))
-    return np.arctan2(sinang, cosang)
-
-def gradient_phase(f, *varargs, **kwargs):
-    """
-    Return the gradient of an N-dimensional array.
-    The gradient is computed using second order accurate central differences
-    in the interior and either first differences or second order accurate
-    one-sides (forward or backwards) differences at the boundaries. The
-    returned gradient hence has the same shape as the input array.
-    Parameters
-    ----------
-    f : array_like
-        An N-dimensional array containing samples of a scalar function.
-    varargs : scalar or list of scalar, optional
-        N scalars specifying the sample distances for each dimension,
-        i.e. `dx`, `dy`, `dz`, ... Default distance: 1.
-        single scalar specifies sample distance for all dimensions.
-        if `axis` is given, the number of varargs must equal the number of axes.
-    edge_order : {1, 2}, optional
-        Gradient is calculated using N\ :sup:`th` order accurate differences
-        at the boundaries. Default: 1.
-        .. versionadded:: 1.9.1
-    axis : None or int or tuple of ints, optional
-        Gradient is calculated only along the given axis or axes
-        The default (axis = None) is to calculate the gradient for all the axes of the input array.
-        axis may be negative, in which case it counts from the last to the first axis.
-        .. versionadded:: 1.11.0
-    Returns
-    -------
-    gradient : list of ndarray
-        Each element of `list` has the same shape as `f` giving the derivative
-        of `f` with respect to each dimension.
-    Examples
-    --------
-    >>> x = np.array([1, 2, 4, 7, 11, 16], dtype=np.float)
-    >>> np.gradient(x)
-    array([ 1. ,  1.5,  2.5,  3.5,  4.5,  5. ])
-    >>> np.gradient(x, 2)
-    array([ 0.5 ,  0.75,  1.25,  1.75,  2.25,  2.5 ])
-    For two dimensional arrays, the return will be two arrays ordered by
-    axis. In this example the first array stands for the gradient in
-    rows and the second one in columns direction:
-    >>> np.gradient(np.array([[1, 2, 6], [3, 4, 5]], dtype=np.float))
-    [array([[ 2.,  2., -1.],
-            [ 2.,  2., -1.]]), array([[ 1. ,  2.5,  4. ],
-            [ 1. ,  1. ,  1. ]])]
-    >>> x = np.array([0, 1, 2, 3, 4])
-    >>> dx = np.gradient(x)
-    >>> y = x**2
-    >>> np.gradient(y, dx, edge_order=2)
-    array([-0.,  2.,  4.,  6.,  8.])
-    The axis keyword can be used to specify a subset of axes of which the gradient is calculated
-    >>> np.gradient(np.array([[1, 2, 6], [3, 4, 5]], dtype=np.float), axis=0)
-    array([[ 2.,  2., -1.],
-           [ 2.,  2., -1.]])
-    """
-    f = np.asanyarray(f)
-    N = len(f.shape)  # number of dimensions
-
-    axes = kwargs.pop('axis', None)
-    if axes is None:
-        axes = tuple(range(N))
-    # check axes to have correct type and no duplicate entries
-    if isinstance(axes, int):
-        axes = (axes,)
-    if not isinstance(axes, tuple):
-        raise TypeError("A tuple of integers or a single integer is required")
-
-    # normalize axis values:
-    axes = tuple(x + N if x < 0 else x for x in axes)
-    if max(axes) >= N or min(axes) < 0:
-        raise ValueError("'axis' entry is out of bounds")
-
-    if len(set(axes)) != len(axes):
-        raise ValueError("duplicate value in 'axis'")
-
-    n = len(varargs)
-    if n == 0:
-        dx = [1.0]*N
-    elif n == 1:
-        dx = [varargs[0]]*N
-    elif n == len(axes):
-        dx = list(varargs)
-    else:
-        raise SyntaxError(
-            "invalid number of arguments")
-
-    edge_order = kwargs.pop('edge_order', 1)
-    if kwargs:
-        raise TypeError('"{}" are not valid keyword arguments.'.format(
-                                                  '", "'.join(kwargs.keys())))
-    if edge_order > 2:
-        raise ValueError("'edge_order' greater than 2 not supported")
-
-    # use central differences on interior and one-sided differences on the
-    # endpoints. This preserves second order-accuracy over the full domain.
-
-    outvals = []
-
-    # create slice objects --- initially all are [:, :, ..., :]
-    slice1 = [slice(None)]*N
-    slice2 = [slice(None)]*N
-    slice3 = [slice(None)]*N
-    slice4 = [slice(None)]*N
-
-    otype = f.dtype.char
-    if otype not in ['f', 'd', 'F', 'D', 'm', 'M']:
-        otype = 'd'
-
-    # Difference of datetime64 elements results in timedelta64
-    if otype == 'M':
-        # Need to use the full dtype name because it contains unit information
-        otype = f.dtype.name.replace('datetime', 'timedelta')
-    elif otype == 'm':
-        # Needs to keep the specific units, can't be a general unit
-        otype = f.dtype
-
-    # Convert datetime64 data into ints. Make dummy variable `y`
-    # that is a view of ints if the data is datetime64, otherwise
-    # just set y equal to the array `f`.
-    if f.dtype.char in ["M", "m"]:
-        y = f.view('int64')
-    else:
-        y = f
-
-    for i, axis in enumerate(axes):
-
-        if y.shape[axis] < 2:
-            raise ValueError(
-                "Shape of array too small to calculate a numerical gradient, "
-                "at least two elements are required.")
-        
-        # Numerical differentiation: 1st order edges, 2nd order interior
-        if y.shape[axis] == 2 or edge_order == 1:
-            
-            # Use first order differences for time data
-            out = np.empty_like(y, dtype=otype)
-
-            slice1[axis] = slice(1, -1)
-            slice2[axis] = slice(2, None)
-            slice3[axis] = slice(None, -2)
-            # 1D equivalent -- out[1:-1] = (y[2:] - y[:-2])/2.0
-            out[slice1] = (y[slice2] - y[slice3])
-            out[slice1] = (out[slice1] + math.pi) % (2*math.pi) - math.pi
-            out[slice1]=out[slice1]/2.0
-
-            slice1[axis] = 0
-            slice2[axis] = 1
-            slice3[axis] = 0
-            # 1D equivalent -- out[0] = (y[1] - y[0])
-            out[slice1] = (y[slice2] - y[slice3])
-            out[slice1] = (out[slice1] + math.pi) % (2*math.pi) - math.pi
-
-            slice1[axis] = -1
-            slice2[axis] = -1
-            slice3[axis] = -2
-            # 1D equivalent -- out[-1] = (y[-1] - y[-2])
-            out[slice1] = (y[slice2] - y[slice3])
-            out[slice1] = (out[slice1] + math.pi) % (2*math.pi) - math.pi
-
-        # Numerical differentiation: 2st order edges, 2nd order interior
-        else:
-            # Use second order differences where possible
-            out = np.empty_like(y, dtype=otype)
-
-            slice1[axis] = slice(1, -1)
-            slice2[axis] = slice(2, None)
-            slice3[axis] = slice(None, -2)
-            # 1D equivalent -- out[1:-1] = (y[2:] - y[:-2])/2.0
-            out[slice1] = (y[slice2] - y[slice3])
-            out[slice1] = (out[slice1] + math.pi) % (2*math.pi) - math.pi
-            out[slice1] = out[slice1]/2
-
-            slice1[axis] = 0
-            slice2[axis] = 0
-            slice3[axis] = 1
-            slice4[axis] = 2
-            # 1D equivalent -- out[0] = -(3*y[0] - 4*y[1] + y[2]) / 2.0
-            out[slice1] = -(3.0*y[slice2] - 4.0*y[slice3] + y[slice4])
-            out[slice1] = (out[slice1] + math.pi) % (2*math.pi) - math.pi
-            out[slice1]=out[slice1]/2.0
-
-            slice1[axis] = -1
-            slice2[axis] = -1
-            slice3[axis] = -2
-            slice4[axis] = -3
-            # 1D equivalent -- out[-1] = (3*y[-1] - 4*y[-2] + y[-3])
-            out[slice1] = (3.0*y[slice2] - 4.0*y[slice3] + y[slice4])
-            out[slice1] = (out[slice1] + math.pi) % (2*math.pi) - math.pi
-            out[slice1]=out[slice1]/2.0
-
-        # divide by step size
-        out /= dx[i]
-        outvals.append(out)
-
-        # reset the slice object in this dimension to ":"
-        slice1[axis] = slice(None)
-        slice2[axis] = slice(None)
-        slice3[axis] = slice(None)
-        slice4[axis] = slice(None)
-
-    if len(axes) == 1:
-        return outvals[0]
-    else:
-        return outvals
-
-    
-def calculate_gradients(img):
-    '''
-    Calculate 2d gradient, plus mean direction, etc. Return as dict.
-    '''
-    # Get gradient
-    gdy, gdx = np.gradient(img)
-    
-    # 3) Calculate the magnitude
-    gradmag = np.sqrt(gdx**2 + gdy**2)
-
-    # 3) Take the absolute value of the x and y gradients
-    abs_gdx = np.absolute(gdx)
-    abs_gdy = np.absolute(gdy)
-
-    # 4) Use np.arctan2(abs_sobely, abs_sobelx) to calculate the direction of the gradient
-    abs_gd = np.arctan2(gdy, gdx) # np.arctan2(abs_gdy, abs_gdx) # [-pi, pi]
-
-    # Get mean direction
-    #mean_dir = np.rad2deg(np.arctan2(gdy.mean(), gdx.mean())) 
-#    mean_dir = np.rad2deg(spstats.circmean([np.arctan2(gy, gx) 
-#                         for gy, gx in zip(gdy.ravel(), gdx.ravel())],
-#                         low=-np.pi, high=np.pi)) # TODO why this diff
-    mean_dir = np.rad2deg(spstats.circmean([np.arctan2(gy, gx) 
-                         for gy, gx in zip(gdy.ravel(), gdx.ravel()) \
-                                 if ((not np.isnan(gy)) and (not np.isnan(gx)))],
-                         low=-np.pi, high=np.pi))
-
-
-    # Get unit vector
-    avg_gradient = spstats.circmean(abs_gd[~np.isnan(abs_gd)], low=-np.pi, high=np.pi) 
-    dirvec = (np.cos(avg_gradient), np.sin(avg_gradient))
-    vhat = dirvec / np.linalg.norm(dirvec)
-
-    grad_ = {'image': img,
-             'magnitude': gradmag,
-             'gradient_x': gdx,
-             'gradient_y': gdy,
-             'direction': abs_gd,
-             'mean_deg': mean_dir, # DEG
-             'mean_direction': avg_gradient, # RADIANS
-             'vhat': vhat}
-    
-    return grad_
-
-
-def plot_gradients(grad_, ax=None, draw_interval=3, 
-                   scale=1, width=0.005, toy=False, headwidth=5):
-    '''
-    Simple sub function to plot a given gradient, using info provided in dict
-    grad_: (dict)
-        Output of calculate_gradients()
-    scale: # of data units per arrow length unit (smaller=longer arrow)
-    weight = width of plot
-    
-    Note: Arrows should point TOWARD larger numbers
-    angles='xy' (i.e., arrows point from (x,y) to (x+u, y+v))
-    '''
-    if ax is None:
-        fig, ax = pl.subplots()
-        
-    gradimg = grad_['image']
-    mean_dir = grad_['mean_deg']
-    gdx = grad_['gradient_x']
-    gdy = grad_['gradient_y']
-    
-    # Set limits and number of points in grid
-    y, x = np.mgrid[0:gradimg.shape[0], 0:gradimg.shape[1]]
-
-    # Every 3rd point in each direction.
-    skip = (slice(None, None, draw_interval), slice(None, None, draw_interval))
-    
-    # plot
-    ax.quiver(x[skip], y[skip], gdx[skip], gdy[skip], color='k',
-              scale=scale, width=width,
-              scale_units='xy', angles='xy', pivot='mid', units='width',
-              headwidth=headwidth)
-
-    gdir_ = grad_['direction'].copy()
-    gmean = spstats.circmean(gdir_[~np.isnan(gdir_)], low=-np.pi, high=np.pi)
-    avg_dir_grad = np.rad2deg(gmean) #np.rad2deg(grad_['direction'].mean())
-    ax.set(aspect=1, title="Mean: %.2f\n(dir: %.2f)" % (mean_dir, avg_dir_grad))
-
-    return ax
-
-
 def plot_retinomap_gradients(grad_az, grad_el, img_az=None, img_el=None,
                              spacing=200, scale=None, width=0.01, headwidth=5, cmap=None):
     '''
@@ -1193,7 +751,7 @@ def roi_gradients(animalid, session, fov, retinorun='retino_run1',
     #%% Resize image 
     pixel_size = putils.get_pixel_size()
     pixel_size = (pixel_size[0]*ds_factor, pixel_size[1]*ds_factor)
-    zimg_r = coreg.transform_2p_fov(zimg, pixel_size)
+    zimg_r = retutils.transform_2p_fov(zimg, pixel_size)
     print("... pixel size: %s (ds_factor=%.2f)" % (str(pixel_size), ds_factor))
 
     #%% Spatial smooth neuropil dilated masks 
@@ -1211,8 +769,8 @@ def roi_gradients(animalid, session, fov, retinorun='retino_run1',
     elev_smoothed = fill_and_smooth_nans(elev_smoothed)
 
     #%% Transform FOV to match widefield
-    azim_r = coreg.transform_2p_fov(azim_smoothed, pixel_size, normalize=False)
-    elev_r = coreg.transform_2p_fov(elev_smoothed, pixel_size, normalize=False)
+    azim_r = retutils.transform_2p_fov(azim_smoothed, pixel_size, normalize=False)
+    elev_r = retutils.transform_2p_fov(elev_smoothed, pixel_size, normalize=False)
     #print(azim_r[~np.isnan(azim_r)].min(), azim_r[~np.isnan(azim_r)].max())
 
     az_fill = azim_r.copy()
@@ -1330,7 +888,6 @@ def pixel_gradients(datakey, retinorun='retino_run1',
     #%% Resize image 
     pixel_size = putils.get_pixel_size()
     pixel_size = (pixel_size[0]*ds_factor, pixel_size[1]*ds_factor)
-    #zimg_r = coreg.transform_2p_fov(zimg, pixel_size)
     print("... pixel size: %s (ds_factor=%.2f)" % (str(pixel_size), ds_factor))
 
     #%% Spatial smooth neuropil dilated masks 
@@ -1348,8 +905,8 @@ def pixel_gradients(datakey, retinorun='retino_run1',
     elev_fillnan = fill_and_smooth_nans_missing(elev_smoothed, kx=smooth_spline, ky=smooth_spline)
 
     # Transform FOV to match widefield
-    azim_r = coreg.transform_2p_fov(azim_fillnan, pixel_size, normalize=False)
-    elev_r = coreg.transform_2p_fov(elev_fillnan, pixel_size, normalize=False)
+    azim_r = retutils.transform_2p_fov(azim_fillnan, pixel_size, normalize=False)
+    elev_r = retutils.transform_2p_fov(elev_fillnan, pixel_size, normalize=False)
     print(azim_r[~np.isnan(azim_r)].min(), azim_r[~np.isnan(azim_r)].max())
     print(elev_r[~np.isnan(elev_r)].min(), elev_r[~np.isnan(elev_r)].max())
 
@@ -1607,7 +1164,7 @@ def gradient_full_fov(opts): #options):
     for i, cond in enumerate(['az', 'el']):
         proj_v = projections['proj_%s' % cond].copy()
         ret_v = projections['retino_%s' % cond].copy()
-        fitv, regr = evalrf.fit_linear_regr(proj_v[~np.isnan(ret_v)], 
+        fitv, regr = roiutils.fit_linear_regr(proj_v[~np.isnan(ret_v)], 
                                             ret_v[~np.isnan(ret_v)],
                                             return_regr=True, model=regr_model)
      
@@ -1721,22 +1278,28 @@ def gradient_within_visual_area(opts): #options):
     screen_min = -screen_max
 
     ## Load segmentation
-    seg_results, seg_params = seg.load_segmentation_results(animalid, session, fov, retinorun=retinorun)
+    seg_results, seg_params = seg.load_segmentation_results(\
+                                    animalid, session, fov, retinorun=retinorun)
     
     ## Get inputmaps
+    start_with_transf = seg_params['start_with_transformed']
+    smooth_spline = seg_params['smooth_spline']
     if 'morphological_kernels' not in seg_params.keys():
         print("RERUNNING SEGMENTATION")
         pixel_size = putils.get_pixel_size()
         target_sigm_um = round(np.ceil(seg_params['smooth_fwhm'] * np.mean(pixel_size)))
         use_phase_smooth = seg_params['smooth_type']=='phasenan'
-        az_fill, el_fill, pparams = seg.smooth_processed_maps(animalid, session, fov, retinorun=retinorun,
-                                                        target_sigma_um=target_sigm_um,
-                                                        start_with_transformed=seg_params['start_with_transformed'],
-                                                        smooth_spline=seg_params['smooth_spline'],
-                                                        use_phase_smooth=use_phase_smooth, cmap_phase=cmap_phase,
-                                                        reprocess=True)
+        az_fill, el_fill, pparams = seg.smooth_processed_maps(animalid, session, fov, 
+                                                retinorun=retinorun,
+                                                target_sigma_um=target_sigm_um,
+                                                start_with_transformed=start_with_transf,
+                                                smooth_spline=smooth_spline,
+                                                use_phase_smooth=use_phase_smooth, 
+                                                cmap_phase=cmap_phase,
+                                                reprocess=True)
 
-    img_az, img_el, pparams = seg.load_final_maps(animalid, session, fov, retinorun=retinorun, return_screen=True)
+    img_az, img_el, pparams = seg.load_final_maps(animalid, session, fov, 
+                                        retinorun=retinorun, return_screen=True)
 
     # ---------------------------------------------------------------------
     # ## Calculate gradient for segmented areas
@@ -1813,7 +1376,7 @@ def gradient_within_visual_area(opts): #options):
         for i, cond in enumerate(['az', 'el']):
             proj_v = projections['proj_%s' % cond].copy()
             ret_v = projections['retino_%s' % cond].copy()
-            fitv, regr = evalrf.fit_linear_regr(proj_v[~np.isnan(ret_v)], 
+            fitv, regr = roiutils.fit_linear_regr(proj_v[~np.isnan(ret_v)], 
                                                 ret_v[~np.isnan(ret_v)],
                                                 return_regr=True, model=regr_model)
          
