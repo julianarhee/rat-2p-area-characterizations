@@ -133,31 +133,6 @@ def fit_with_deviants(boot_, cis_, rfs_, xname='ml_proj', yname='x0', ax=None,
 
 
 
-
-def fit_linear_regr(xvals, yvals, return_regr=False, model='ridge'):
-    from sklearn.linear_model import LinearRegression, Ridge, Lasso
-    if model=='ridge':
-        regr = Ridge()
-    elif model=='Lasso':
-        regr = Lasso()
-    else:
-        model = 'ols'
-        regr = LinearRegression()
-    if len(xvals.shape) == 1:
-        xvals = np.array(xvals).reshape(-1, 1)
-        yvals = np.array(yvals).reshape(-1, 1)
-    else:
-        xvals = np.array(xvals)
-        yvals = np.array(yvals)
-    if any([np.isnan(x) for x in xvals]) or any([np.isnan(y) for y in yvals]):
-        print("NAN")
-    regr.fit(xvals, yvals)
-    fitv = regr.predict(xvals)
-    if return_regr:
-        return fitv.reshape(-1), regr
-    else:
-        return fitv.reshape(-1)
-
 # plotting
 def anisotropy_polarplot(rdf, metric='anisotropy', cmap='spring_r', alpha=0.5, 
                             marker='o', markersize=30, ax=None, 
@@ -320,8 +295,8 @@ def rfits_to_df(fitr,  fit_params={}, roi_list=None,
 
     fitdf = pd.DataFrame({'x0': [fitr[r]['x0'] for r in roi_list],
                           'y0': [fitr[r]['y0'] for r in roi_list],
-                          'sigma_x': [fitr[r]['sigma_x'] for r in roi_list],
-                          'sigma_y': [fitr[r]['sigma_y'] for r in roi_list],
+                          'sigma_x': [abs(fitr[r]['sigma_x']) for r in roi_list],
+                          'sigma_y': [abs(fitr[r]['sigma_y']) for r in roi_list],
                           'theta': [fitr[r]['theta'] % (2*np.pi) for r in roi_list],
                           'offset': [fitr[r]['offset'] for r in roi_list],
                           'amplitude': [fitr[r]['amplitude'] for r in roi_list],
@@ -380,8 +355,7 @@ def get_spherical_coords(cart_pointsX=None, cart_pointsY=None, cm_to_degrees=Tru
 
     if cart_pointsX is None or cart_pointsY is None:
         [xi, yi] = np.meshgrid(np.arange(0, pxXmax), np.arange(0, pxYmax))
-        print(xi.shape, yi.shape)
-
+        #print(xi.shape, yi.shape)
         cart_pointsX = left + (float(width_cm)/pxXmax)*xi;
         cart_pointsY = top - (float(height_cm)/pxYmax)*yi;
         cart_pointsZ = zdistTop + ((zdistBottom-zdistTop)/float(pxYmax))*yi
@@ -471,7 +445,7 @@ def get_screen_lim_pixels(lin_coord_x, lin_coord_y, row_vals=None, col_vals=None
     return (pix_bottom_edge, pix_left_edge, pix_top_edge,  pix_right_edge)
 
 
-def coordinates_for_transformation(fit_params):
+def coordinates_for_transformation(fit_params, verbose=False):
     ds_factor = fit_params['downsample_factor']
     col_vals = fit_params['col_vals']
     row_vals = fit_params['row_vals']
@@ -480,7 +454,9 @@ def coordinates_for_transformation(fit_params):
 
     # Downsample screen resolution
     resolution_ds = [int(i/ds_factor) for i in fit_params['screen']['resolution'][::-1]]
-    print("Screen res (ds=%ix): [%i, %i]" % (ds_factor, resolution_ds[0], resolution_ds[1]))
+    if verbose:
+        print("Screen res (ds=%ix): [%i, %i]" \
+                    % (ds_factor, resolution_ds[0], resolution_ds[1]))
 
     if fit_params['use_linear']:
         # Get linear coordinates in degrees (downsampled)
@@ -524,12 +500,12 @@ def convert_fit_to_coords(fitdf0, fit_params, scale_sigma=True,
     '''
     RF map arrays to be converted to real-world fit params
     '''
-    fitdf = fitdf0.copy()
+    fitdf = fitdf0.dropna().copy()
     sigma_scale = sigma_scale if scale_sigma else 1.0
     #grid_points, cart_values, sphr_values = coordinates_for_transformation(fit_params)
     #print(fit_params.keys())
     newdf = convert_fit_to_coords_og(fitdf, fit_params['row_vals'], 
-                                                fit_params['col_vals'])
+                                            fit_params['col_vals'])
 
 #    if 'do_spherical_correction' not in fit_params.keys():
 #        # TMP until can run all of fit_rf again
@@ -553,8 +529,11 @@ def convert_fit_to_coords(fitdf0, fit_params, scale_sigma=True,
 #        #                        args=(grid_points, cart_values), axis=1)
 #        newdf = convert_fit_to_coords_og(fitdf, fit_params['row_vals'], 
 #                                                fit_params['col_vals'])
-#
-    fitdf[['sigma_x', 'sigma_y', 'x0', 'y0']] = newdf[['sigma_x', 'sigma_y', 'x0', 'y0']]
+    if scale_sigma:
+        newdf['sigma_x'] = newdf['sigma_x']*sigma_scale
+        newdf['sigma_y'] = newdf['sigma_y']*sigma_scale
+    
+    fitdf[['sigma_x', 'sigma_y', 'x0', 'y0']] = newdf[['sigma_x', 'sigma_y', 'x0', 'y0']].values
 
     return fitdf
 
@@ -773,7 +752,7 @@ def get_reliable_fits(pass_cis, pass_criterion='all', single=False):
             tmp_ci = pass_cis[param_cols].copy()
             keep_rids = [i for i in pass_cis.index.tolist() 
                             if sum([pv==True 
-                            for pv in tmp_ci.loc[rid]])/float(len(param_cols))>0.5]
+                            for pv in tmp_ci.loc[i]])/float(len(param_cols))>0.5]
         else:   
             keep_rids = [i for i in pass_cis.index.tolist() if any(pass_cis.loc[i])]
        
@@ -1165,7 +1144,7 @@ def reshape_array_for_nynx(rfmap_values, nx, ny):
         rfmap_orig = np.reshape(rfmap_values.values, (nx, ny)).T
     else:
         rfmap_orig = rfmap_values.reshape(nx, ny).T
-    return rfmap_orig.ravel()
+    return rfmap_orig.flatten(order='F') #ravel()
 
 
 def group_trial_values_by_cond(trialdata):
@@ -1436,84 +1415,6 @@ def trim_resampled_map(rfmap_r, screen_bounds_pix):
     return rfmap_trim
 
 
-def sphr_correct_maps(rfmaps_arr, fit_params, use_lin=True, 
-                        ds_factor=3, multiproc=False):
-    '''
-    rfmaps_arr:  array (dataframe) of rfmap (vector) x nrois
-    do spherical correction, return rfmap array
-
-    '''
-    # ds_factor = fit_params['downsample_factor']
-    col_vals = fit_params['col_vals']
-    row_vals = fit_params['row_vals']
-    # Downsample screen resolution
-    resolution_ds = [int(i/ds_factor) for i in \
-                     fit_params['screen']['resolution'][::-1]]
-    print("Screen res (ds=%ix): [%i, %i]" \
-                    % (ds_factor, resolution_ds[0], resolution_ds[1]))
-    # Get Spherical coordinate mapping
-    if fit_params['use_linear']:
-        # Get linear coordinates in degrees (downsampled)
-        lin_x, lin_y = get_lin_coords(resolution=resolution_ds, cm_to_deg=True)
-        cart_x, cart_y, sphr_th, sphr_ph = get_spherical_coords(
-                                        cart_pointsX=lin_x, cart_pointsY=lin_y,
-                                        cm_to_degrees=False)
-    else:
-        cart_x, cart_y, sphr_th, sphr_ph = get_spherical_coords(
-                                        cart_pointsX=None, cart_pointsY=None,
-                                        cm_to_degrees=True, resolution=resolution_ds) 
-
-    args=(cart_x, cart_y, sphr_th, sphr_ph, resolution_ds, row_vals, col_vals,)
-    rfmaps_arr0 = rfmaps_arr.apply(warp_spherical_fromarr, axis=0, args=args)
-
-    return rfmaps_arr0.reset_index(drop=True)
-
-def sphr_correct_maps_mp(avg_resp_by_cond, fit_params, use_lin=True, n_processes=2, 
-                            test_subset=False):
-    
-    if test_subset:
-        roi_list=[92, 249, 91, 162, 61, 202, 32, 339]
-        df_ = avg_resp_by_cond[roi_list]
-    else:
-        df_ = avg_resp_by_cond.copy()
-    print("Parallel", df_.shape)
-
-    df = parallelize_dataframe(df_, sphr_correct_maps, \
-                               fit_params, use_lin, n_processes=n_processes)
-
-    return df
-
-def initializer(terminating_):
-    # This places terminating in the global namespace of the worker subprocesses.
-    # This allows the worker function to access `terminating` even though it is
-    # not passed as an argument to the function.
-    global terminating
-    terminating = terminating_
-
-def parallelize_dataframe(df, func, fit_params, use_lin=True, n_processes=4):
-    #cart_x=None, cart_y=None, sphr_th=None, sphr_ph=None,
-    #                      row_vals=None, col_vals=None, resolution=None, n_processes=4):
-    results = []
-    terminating = mp.Event()
-    
-    df_split = np.array_split(df, n_processes, axis=1) # chunk columns
-    pool = mp.Pool(processes=n_processes, initializer=initializer, initargs=(terminating,))
-    try:
-        results = pool.map(partial(func, fit_params=fit_params, use_lin=use_lin), df_split)
-        print("done!")
-    except KeyboardInterrupt:
-        pool.terminate()
-        print("terminating")
-    finally:
-        pool.close()
-        pool.join()
-  
-    print(results[0].shape)
-    df = pd.concat(results, axis=1)
-    print(df.shape)
-    return df #results
-
-
 def warp_spherical_fromarr(rfmap_values, cart_x=None, cart_y=None, 
                            sphr_th=None, sphr_ph=None, resolution=(1080, 1920),
                            row_vals=None, col_vals=None,normalize_range=True):  
@@ -1545,7 +1446,82 @@ def warp_spherical_fromarr(rfmap_values, cart_x=None, cart_y=None,
     # to make map: rfarray.reshape((nx, ny)).T (nx=ncols, ny=nrows)
     return rfmap_resize.flatten(order='F') 
 
+def sphr_correct_maps(rfmaps_arr, fit_params,
+                        ds_factor=3, multiproc=False):
+    '''
+    rfmaps_arr:  array (dataframe) of rfmap (vector) x nrois
+    do spherical correction, return rfmap array
 
+    '''
+    # ds_factor = fit_params['downsample_factor']
+    col_vals = fit_params['col_vals']
+    row_vals = fit_params['row_vals']
+    # Downsample screen resolution
+    resolution_ds = [int(i/ds_factor) for i in \
+                     fit_params['screen']['resolution'][::-1]]
+    print("Screen res (ds=%ix): [%i, %i]" \
+                    % (ds_factor, resolution_ds[0], resolution_ds[1]))
+    # Get Spherical coordinate mapping
+    if fit_params['use_linear']:
+        # Get linear coordinates in degrees (downsampled)
+        lin_x, lin_y = get_lin_coords(resolution=resolution_ds, cm_to_deg=True)
+        cart_x, cart_y, sphr_th, sphr_ph = get_spherical_coords(
+                                        cart_pointsX=lin_x, cart_pointsY=lin_y,
+                                        cm_to_degrees=False)
+    else:
+        cart_x, cart_y, sphr_th, sphr_ph = get_spherical_coords(
+                                        cart_pointsX=None, cart_pointsY=None,
+                                        cm_to_degrees=True, resolution=resolution_ds) 
+
+    args=(cart_x, cart_y, sphr_th, sphr_ph, resolution_ds, row_vals, col_vals,)
+    rfmaps_arr0 = rfmaps_arr.apply(warp_spherical_fromarr, axis=0, args=args)
+
+    return rfmaps_arr0.reset_index(drop=True)
+
+def sphr_correct_maps_mp(avg_resp_by_cond, fit_params, n_processes=2, 
+                            test_subset=False):
+    
+    if test_subset:
+        roi_list=[92, 249, 91, 162, 61, 202, 32, 339]
+        df_ = avg_resp_by_cond[roi_list]
+    else:
+        df_ = avg_resp_by_cond.copy()
+    print("Parallel", df_.shape)
+
+    df = parallelize_dataframe(df_, sphr_correct_maps, \
+                               fit_params, n_processes=n_processes)
+
+    return df
+
+def initializer(terminating_):
+    # This places terminating in the global namespace of the worker subprocesses.
+    # This allows the worker function to access `terminating` even though it is
+    # not passed as an argument to the function.
+    global terminating
+    terminating = terminating_
+
+def parallelize_dataframe(df, func, fit_params, use_lin=False, n_processes=4):
+    #cart_x=None, cart_y=None, sphr_th=None, sphr_ph=None,
+    #                      row_vals=None, col_vals=None, resolution=None, n_processes=4):
+    results = []
+    terminating = mp.Event()
+    
+    df_split = np.array_split(df, n_processes, axis=1) # chunk columns
+    pool = mp.Pool(processes=n_processes, initializer=initializer, initargs=(terminating,))
+    try:
+        results = pool.map(partial(func, fit_params=fit_params), df_split)
+        print("done!")
+    except KeyboardInterrupt:
+        pool.terminate()
+        print("terminating")
+    finally:
+        pool.close()
+        pool.join()
+  
+    print(results[0].shape)
+    df = pd.concat(results, axis=1)
+    print(df.shape)
+    return df #results
 
 
 
@@ -1813,7 +1789,7 @@ def get_rf_map(response_vector, ncols, nrows):
 #
 def plot_and_fit_roi_RF(response_vector, row_vals, col_vals, 
                         plot_roi_fit=True, cmap='inferno',
-                        min_sigma=2.5, max_sigma=50, 
+                        #min_sigma=2.5, max_sigma=50, 
                         sigma_scale=2.35, scale_sigma=True):
     '''
     Fits RF for single ROI. 
@@ -1833,7 +1809,7 @@ def plot_and_fit_roi_RF(response_vector, row_vals, col_vals,
     ncols = len(col_vals)
     rfmap = get_rf_map(response_vector.values, ncols, nrows)
     #np.reshape(response_vector.values, (nrows, ncols)) 
-    fitr, fit_y = do_2d_fit(rfmap, nx=len(col_vals), ny=len(row_vals))
+    fitr, fit_y = do_2d_fit(rfmap, col_vals=col_vals, row_vals=row_vals)
 
     xres = np.mean(np.diff(sorted(row_vals)))
     yres = np.mean(np.diff(sorted(col_vals)))
@@ -1841,9 +1817,9 @@ def plot_and_fit_roi_RF(response_vector, row_vals, col_vals,
     
     if fitr['success']:
         amp_f, x0_f, y0_f, sigx_f, sigy_f, theta_f, offset_f = fitr['popt']
-        if any(s < min_sigma for s in [abs(sigx_f)*xres*sigma_scale, abs(sigy_f)*yres*sigma_scale])\
-            or any(s > max_sigma for s in [abs(sigx_f)*xres*sigma_scale, abs(sigy_f)*yres*sigma_scale]):
-            fitr['success'] = False
+#        if any(s < min_sigma for s in [abs(sigx_f)*xres*sigma_scale, abs(sigy_f)*yres*sigma_scale])\
+#            or any(s > max_sigma for s in [abs(sigx_f)*xres*sigma_scale, abs(sigy_f)*yres*sigma_scale]):
+#            fitr['success'] = False
 
     if plot_roi_fit:    
         fig, axes = pl.subplots(1,2, figsize=(8, 4)) # pl.figure()
@@ -1876,23 +1852,28 @@ def plot_and_fit_roi_RF(response_vector, row_vals, col_vals,
     
     return results, fig
     
-def do_2d_fit(rfmap, nx=None, ny=None, verbose=False):
+def do_2d_fit(rfmap, col_vals=None, row_vals=None, nx=None, ny=None, verbose=False,
+                min_sigma=2.5, max_sigma=60, sigma_scale=2.35):
 
     #TODO:  Instead of finding critical pts w/ squared RF map, do:
     #    mean subtraction, followed by finding max delta from the  ____
-    #nx=len(col_vals); ny=len(row_vals);
+    nx=len(col_vals); ny=len(row_vals);
+    yres = abs(float(np.unique(np.diff(row_vals))) )
+    xres = abs(float(np.unique(np.diff(col_vals))) )
+
     # Set params for fit:
     xi = np.arange(0, nx)
     yi = np.arange(0, ny)
     popt=None; pcov=None; fitr=None; r2=None; success=None;
     xx, yy = np.meshgrid(xi, yi)
     initial_guess = None
+    success=None
+    fitv=None
     try:
         #amplitude = (rfmap**2).max()
         #y0, x0 = np.where(rfmap == rfmap.max())
         #y0, x0 = np.where(rfmap**2. == (rfmap**2.).max())
         #print "x0, y0: (%i, %i)" % (int(x0), int(y0))    
-
         rfmap_sub = np.abs(rfmap - np.nanmean(rfmap))
         y0, x0 = np.where(rfmap_sub == np.nanmax(rfmap_sub))
         amplitude = rfmap[y0, x0][0]
@@ -1913,37 +1894,45 @@ def do_2d_fit(rfmap, nx=None, ny=None, verbose=False):
         #print "sig-X, sig-Y:", sigma_x, sigma_y
         theta = 0
         offset=0
-        initial_guess = (amplitude, int(x0), int(y0), sigma_x, sigma_y, theta, offset)
+        initial_guess = (amplitude, int(x0), int(y0), abs(sigma_x), abs(sigma_y), \
+                        theta, offset)
         valid_ixs = ~np.isnan(rfmap)
         popt, pcov = opt.curve_fit(twoD_gauss, (xx[valid_ixs], yy[valid_ixs]), 
                                     rfmap[valid_ixs].ravel(), 
                                     p0=initial_guess, maxfev=2000)
-        fitr = twoD_gauss((xx, yy), *popt)
+        fitv = twoD_gauss((xx, yy), *popt)
 
         # Get residual sum of squares 
-        residuals = rfmap.ravel() - fitr
+        residuals = rfmap.ravel() - fitv
         ss_res = np.nansum(residuals**2)
         ss_tot = np.nansum((rfmap.ravel() - np.nanmean(rfmap.ravel()))**2)
         r2 = 1 - (ss_res / ss_tot)
         #print(r2)
-        if len(np.where(fitr > fitr.min())[0]) < 2 or pcov.max() == np.inf or r2 == 1: 
-            success = False
-        else:
-            success = True
-            # modulo theta
-            #mod_theta = popt[5] % np.pi
-            #popt[5] = mod_theta            
+        success=True
+        if len(np.where(fitv > fitv.min())[0]) < 2 or pcov.max() == np.inf or r2 == 1: 
+            success=False
+        amp_f, x0_f, y0_f, sigma_x, sigma_y, theta_f, offset_f = popt
+        s_x = np.array([abs(sigma_x)*xres*sigma_scale, abs(sigma_y)*yres*sigma_scale])
+        if any(s_x<min_sigma) or any(s_x>max_sigma):
+            if verbose:
+                print('-- out of bounds: %s' % str(s_x))
+            success=False
+#            # modulo theta
+#            #mod_theta = popt[5] % np.pi
+#            #popt[5] = mod_theta            
     except Exception as e:
         if verbose:
             traceback.print_exc() 
-    
-    return {'popt': popt, 'pcov': pcov, 'init': initial_guess, 'r2': r2, 'success': success}, fitr
+   
+    results = {'popt': popt, 'pcov': pcov, 'init': initial_guess, 
+                'r2': r2, 'success': success}
+    return results, fitv
 
 #
 #
 def get_fit_params(datakey, run='combined_rfs_static', traceid='traces001', 
                    trace_type='corrected', response_type='dff', fit_thr=0.5, 
-                   do_spherical_correction=False, ds_factor=3., use_lin=True,
+                   do_spherical_correction=False, ds_factor=3., use_lin=False,
                    post_stimulus_sec=0.5, sigma_scale=2.35, scale_sigma=True,
                    rootdir='/n/coxfs01/2p-data'):
     
@@ -1999,7 +1988,7 @@ def get_fit_params(datakey, run='combined_rfs_static', traceid='traces001',
 def fit_2d_rfs(datakey, run, traceid, 
                         reload_data=False, create_new=False,
                         trace_type='corrected', response_type='dff', 
-                        do_spherical_correction=False, use_lin=True, ds_factor=3, 
+                        do_spherical_correction=False, use_lin=False, ds_factor=3, 
                         post_stimulus_sec=0.5, scaley=None,
                         make_pretty_plots=False, nrois_plot=10,
                         plot_response_type='dff', plot_format='svg',
@@ -2091,11 +2080,9 @@ def fit_2d_rfs(datakey, run, traceid,
                 print("...doin spherical warps")
                 if n_processes>1:
                     rfmaps_arr = sphr_correct_maps_mp(rfmaps_arr, fit_params, 
-                                    use_lin=use_lin,
                                     n_processes=n_processes, test_subset=test_subset)
                 else:
                     rfmaps_arr = sphr_correct_maps(rfmaps_arr, fit_params, 
-                                    use_lin=use_lin,
                                     multiproc=False)
             print("...saved array")
             save_rfmap_array(rfmaps_arr, fit_params['rfdir'])
@@ -2221,7 +2208,8 @@ def plot_best_rfs(fit_roi_list, rfmaps_arr, fitdf, fit_params,
     for aix, rid in enumerate(fit_roi_list[0:nr*nc]):
         ax = grid.axes_all[aix]
         ax.clear()
-        coordmap = rfmaps_arr[rid].values.reshape(ny, nx) 
+        coordmap = get_rf_map(rfmaps_arr[rid].values, nx, ny)
+        #coordmap = get_rf_map(rfmaps_arr[rid]) #rfmaps_arr[rid].values.reshape(ny, nx) 
         
         im = ax.imshow(coordmap, cmap=cmap, vmin=vmin, vmax=vmax) #, vmin=vmin, vmax=vmax)
         ax.set_title('roi %i (r2=%.2f)' % (int(rid+1), fitdf['r2'][rid]), fontsize=8) 
@@ -2293,7 +2281,7 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
                 n_bootstrap_iters=1000, n_resamples=None, ci=0.95,
                 pass_criterion='all', model='ridge', 
                 plot_boot_distns=True, deviant_color='dodgerblue', plot_all_cis=False,
-                n_processes=1,
+                n_processes=1, n_subprocesses=1,
                 create_new=False, rootdir='/n/coxfs01/2p-data'):
        
     # Set directories
@@ -2302,8 +2290,6 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
     evaldir = os.path.join(rfdir, 'evaluation')
     if not os.path.exists(evaldir):
         os.makedirs(evaldir)
-    if n_resamples is None:
-        n_resamples = int(trialdata.groupby(['config']).count().min().unique())
 
     #%% Do bootstrap analysis    
     print("-evaluating (%s)-" % str(create_new))
@@ -2322,10 +2308,11 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
             # traceback.print_exc()
             create_new=True
 
-
     if create_new: 
         if trialdata is None:
             trialdata, labels = load_trialdata(fit_params)
+        if n_resamples is None:
+            n_resamples = int(trialdata.groupby(['config']).count().min().unique())
 
         roi_list = sorted(list(fit_results.keys()))
         roidf_list = [trialdata[[roi, 'config', 'trial']] for roi in roi_list]
@@ -2335,19 +2322,19 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
                       'ci': ci}   
         fit_params.update({'evaluation': evaluation})
         # Do evaluation 
-        print("... doing rf evaluation")
+        print("... doing rf evaluation (%i rois)" % len(roi_list))
         eval_results = evaluate_rfs(roidf_list, fit_params, 
-                                    n_processes=n_processes) 
+                                    n_processes=n_processes, 
+                                    n_subprocesses=n_subprocesses) 
         save_eval_results(eval_results, fit_params)
 
     if eval_results is None: 
         return None
 
-
     ##------------------------------------------------
     fitdf = rfits_to_df(fit_results, fit_params=fit_params, 
                             scale_sigma=fit_params['scale_sigma'], 
-                            sigma_scale=fit_params['sigma_scale'])
+                            sigma_scale=fit_params['sigma_scale'], convert_coords=True)
     fitdf = fitdf[fitdf['r2']>fit_params['fit_thr']]
     fit_rois = fitdf.index.tolist()
     data_id = '|'.join([datakey, fit_desc])
@@ -2367,14 +2354,16 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
     # Plotting
     roidir = os.path.join(evaldir, 
                 'rois_%i-iters_%i-resample' % (n_bootstrap_iters, n_resamples))
+    if os.path.exists(roidir):
+        shutil.rmtree(roidir)
     if not os.path.exists(roidir):
-        os.makedirs(roidir) 
+        os.makedirs(roidir)  
     if os.path.exists(os.path.join(evaldir, 'rois')):
         shutil.rmtree(os.path.join(evaldir, 'rois'))
     # Plot distribution of params w/ 95% CI
     if plot_boot_distns:
         print("... plotting boot distn") #.\n(to: %s" % outdir)
-        plot_eval_summary(fitdf, fit_results, eval_results, 
+        plot_eval_summary(fit_results, eval_results, fit_params,
                           sigma_scale=fit_params['sigma_scale'], 
                           scale_sigma=fit_params['scale_sigma'],
                           outdir=roidir, plot_format='svg', 
@@ -2413,7 +2402,22 @@ def initializer(terminating_):
     terminating = terminating_
 
 
-def pool_evaluation(rdf_list, params, n_processes=1):   
+class NoDaemonProcess(mp.Process):
+    # make 'daemon' attribute always return False
+    def _get_daemon(self):
+        return False
+    def _set_daemon(self, value):
+        pass
+    daemon = property(_get_daemon, _set_daemon)
+
+# We sub-class multiprocessing.pool.Pool instead of multiprocessing.Pool
+# because the latter is only a wrapper function, not a proper class.
+import multiprocessing.pool
+class MyPool(multiprocessing.pool.Pool):
+    Process = NoDaemonProcess
+
+
+def pool_evaluation(rdf_list, params, n_processes=1, n_subproc=4):   
     '''
     Wrapper to do bootstrap analysis with Pool
     '''
@@ -2421,10 +2425,11 @@ def pool_evaluation(rdf_list, params, n_processes=1):
     results = []# None
     terminating = mp.Event()
         
-    pool = mp.Pool(initializer=initializer, initargs=(terminating, ), 
+    pool = MyPool(initializer=initializer, initargs=(terminating, ), 
                     processes=n_processes)
     try:
-        results = pool.map_async(partial(bootstrap_rf_params, fit_params=params), 
+        results = pool.map_async(partial(bootstrap_rf_params, fit_params=params,
+                                        n_processes=n_subproc), 
                                         rdf_list).get(99999999)
         #pool.close()
     except KeyboardInterrupt:
@@ -2438,7 +2443,7 @@ def pool_evaluation(rdf_list, params, n_processes=1):
     return results
 
 
-def evaluate_rfs(roidf_list, fit_params, n_processes=1):
+def evaluate_rfs(roidf_list, fit_params, n_processes=1, n_subprocesses=1):
     '''
     Evaluate receptive field fits for cells with R2 > fit_thr.
 
@@ -2462,9 +2467,16 @@ def evaluate_rfs(roidf_list, fit_params, n_processes=1):
     do_spherical_correction = fit_params['do_spherical_correction']
         
     #print("... doing bootstrap analysis for param fits.")
+    bootdf_list=[]
     start_t = time.time()
-    bootdf_list = pool_evaluation(roidf_list, fit_params, 
-                                                n_processes=n_processes)
+    if do_spherical_correction:
+        for roidf in roidf_list: 
+            bdf = bootstrap_rf_params(roidf, fit_params=fit_params,
+                                    n_processes=n_processes) 
+            bootdf_list.append(bdf)    
+    else:
+        bootdf_list = pool_evaluation(roidf_list, fit_params, 
+                                n_processes=n_processes, n_subproc=1) #n_subprocesses)
     end_t = time.time() - start_t
     print("Multiple processes: {0:.2f}sec".format(end_t))
     print("--- %i results" % len(bootdf_list))
@@ -2473,8 +2485,12 @@ def evaluate_rfs(roidf_list, fit_params, n_processes=1):
         return eval_results #None
 
     # Create dataframe of bootstrapped data
-    bootdf = pd.concat(bootdf_list)    
-    bootdf = convert_fit_to_coords(bootdf, fit_params)
+    bootdf = pd.concat([d for d in bootdf_list if d is not None]).reset_index(drop=True)
+    bootdf = bootdf.dropna()
+    bootdf['sigma_x'] = bootdf['sigma_x'].abs()
+    bootdf['sigma_y'] = bootdf['sigma_y'].abs()
+
+    bootdf = convert_fit_to_coords(bootdf, fit_params, scale_sigma=False)
  
 #    if do_spherical_correction is False: 
 #        bootdata = convert_fit_to_coorsd(bootdata, fit_params)
@@ -2486,11 +2502,11 @@ def evaluate_rfs(roidf_list, fit_params, n_processes=1):
 
     bootdf['sigma_x'] = bootdf['sigma_x'] * sigma_scale
     bootdf['sigma_y'] = bootdf['sigma_y'] * sigma_scale
-    theta_vs = bootdf['theta'].values.copy()
-    bootdf['theta'] = theta_vs % (2*np.pi)
-
+    #theta_vs = bootdf['theta'].values.copy()
+    bootdf['theta'] = bootdf['theta'] % (2*np.pi)
+#
     # Calculate confidence intervals
-    bootdf = bootdf.dropna()
+    #bootdf = bootdf.dropna()
     bootcis = get_cis_for_params(bootdf, ci=fit_params['evaluation']['ci'])
 
     # Plot bootstrapped distn of x0 and y0 parameters for each roi (w/ CIs)
@@ -2498,7 +2514,8 @@ def evaluate_rfs(roidf_list, fit_params, n_processes=1):
     n_bootstrap_iters = fit_params['evaluation']['n_bootstrap_iters']
     unreliable = counts[counts < n_bootstrap_iters*0.5].index.tolist()
     print("%i cells seem to have <50%% iters with fits" % len(unreliable))
-    
+    print(bootcis.head())
+ 
     eval_results = {'bootdf': bootdf, 
                     'params': fit_params, 
                     'cis': bootcis, 
@@ -2535,7 +2552,7 @@ def save_eval_results(eval_results, fit_params):
  
 
 def bootstrap_rf_params(roi_df, fit_params={},
-                        sigma_scale=2.35 ):     
+                        sigma_scale=2.35, n_processes=4):     
 
     param_order =['amplitude', 'x0', 'y0', 'sigma_x', 'sigma_y', 'theta', 'offset', 'r2']
 
@@ -2545,26 +2562,30 @@ def bootstrap_rf_params(roi_df, fit_params={},
     n_resamples = fit_params['evaluation']['n_resamples']
     n_bootstrap_iters = fit_params['evaluation']['n_bootstrap_iters']
     
-    xres=1 if do_spherical_correction else float(np.unique(np.diff(row_vals)))
-    yres=1 if do_spherical_correction else float(np.unique(np.diff(col_vals)))
-    sigma_scale=1 if do_spherical_correction else sigma_scale
-    sigma_scale=1 if do_spherical_correction else sigma_scale
-    min_sigma=2.5; max_sigma=50;
+    #xres=1 if do_spherical_correction else float(np.unique(np.diff(row_vals)))
+    #yres=1 if do_spherical_correction else float(np.unique(np.diff(col_vals)))
+    #sigma_scale=1 if do_spherical_correction else sigma_scale
+    #sigma_scale=1 if do_spherical_correction else sigma_scale
+    #min_sigma=2.5; max_sigma=50;
 
-    paramsdf = None
+    bootfits=None
     try:
-        if not terminating.is_set():
-            time.sleep(1)
+        #if not terminating.is_set():
+        #    time.sleep(1)
             
         #if do_spherical_correction:
         #    grid_points, cart_vals, sphr_vals = coordinates_for_transformation(fit_params)
 
         # Get all trials for each config (indicese_= trial reps, columns = conditions)
         roi = int(np.unique([r for r in roi_df.columns if r not in ['config', 'trial']])) 
-        responses_df = pd.concat([pd.Series(g[roi], name=c)\
-                        .reset_index(drop=True)\
-                        for c, g in roi_df.groupby(['config'])], axis=1).dropna(axis=0)        
-        # Bootstrap distN of responses (rand w replacement):
+        roi_df = pd.concat([g for c, g in roi_df.groupby('config')]) 
+        roi_df.index = roi_df.groupby('config').cumcount().values
+        responses_df = roi_df.pivot(columns='config', values=roi)
+
+#        responses_df = pd.concat([pd.Series(g[roi], name=c)\
+#                        .reset_index(drop=True)\
+#                        for c, g in roi_df.groupby(['config'])], axis=1).dropna(axis=0)        
+#        # Bootstrap distN of responses (rand w replacement):
 #        grouplist = [group_configs(group, response_type) \
 #                        for config, group in rdf.groupby(['config'])]
 #        responses_df = pd.concat(grouplist, axis=1) 
@@ -2577,30 +2598,41 @@ def bootstrap_rf_params(roi_df, fit_params={},
 
         # Reshape array so that it matches for fitrf changs 
         # (should match .reshape(ny, nx))
+        if do_spherical_correction:
+            print("warping arrays...")
+            if n_processes>1:
+                bootresp_ = sphr_correct_maps_mp(bootresp_, fit_params, 
+                                                n_processes=n_processes)
+            else:
+                bootresp_ = sphr_correct_maps(bootresp_, fit_params)
+#            ds_factor = fit_params['downsample_factor'] 
+#            resolution_ds = [int(i/ds_factor) for i in \
+#                                fit_params['screen']['resolution'][::-1]]
+#            lin_x, lin_y = get_lin_coords(resolution=resolution_ds, cm_to_deg=True)
+#            cart_x, cart_y, sphr_th, sphr_ph = get_spherical_coords(
+#                                                cart_pointsX=lin_x, cart_pointsY=lin_y, 
+#                                                cm_to_degrees=False)
+#            bootresp_tmp = bootresp_.copy()
+#            bootresp_resp = bootresp_tmp.apply(warp_spherical_fromarr, 
+#                        cart_x=cart_x, cart_y=cart_y,   
+#                        sphr_th=sphr_th, sphr_ph=sphr_ph, resolution=resolution_ds,
+#                        row_vals=row_vals, col_vals=col_vals, normalize_range=True)
+
+        # Make rfmap in correct order for reshaping
         nx=len(col_vals)
         ny=len(row_vals)
-        if do_spherical_correction:
-            lin_x, lin_y = get_lin_coords(resolution=resolution_ds, cm_to_deg=True)
-            cart_x, cart_y, sphr_th, sphr_ph = get_spherical_coords(
-            cart_pointsX=lin_x, cart_pointsY=lin_y, cm_to_degrees=False)
-            bootresp_tmp = bootresp_.copy()
-            bootresp_resp = bootresp_tmp.apply(warp_spherical_fromarr, 
-                        cart_x=cart_x, cart_y=cart_y,   
-                        sphr_th=sphr_th, sphr_ph=sphr_ph, resolution=resolution_ds,
-                        row_vals=row_vals, col_vals=col_vals,normalize_range=True)
-
-
         bootresp = bootresp_.apply(reshape_array_for_nynx, args=(nx, ny))
 
         # Fit receptive field for each set of bootstrapped samples 
-        bparams = []; #x0=[]; y0=[];
-        for ii in bootresp.columns:
-            response_vector = bootresp[ii].values
+#        bparams = []; #x0=[]; y0=[];
+#        for ii in bootresp.columns:
+#            response_vector = bootresp[ii].values
             # nx=len(col_vals), ny=len(row_vals)
-            rfmap = get_rf_map(response_vector, nx, ny) 
-            fitr, fit_y = do_2d_fit(rfmap, nx=nx, ny=ny) 
-            if fitr['success']:
-                amp_f, x0_f, y0_f, sigx_f, sigy_f, theta_f, offset_f = fitr['popt']
+            #rfmap = get_rf_map(response_vector, nx, ny)
+#            fitdf_ = fit_and_return_params(response_vector, row_vals=row_vals, col_vals=col_vals)
+#            fitr, fit_y = do_2d_fit(rfmap, row_vals=row_vals, col_vals=col_vals)
+#            if fitr['success']:
+#                amp_f, x0_f, y0_f, sigx_f, sigy_f, theta_f, offset_f = fitr['popt']
 #                if do_spherical_correction:
 #                    # Correct for spher correction, if nec
 #                    x0_f, y0_f, sigx_f, sigy_f = get_scaled_sigmas(
@@ -2609,30 +2641,58 @@ def bootstrap_rf_params(roi_df, fit_params={},
 #                                                        sigx_f, sigy_f, theta_f,
 #                                                        convert=True)
 #                    fitr['popt'] = (amp_f, x0_f, y0_f, sigx_f, sigy_f, theta_f, offset_f) 
-                if any(s<min_sigma for s \
-                        in [abs(sigx_f)*xres*sigma_scale, abs(sigy_f)*yres*sigma_scale])\
-                        or any(s > max_sigma for s \
-                        in [abs(sigx_f)*xres*sigma_scale, abs(sigy_f)*yres*sigma_scale]):
-                    fitr['success'] = False
-                
+#                if any(s<min_sigma for s \
+#                        in [abs(sigx_f)*xres*sigma_scale, abs(sigy_f)*yres*sigma_scale])\
+#                        or any(s > max_sigma for s \
+#                        in [abs(sigx_f)*xres*sigma_scale, abs(sigy_f)*yres*sigma_scale]):
+#                    fitr['success'] = False
+#                
             # If the fit for current bootstrap sample is good, 
             # add it to dataframe of bootstrapped rf params
-            if fitr['success']:
+#            if fitdf_ is not None:
                 #amp_f, x0_f, y0_f, sigx_f, sigy_f, theta_f, offset_f = fitr['popt']
-                curr_fit_results = list(fitr['popt'])
-                curr_fit_results.append(fitr['r2'])
-                bparams.append(tuple(curr_fit_results)) #(fitr['popt'])
-        if len(bparams)==0:
+                #curr_fit_results = list(fitr['popt'])
+                #curr_fit_results.append(fitr['r2'])
+                #bparams.append(tuple(curr_fit_results)) #(fitr['popt'])
+#                bootfits_.append(fitdf_)
+#        if len(bootfits_)==0:
+#            return None
+        #paramsdf = pd.DataFrame(data=np.array(bparams), columns=param_order)
+#        paramsdf = pd.concat(bootfits_)
+
+        bootfits_ = bootresp.apply(fit_and_return_params, 
+                                    row_vals=row_vals, col_vals=col_vals)
+        bootfits = bootfits_.T
+        if len(bootfits.shape)==1:
             return None
-        paramsdf = pd.DataFrame(data=np.array(bparams), 
-                                columns=param_order)
-        paramsdf['cell'] = roi    
+ 
+        bootfits['cell'] = roi    
     except KeyboardInterrupt:
         print("----exiting----")
         terminating.set()
         print("---set terminating---")
 
-    return paramsdf
+    return bootfits
+
+
+def fit_and_return_params(response_vector, row_vals=None, col_vals=None):
+    '''Take vector of averaged responses for all pos, fit RF. Return fit params as df'''
+    nx=len(col_vals)
+    ny=len(row_vals)
+    rfmap = get_rf_map(response_vector.values, nx, ny)
+    param_order =['amplitude', 'x0', 'y0', 'sigma_x', 'sigma_y', 'theta', 'offset', 'r2']
+
+    fitdf=None
+    fitr, fit_y = do_2d_fit(rfmap, row_vals=row_vals, col_vals=col_vals)  
+    # If the fit for current bootstrap sample is good, 
+    # add it to dataframe of bootstrapped rf params
+    if fitr['success']:
+        #amp_f, x0_f, y0_f, sigx_f, sigy_f, theta_f, offset_f = fitr['popt']
+        fparams = list(fitr['popt'])
+        fparams.append(fitr['r2']) 
+        #fitdf = pd.DataFrame(data=[tuple(fparams)], columns=param_order)
+        fitdf = pd.Series(tuple(fparams), index=param_order)
+    return fitdf
 
 
 def get_cis_for_params(bdata, ci=0.95):
@@ -2640,31 +2700,34 @@ def get_cis_for_params(bdata, ci=0.95):
     param_names = [p for p in bdata.columns if p != 'cell']
     CI = {}
     for p in param_names:
-        CI[p] = dict((roi, hutils.get_empirical_ci(bdf[p].values, ci=ci)) \
+        CI[p] = dict((roi, hutils.get_empirical_ci(bdf[p].dropna().values, ci=ci)) \
                         for roi, bdf in bdata.groupby(['cell']))
     
     cis = {}
     for p in param_names:
-        cvals = np.array([hutils.get_empirical_ci(bdf[p].values, ci=ci) \
+        cvals = np.array([hutils.get_empirical_ci(bdf[p].dropna().values, ci=ci) \
                         for roi, bdf in bdata.groupby(['cell'])])
         cis['%s_lower' % p] = cvals[:, 0]
         cis['%s_upper' % p] = cvals[:, 1]
-    cis = pd.DataFrame(cis, index=[roi_list])
+    cis = pd.DataFrame(cis, index=roi_list)
     
     return cis
 
 def check_reliable_fits(meas_df, boot_cis): 
     # Test which params lie within 95% CI
     params = [p for p in meas_df.columns.tolist() if p!='r2']
+    rois_ = np.intersect1d(meas_df.index, boot_cis.index)
+    fitdf_ = meas_df.loc[rois_].copy()
+    
     pass_cis = pd.concat([pd.DataFrame(
             [boot_cis['%s_lower' % p][ri]<=meas_df[p][ri]<=boot_cis['%s_upper' % p][ri] \
             for p in params], columns=[ri], index=params) \
-            for ri in meas_df.index.tolist()], axis=1).T
+            for ri in fitdf_.index.tolist()], axis=1).T
        
     return pass_cis
 
 # Plotting - EVAL
-def plot_eval_summary(fitdf, fit_results, eval_results,
+def plot_eval_summary(fit_results, eval_results, fit_params,
                         sigma_scale=2.35, scale_sigma=True, 
                         outdir='/tmp/rf_fit_evaluation', plot_format='svg',
                         data_id='DATA ID'):
@@ -2672,16 +2735,24 @@ def plot_eval_summary(fitdf, fit_results, eval_results,
     For all fit ROIs, plot summary of results (fit + evaluation).
     Expect that meas_df has R2>fit_thr, since those are the ones that get bootstrap evaluation 
     '''
-    bootdfs = eval_results['bootdf']
-    roi_list = fitdf.index.tolist() #sorted(bootdata['cell'].unique())
-     
+    # all_fit_rois = fitdf.index.tolist() #sorted(bootdata['cell'].unique())
+    fitdf = rfits_to_df(fit_results, fit_params=fit_params, 
+                            scale_sigma=fit_params['scale_sigma'], 
+                            sigma_scale=fit_params['sigma_scale'], convert_coords=True)
+    fitdf_unconv = rfits_to_df(fit_results, fit_params=fit_params, 
+                            scale_sigma=fit_params['scale_sigma'], 
+                            sigma_scale=fit_params['sigma_scale'], convert_coords=False)
+    bootdfs = eval_results['bootdf'].copy()
+    roi_list = np.intersect1d(fitdf.index, bootdfs['cell'].unique() )
+
     for ri, rid in enumerate(sorted(roi_list)):
         if ri % 20 == 0:
             print("... plotting eval summary (%i of %i)" % (int(ri+1), len(roi_list))) 
         rfmap = fit_results[rid]['data']
         bootdf_roi = bootdfs[bootdfs['cell']==rid]
         fig = plot_roi_evaluation(rid, fitdf.loc[rid], rfmap, bootdf_roi, 
-                                  scale_sigma=scale_sigma, sigma_scale=sigma_scale)
+                                  fitdf_unconv.loc[rid], 
+                                  scale_sigma=False) #scale_sigma, sigma_scale=sigma_scale)
         fig.suptitle('rid %i**' % rid)
         pplot.label_figure(fig, data_id)
         pl.savefig(os.path.join(outdir, 'roi%05d.%s' % (int(rid+1), plot_format)))
@@ -2701,20 +2772,25 @@ def plot_bootstrapped_distribution(boot_values, true_x, ci=0.95, ax=None, param_
    
     return ax
 
-def plot_roi_evaluation(rid, fitdf_roi, rfmap, bootdf_roi, ci=0.95, 
+def plot_roi_evaluation(rid, fitdf_roi, rfmap, bootdf_roi, fitdf_unconv_roi, ci=0.95, 
                              scale_sigma=True, sigma_scale=2.35):
     
     fig, axn = pl.subplots(2,3, figsize=(10,6))
     ax = axn.flat[0]
     ax = plot_rf_map(rfmap, cmap='inferno', ax=ax)
-    ax = plot_rf_ellipse(fitdf_roi, ax=ax, scale_sigma=scale_sigma)
+    ax = plot_rf_ellipse(fitdf_unconv_roi, ax=ax, scale_sigma=True)
     params = ['sigma_x', 'sigma_y', 'theta', 'x0', 'y0']
+    # Expects NON-converted fit vals
+    # convert now:
+    #fitdf_roi = convert_fit_to_coords(fitdf_roi, fit_params, scale_sigma=True)
+    #bootdf_roi =  convert_fit_to_coords(bootdf_roi, fit_params, scale_sigma=True)
+    
     ai=0
     for param in params:
         ai += 1
         try:
             ax = axn.flat[ai]
-            ax = plot_bootstrapped_distribution(bootdf_roi[param].values, 
+            ax = plot_bootstrapped_distribution(bootdf_roi[param].dropna().values, 
                                                 fitdf_roi[param], 
                                                 ci=ci, ax=ax, param_name=param)
             pl.subplots_adjust(wspace=0.7, hspace=0.5, top=0.8)
@@ -2735,6 +2811,31 @@ from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.model_selection import train_test_split
 import scipy.stats as spstats
 import sklearn.metrics as skmetrics #import mean_squared_error
+
+def fit_linear_regr(xvals, yvals, return_regr=False, model='ridge'):
+    from sklearn.linear_model import LinearRegression, Ridge, Lasso
+    if model=='ridge':
+        regr = Ridge()
+    elif model=='Lasso':
+        regr = Lasso()
+    else:
+        model = 'ols'
+        regr = LinearRegression()
+    if len(xvals.shape) == 1:
+        xvals = np.array(xvals).reshape(-1, 1)
+        yvals = np.array(yvals).reshape(-1, 1)
+    else:
+        xvals = np.array(xvals)
+        yvals = np.array(yvals)
+    if any([np.isnan(x) for x in xvals]) or any([np.isnan(y) for y in yvals]):
+        print("NAN")
+    regr.fit(xvals, yvals)
+    fitv = regr.predict(xvals)
+    if return_regr:
+        return fitv.reshape(-1), regr
+    else:
+        return fitv.reshape(-1)
+
 
 def regr_rf_fov(posdf, fit_params, eval_results, 
                 model='ridge', pass_criterion='all', data_id='ID', 
@@ -2868,32 +2969,6 @@ def plot_linear_regr(xv, yv, ax=None,  model='ridge',
     ax.legend(loc='upper right', fontsize=8)
 
     return regr
-
-def fit_linear_regr(xvals, yvals, return_regr=False, model='ridge'):
-    if model=='ridge':
-        regr = Ridge()
-    elif model=='Lasso':
-        regr = Lasso()
-    else:
-        model = 'ols'
-        regr = LinearRegression()
-
-    if len(xvals.shape) == 1:
-        xvals = np.array(xvals).reshape(-1, 1)
-        yvals = np.array(yvals).reshape(-1, 1)
-    else:
-        xvals = np.array(xvals)
-        yvals = np.array(yvals)
-    if any(np.isnan(xvals)) or any(np.isnan(yvals)):
-        print("NAN")
-        #print(np.where(np.isnan(xvals)))
-        #print(np.where(np.isnan(yvals)))
-    regr.fit(xvals, yvals)
-    fitv = regr.predict(xvals)
-    if return_regr:
-        return fitv.reshape(-1), regr
-    else:
-        return fitv.reshape(-1)
 
 
 def compare_regr_to_boot_params(eval_results, posdf, xlim=None, ylim=None, 

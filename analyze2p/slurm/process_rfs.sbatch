@@ -48,7 +48,7 @@ else
         echo "Re-doing fits"
         python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/receptive_fields/fit_rfs.py -i $DATAKEY -R $EXP -t $TRACEID -M dff -p 0.5 -n 4 --do-fits --do-eval
     else
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/receptive_fields/fit_rfs.py -i $ANIMALID -S $SESSION -A $FOV -R $EXP -t $TRACEID -M dff -p 0.5 -n 4 --do-eval
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/receptive_fields/fit_rfs.py -i $DATAKEY -R $EXP -t $TRACEID -M dff -p 0.5 -n 4 --do-eval
     fi
 fi
 

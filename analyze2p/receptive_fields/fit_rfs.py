@@ -88,6 +88,9 @@ def extract_options(options):
                       help="flag to reload/reprocess data arrays")
     parser.add_option('-n', '--nproc', action='store', dest='n_processes', default=1, 
                       help="N processes")
+    parser.add_option('-o', '--nsub', action='store', dest='n_subprocesses', default=1, 
+                      help="N subprocesses")
+
 
     parser.add_option('-B', '--boot', action='store', dest='n_bootstrap_iters', default=500, 
                       help="N bootstrap iterations (default: 500)")
@@ -144,6 +147,8 @@ def main(options):
     plot_format = optsE.plot_format
 
     n_processes = int(optsE.n_processes)
+    n_subprocesses = int(optsE.n_subprocesses)
+
     test_subset=False
     print("--------------------------------------------")
     print("FITTING")
@@ -183,7 +188,8 @@ def main(options):
                 n_bootstrap_iters=n_bootstrap_iters, n_resamples=n_resamples, ci=0.95,
                 pass_criterion='all', model='ridge', 
                 plot_boot_distns=True, 
-                deviant_color='dodgerblue', plot_all_cis=False,
+                deviant_color='dodgerblue', plot_all_cis=False, 
+                n_processes=n_processes, n_subprocesses=n_subprocesses,
                 create_new=do_eval, rootdir='/n/coxfs01/2p-data')
 
     print("((( RFs done! )))))")
