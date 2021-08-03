@@ -39,6 +39,7 @@ import analyze2p.utils as hutils
 import analyze2p.extraction.rois as roiutils
 #import analyze2p.gratings.utils as utils
 import analyze2p.retinotopy.utils as retutils
+import analyze2p.extraction.traces as traceutils
 
 # ###############################################################
 # Analysis specific
@@ -1287,17 +1288,18 @@ def process_and_save_traces(trace_type='dff',
                             experiment=None, traceid='traces001',
                             soma_fpath=None,
                             rootdir='/n/coxfs01/2p-data'):
+    '''Process raw traces (SOMA ONLY), and calculate dff'''
 
     print("... processing + saving data arrays (%s)." % trace_type)
-
     assert (animalid is None and soma_fpath is not None) or (soma_fpath is None and animalid is not None), "Must specify either dataset params (animalid, session, etc.) OR soma_fpath to data arrays."
 
     if soma_fpath is None:
+        # Load default data_array path
         search_str = '' if 'combined' in experiment else '_'
         soma_fpath = glob.glob(os.path.join(rootdir, animalid, session, fov,
-                                '*%s%s*' % (experiment, search_str), 'traces', '%s*' % traceid, 
+                                '*%s%s*' % (experiment, search_str), 
+                                'traces', '%s*' % traceid, 
                                 'data_arrays', 'np_subtracted.npz'))[0]
-
     dset = np.load(soma_fpath, allow_pickle=True)
     
     # Stimulus / condition info
@@ -1316,6 +1318,7 @@ def process_and_save_traces(trace_type='dff',
     npdata = np.load(neuropil_fpath, allow_pickle=True)
     neuropil_f0 = np.nanmean(np.nanmean(pd.DataFrame(npdata['f0'][:])))
     neuropil_df = pd.DataFrame(npdata['data'][:]) 
+    add_np_offsets = list(np.nanmean(neuropil_df, axis=0)) 
     print("    adding NP offset (NP f0 offset: %.2f)" % neuropil_f0)
 
     # # Also add raw 
@@ -1325,7 +1328,7 @@ def process_and_save_traces(trace_type='dff',
     raw_df = pd.DataFrame(rawdata['data'][:])
     print("    adding raw offset (raw f0 offset: %.2f)" % raw_f0)
 
-    raw_traces = xdata_df + list(np.nanmean(neuropil_df, axis=0)) + raw_f0 
+    raw_traces = xdata_df + add_np_offsets + raw_f0 
     #+ neuropil_f0 + raw_f0 # list(np.nanmean(raw_df, axis=0)) #.T + F0
      
     # SAVE
@@ -1368,8 +1371,14 @@ def process_and_save_traces(trace_type='dff',
         return raw_traces, labels, sdf, run_info
 
 
-def load_dataset(soma_fpath, trace_type='dff', add_offset=True, 
-                make_equal=False, create_new=False):
+def load_dataset(soma_fpath, trace_type='dff', is_neuropil=False,
+                add_offset=True, make_equal=False, create_new=False):
+    '''
+    Loads all the roi traces and labels.
+    If want to load corrected NP traces, set flag is_neuropil.
+    To load raw NP traces, set trace_type='neuropil' and is_neuropil=False.
+
+    '''
     traces=None
     labels=None
     sdf=None
@@ -1383,20 +1392,30 @@ def load_dataset(soma_fpath, trace_type='dff', add_offset=True,
                                                     soma_fpath=soma_fpath
             )
         else:
-            #print("... loading saved data array (%s)." % trace_type)
-            traces_dset = np.load(data_fpath, allow_pickle=True)
-            traces = pd.DataFrame(traces_dset['data'][:]) 
+            if is_neuropil:
+                np_fpath = data_fpath.replace(trace_type, 'neuropil')
+                traces = traceutils.load_corrected_neuropil_traces(np_fpath)
+            else:
+                #print("... loading saved data array (%s)." % trace_type)
+                traces_dset = np.load(data_fpath, allow_pickle=True)
+                traces = pd.DataFrame(traces_dset['data'][:]) 
+
+            # Stimulus / condition info
             labels_fpath = data_fpath.replace(\
                             '%s.npz' % trace_type, 'labels.npz')
             labels_dset = np.load(labels_fpath, allow_pickle=True, 
                             encoding='latin1') 
-            # Stimulus / condition info
             labels = pd.DataFrame(data=labels_dset['labels_data'], 
                                   columns=labels_dset['labels_columns'])
             labels = hutils.convert_columns_byte_to_str(labels)
-            sdf = pd.DataFrame(labels_dset['sconfigs'][()]).T
-            if 'blobs' in soma_fpath: #self.experiment_type:
+            sdf = pd.DataFrame(labels_dset['sconfigs'][()]).T.sort_index()
+            if 'blobs' in data_fpath: 
                 sdf = reformat_morph_values(sdf)
+            # Format condition info:
+            if 'image' in sdf['stimtype']:
+                aspect_ratio = sdf['aspect'].unique()[0]
+                sdf['size'] = [round(sz/aspect_ratio, 1) for sz in sdf['size']]
+            # Get run info 
             run_info = labels_dset['run_info'][()]
         if make_equal:
             print("... making equal")
@@ -1404,11 +1423,6 @@ def load_dataset(soma_fpath, trace_type='dff', add_offset=True,
     except Exception as e:
         traceback.print_exc()
         print("ERROR LOADING DATA")
-
-    # Format condition info:
-    if 'image' in sdf['stimtype']:
-        aspect_ratio = sdf['aspect'].unique()[0]
-        sdf['size'] = [round(sz/aspect_ratio, 1) for sz in sdf['size']]
 
     return traces, labels, sdf, run_info
 
@@ -1476,7 +1490,7 @@ def process_traces(raw_traces, labels, trace_type='zscore',
                     response_type='zscore', trial_epoch='stimulus',
                     nframes_post_onset=None):
     '''
-    Processes traces and calculate trial metrics
+    Calculate raw traces into dff traces (or zscore) and calculate trial metrics
     
     Inputs: 
     

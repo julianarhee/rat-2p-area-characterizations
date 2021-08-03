@@ -453,7 +453,7 @@ def load_mw_info(datakey, run_name='retino', rootdir='/n/coxfs01/2p-data'):
 def get_protocol_info(datakey, run='retino_run1', rootdir='/n/coxfs01/2p-data'):
     session, animalid, fovn = hutils.split_datakey_str(datakey)
     run_dir = glob.glob(os.path.join(rootdir, animalid, session, 
-                                    'FOV%i_*' % fovn, run))[0]
+                                    'FOV%i_*' % fovn, '%s*' % run))[0]
     mwinfo = load_mw_info(datakey, run_name=run, rootdir=rootdir)
 
     si_fpath = glob.glob(os.path.join(run_dir, '*.json'))[0]
@@ -954,6 +954,7 @@ def dilate_mask_centers(maskcenters, kernel_size=9):
     for roi in range(maskcenters.shape[0]):
         img = maskcenters[roi, :, :].copy()
         x, y = np.where(img>0)
+        # calculate centroid
         centroid = ( int(round(sum(x) / len(x))), int(round(sum(y) / len(x))) )
         # print(centroid)
         np_tmp = np.zeros(img.shape, dtype=bool)
@@ -961,6 +962,25 @@ def dilate_mask_centers(maskcenters, kernel_size=9):
         dilation = binary_dilation(np_tmp, structure=kernel )
         dilated_masks[roi, : :] = dilation
     return dilated_masks
+
+
+def dilate_from_centroids(masks_r, kernel_size=9):
+    '''Calculate center of soma, then dilate to create masks for smoothed  neuropil
+    '''
+    centroids = roiutils.get_roi_centroids(masks_r, xlabel='ml_pos', ylabel='ap_pos')   
+    centroids = centroids.astype(int)
+
+    kernel = get_kernel(kernel_size)
+    np_tmp = np.zeros(masks_r.shape, dtype=bool)
+
+    for i in range(centroids.shape[0]):
+        np_tmp[i, centroids['ap_pos'].iloc[i], centroids['ml_pos'].iloc[i]] = True
+    #np_tmp[:, centroids['ap_pos'].values, centroids['ml_pos'].values] = True
+
+    dilated_masks = np.array([binary_dilation(np_tmp[i, :], structure=kernel ) 
+          for i in range(np_tmp.shape[0])])
+
+    return dilated_masks, centroids
 
 
 #def get_roi_centroids(masks):
@@ -1000,18 +1020,23 @@ def mask_rois(masks, value_array, mask_thr=0.1, return_array=False):
     return value_mask
 
 def mask_with_overlaps_averaged(dilated_masks, value_array, mask_thr=0.1):
+    '''
+    Get 2D roi mask, with overlapping masks averaged
+    '''
     nt, d1_, d2_ = dilated_masks.shape
     
     # Get non-averaged array
     tmpmask = mask_rois(dilated_masks, value_array, mask_thr=mask_thr, return_array=False)
     
     # Get full array to average across overlapping pixels
-    tmpmask_full = mask_rois(dilated_masks, value_array, mask_thr=mask_thr, return_array=True)
+    tmpmask_full = mask_rois(dilated_masks, value_array, \
+                                mask_thr=mask_thr, return_array=True)
     tmpmask_r = np.reshape(tmpmask_full, (nt, d1_*d2_))
     
     # Replace overlapping pixels with average value
     avg_mask = tmpmask.copy().ravel()
-    multi_ixs = [i for i in range(tmpmask_r.shape[-1]) if len(np.where(tmpmask_r[:, i])[0]) > 1]
+    multi_ixs = [i for i in range(tmpmask_r.shape[-1]) \
+                    if len(np.where(tmpmask_r[:, i])[0]) > 1]
     for ix in multi_ixs:
         #avg_azim[ix] = spstats.circmean([v for v in azim_phase2[:, ix] if not np.isnan(v)], low=vmin, high=vmax)
         avg_mask[ix] = np.nanmean([v for v in tmpmask_r[:, ix] if not np.isnan(v)])#, low=vmin, high=vmax)
@@ -1025,7 +1050,11 @@ def get_phase_masks(masks, azim, elev, average_overlap=True, roi_list=None): #, 
 #     # Convert phase to continuous:
 #     phases_cont = -1 * phases
 #     phases_cont = phases_cont % (2*np.pi)
-    
+   
+    '''
+    masks: nrois, d1, d2 shape
+    azim/elev:  datframes witih values to assign to roi masks (index should be actual roi ID used to index into masks array)
+    ''' 
     # Only include specified rois:
     if roi_list is None:
         roi_list = azim.index.tolist()

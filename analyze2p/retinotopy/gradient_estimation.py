@@ -1433,6 +1433,9 @@ def gradient_within_visual_area(opts): #options):
     return None
 
 
+
+
+
 def main(options):
 
     opts = extract_options(options)

@@ -1,9 +1,65 @@
 
 import os
+import glob
+import traceback
+
 import numpy as np
 import pandas as pd
 
 import scipy.stats as spstats
+import analyze2p.utils as hutils
+import _pickle as pkl
+
+# --------------------------------------------------------------------
+# Data loading
+# --------------------------------------------------------------------
+def get_data_fpath(datakey, experiment_name='rfs10', traceid='traces001', 
+                    trace_type='corrected',
+                    rootdir='/n/coxfs01/2p-data'):
+    session, animalid, fovnum = hutils.split_datakey_str(datakey)
+    run_str = 'combined_%s_' % experiment_name if experiment_name!='retino' \
+                else experiment_name
+    data_fpath=None
+    try:
+        # Get traceid dir
+        data_dir = glob.glob(os.path.join(rootdir, animalid, session, \
+                        'FOV%i_*' % fovnum, '%s*' % run_str, 
+                        'traces/%s*' % traceid, 'data_arrays'))[0]
+
+        data_fpath = os.path.join(data_dir, '%s.npz' % trace_type)
+        assert os.path.exists(data_fpath), 'No fpath for [%s]' % trace_type
+
+    except AssertionError as e:
+        found_fpaths = glob.glob(os.path.join(data_dir, '*.npz'))
+        print("Found the following files in dir\n    %s" % data_dir)
+        for f in found_fpaths:
+            print("    %s" % os.path.split(f)[-1])
+    except IndexError as e:
+        print("No data dir: %s, %s, %s" % (datakey, experiment_name, traceid))
+    
+    except Exception as e:
+        traceback.print_exc()
+
+    return data_fpath 
+
+# 
+# --------------------------------------------------------------------
+# Data processing
+# --------------------------------------------------------------------
+def load_corrected_neuropil_traces(neuropil_fpath):
+    npdata = np.load(neuropil_fpath, allow_pickle=True)
+    #print(npdata.keys())
+    neuropil_f0 = np.nanmean(np.nanmean(pd.DataFrame(npdata['f0'][:])))
+    neuropil_df = pd.DataFrame(npdata['data'][:]).copy()
+
+    add_np_offsets = list(np.nanmean(neuropil_df, axis=0))
+    xdata_np = neuropil_df + add_np_offsets + neuropil_f0
+    return xdata_np
+
+
+# --------------------------------------------------------------------
+# Data grouping and calculations
+# --------------------------------------------------------------------
 
 def get_mean_and_std_traces(roi, traces, labels, curr_cfgs, stimdf):
     import scipy.stats as spstats

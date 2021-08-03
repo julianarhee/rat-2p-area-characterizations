@@ -583,22 +583,20 @@ def get_fit_desc(response_type='dff', do_spherical_correction=False):
 
     return fit_desc
 
-def create_rf_dir(datakey, run_name, traceid='traces001', response_type='dff', 
-                do_spherical_correction=False, fit_thr=0.5, rootdir='/n/coxfs01/2p-data'):
+def create_rf_dir(datakey, run_name, is_neuropil=False, 
+                response_type='dff', do_spherical_correction=False, 
+                traceid='traces00', rootdir='/n/coxfs01/2p-data'):
 
     session, animalid, fovnum = hutils.split_datakey_str(datakey)
 
     # Get RF dir for current fit type
-    fit_desc = get_fit_desc(response_type=response_type, 
+    fit_desc = get_fit_desc(response_type=response_type,
                             do_spherical_correction=do_spherical_correction)
     fov_dir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovnum))[0]
 
-    if 'combined' in run_name:
-        traceid_dirs = [t for t in glob.glob(os.path.join(fov_dir, run_name, \
+    run_str = run_name if 'combined' in run_name else 'combined_%s_' % run_name
+    traceid_dirs = [t for t in glob.glob(os.path.join(fov_dir, '%s*' % run_str,\
                                                 'traces/%s*' % traceid))]
-    else: 
-        traceid_dirs = [t for t in glob.glob(os.path.join(fov_dir, \
-                        'combined_%s_*' % run_name, 'traces/%s*' % traceid))]
     if len(traceid_dirs) > 1:
         print("[creating RF dir, %s] More than 1 trace ID found:" % run_name)
         for ti, traceid_dir in enumerate(traceid_dirs):
@@ -607,12 +605,15 @@ def create_rf_dir(datakey, run_name, traceid='traces001', response_type='dff',
         traceid_dir = traceid_dirs[int(sel)]
     else:
         traceid_dir = traceid_dirs[0]
-    #traceid = os.path.split(traceid_dir)[-1]
-         
-    rfdir = os.path.join(traceid_dir, 'receptive_fields', fit_desc)
+    #traceid = os.path.split(traceid_dir)[-1]      
+    if is_neuropil:   
+        rfdir = os.path.join(traceid_dir, 'receptive_fields', fit_desc, 'neuropil')
+    else:
+        rfdir = os.path.join(traceid_dir, 'receptive_fields', fit_desc)
+
     return rfdir, fit_desc
 
-def load_fit_results(datakey, experiment='rfs', 
+def load_fit_results(datakey, experiment='rfs', is_neuropil=False,
                 response_type='dff', do_spherical_correction=False,
                 traceid='traces001', fit_desc=None,  
                 rootdir='/n/coxfs01/2p-data'): 
@@ -624,12 +625,15 @@ def load_fit_results(datakey, experiment='rfs',
             assert response_type is not None, "No response_type or fit_desc provided"
             fit_desc = get_fit_desc(response_type=response_type, 
                             do_spherical_correction=do_spherical_correction)  
+        # get rf dir
         exp_name = 'gratings' if int(session) < 20190511 else experiment
         run_name = exp_name.split('_')[1] if 'combined' in exp_name else exp_name
         rfdir = glob.glob(os.path.join(rootdir, animalid, session,
                         'FOV%i_*' % fovn, 'combined_%s_*' % run_name,
                         'traces/%s*' % traceid, 'receptive_fields', 
                         '%s' % fit_desc))[0]
+        if is_neuropil:
+            rfdir = os.path.join(rfdir, 'neuropil')
     except AssertionError as e:
         traceback.print_exc()
        
@@ -642,7 +646,10 @@ def load_fit_results(datakey, experiment='rfs',
     rf_params_fpath = os.path.join(rfdir, 'fit_params.json')
     with open(rf_params_fpath, 'r') as f:
         fit_params = json.load(f)
-        
+    
+    if 'is_neuropil' not in fit_params:
+        return None, None
+    
     return fit_results, fit_params
  
 
@@ -763,10 +770,11 @@ def get_reliable_fits(pass_cis, pass_criterion='all', single=False):
     return reliable_rois
 
  
-def cycle_and_load(rfmeta, assigned_cells, fit_desc=None, traceid='traces001', fit_thr=0.5, 
-                      scale_sigma=True, sigma_scale=2.35, verbose=False, 
-                      response_type='None', reliable_only=True,
-                      rootdir='/n/coxfs01/2p-data'):
+def cycle_and_load(rfmeta, assigned_cells, is_neuropil=False,
+                    fit_desc=None, traceid='traces001', 
+                    fit_thr=0.5, scale_sigma=True, sigma_scale=2.35, verbose=False, 
+                    response_type='None', reliable_only=True,
+                    rootdir='/n/coxfs01/2p-data'):
     '''
     Combines fit_results.pkl(fit from data) and evaluation_results.pkl (evaluated fits via bootstrap)
     and gets fit results only for those cells that are good/robust fits based on bootstrap analysis.
@@ -790,12 +798,15 @@ def cycle_and_load(rfmeta, assigned_cells, fit_desc=None, traceid='traces001', f
         try:
             fit_results, fit_params = load_fit_results(datakey,
                                             experiment=curr_rfname,
-                                            traceid=traceid, 
-                                             fit_desc=fit_desc)
+                                            traceid=traceid, is_neuropil=is_neuropil,
+                                            fit_desc=fit_desc)
             assert fit_results is not None 
         except Exception as e:
             no_fits.append((visual_area, datakey))
             continue
+
+        if is_neuropil:
+            reliable_only=False
 
         if reliable_only:
             try:
@@ -825,16 +836,18 @@ def cycle_and_load(rfmeta, assigned_cells, fit_desc=None, traceid='traces001', f
 
         #### Identify cells with measured params within 95% CI of bootstrap distN
         pass_rois = rfit_df[rfit_df['r2']>fit_thr].index.tolist()
+        if verbose:
+            print("[%s] %s: %i of %i fit rois pass for all params" \
+                        % (visual_area, datakey, len(pass_rois), len(fit_rois)))
+
         param_list = [param for param in rfit_df.columns if param != 'r2']
         reliable_rois=[]
         if reliable_only:
             # check if all params within 95% CI
             reliable_rois = get_reliable_fits(eval_results['pass_cis'],
                                                      pass_criterion='all')
-        if verbose:
-            print("[%s] %s: %i of %i fit rois pass for all params" \
-                        % (visual_area, datakey, len(pass_rois), len(fit_rois)))
-            print("...... : %i of %i fit rois passed as reliiable" \
+            if verbose:
+                print("...... : %i of %i fit rois passed as reliiable" \
                         % (len(reliable_rois), len(pass_rois)))
 
         #### Create dataframe with params only for good fit cells
@@ -1931,9 +1944,10 @@ def do_2d_fit(rfmap, col_vals=None, row_vals=None, nx=None, ny=None, verbose=Fal
 #
 #
 def get_fit_params(datakey, run='combined_rfs_static', traceid='traces001', 
-                   trace_type='corrected', response_type='dff', fit_thr=0.5, 
+                   trace_type='corrected', response_type='dff', is_neuropil=False,
                    do_spherical_correction=False, ds_factor=3., use_lin=False,
-                   post_stimulus_sec=0.5, sigma_scale=2.35, scale_sigma=True,
+                   post_stimulus_sec=0.5, fit_thr=0.5, 
+                   sigma_scale=2.35, scale_sigma=True,
                    rootdir='/n/coxfs01/2p-data'):
     
     screen = hutils.get_screen_dims()
@@ -1950,8 +1964,8 @@ def get_fit_params(datakey, run='combined_rfs_static', traceid='traces001',
     rfdir, fit_desc = create_rf_dir(datakey, run, 
                                     traceid=traceid,
                                     response_type=response_type, 
-                                    do_spherical_correction=do_spherical_correction, 
-                                    fit_thr=fit_thr)
+                                    is_neuropil=is_neuropil,
+                                    do_spherical_correction=do_spherical_correction)
     fr = run_info['framerate'] 
     nframes_post_onset = int(round(post_stimulus_sec * fr))
 
@@ -1977,7 +1991,8 @@ def get_fit_params(datakey, run='combined_rfs_static', traceid='traces001',
             'fit_desc': fit_desc,
             'do_spherical_correction': do_spherical_correction,
             'downsample_factor': ds_factor,
-            'use_linear': use_lin
+            'use_linear': use_lin,
+            'is_neuropil': is_neuropil
             } 
    
     with open(os.path.join(rfdir, 'fit_params.json'), 'w') as f:
@@ -1988,6 +2003,7 @@ def get_fit_params(datakey, run='combined_rfs_static', traceid='traces001',
 def fit_2d_rfs(datakey, run, traceid, 
                         reload_data=False, create_new=False,
                         trace_type='corrected', response_type='dff', 
+                        is_neuropil=False,
                         do_spherical_correction=False, use_lin=False, ds_factor=3, 
                         post_stimulus_sec=0.5, scaley=None,
                         make_pretty_plots=False, nrois_plot=10,
@@ -2012,9 +2028,8 @@ def fit_2d_rfs(datakey, run, traceid,
     run_name = run.split('_')[1] if 'combined' in run else run
     rfdir, fit_desc = create_rf_dir(datakey, 
                                 'combined_%s_static' % run_name, traceid=traceid,
-                                response_type=response_type, 
-                                do_spherical_correction=do_spherical_correction, 
-                                fit_thr=fit_thr)
+                                response_type=response_type, is_neuropil=is_neuropil,
+                                do_spherical_correction=do_spherical_correction)
     # Get data source
     traceid_dir = rfdir.split('/receptive_fields/')[0]
     data_fpath = os.path.join(traceid_dir, 'data_arrays', 'np_subtracted.npz')
@@ -2033,16 +2048,19 @@ def fit_2d_rfs(datakey, run, traceid,
             print("... checking for existing fit results")
             fit_results, fit_params = load_fit_results(datakey, 
                                         experiment=run_name, traceid=traceid,
-                                        response_type=response_type, 
+                                        response_type=response_type,
+                                        is_neuropil=is_neuropil,
                                         do_spherical_correction=do_spherical_correction)
             print("... loaded RF fit results")
             assert fit_results is not None and fit_params is not None, "EMPTY fit_results"
         except Exception as e:
             traceback.print_exc()
             create_new = True
+
     print("... do fits?", create_new) 
     rfmaps_arr=None
     if create_new: #do_fits:
+        # Move OLD data
         if os.path.exists(rfdir):
             edir = rfdir
             tmp_od, tmp_rt = os.path.split(edir)
@@ -2053,22 +2071,23 @@ def fit_2d_rfs(datakey, run, traceid,
             # Convert existingd dir to the "new" OLD dir
             os.rename(edir, old_dir)    
             print('renamed: %s' % old_dir)
-        # Make new dir
-        if not os.path.exists(rfdir):
-            os.makedirs(rfdir)
+    # Make new dir
+    if not os.path.exists(rfdir):
+        os.makedirs(rfdir)
 
+    if create_new:
         # Get screen dims and fit params
         fit_params = get_fit_params(datakey, run=run, traceid=traceid, 
                                     response_type=response_type, 
                                     do_spherical_correction=do_spherical_correction, 
+                                    is_neuropil=is_neuropil,
                                     ds_factor=ds_factor, use_lin=use_lin,
                                     fit_thr=fit_thr,
                                     post_stimulus_sec=post_stimulus_sec, 
                                     sigma_scale=sigma_scale, scale_sigma=scale_sigma,
                                     trace_type=trace_type)
         # -------------------------------------------------------
-        if create_new is False:
-            rfmaps_arr = load_rfmap_array(fit_params['rfdir'], 
+        rfmaps_arr = load_rfmap_array(fit_params['rfdir'], 
                                 do_spherical_correction=do_spherical_correction)
         if rfmaps_arr is None:
             #print("Error loading array, extracting now")
@@ -2101,7 +2120,6 @@ def fit_2d_rfs(datakey, run, traceid,
                 (len(fit_roi_list), fitdf.shape[0], fit_params['fit_thr']))
 
     try:
-
         fig = plot_top_rfs(fitdf, fit_params, fit_roi_list=fit_roi_list)
         pplot.label_figure(fig, data_id)
         figname = 'top%i_fit_thr_%.2f_%s_ellipse__p3' \
@@ -2250,6 +2268,7 @@ def plot_best_rfs(fit_roi_list, rfmaps_arr, fitdf, fit_params,
 # -----------------------------------------------------------------------
 def load_trialdata(fit_params, return_traces=False):
     rfdir = fit_params['rfdir']
+    is_neuropil = fit_params['is_neuropil']
  
     traceid_dir = rfdir.split('/receptive_fields/')[0]
     data_fpath = os.path.join(traceid_dir, 'data_arrays', 'np_subtracted.npz')
@@ -2264,6 +2283,7 @@ def load_trialdata(fit_params, return_traces=False):
     # Load processed traces 
     raw_traces, labels, sdf, run_info = aggr.load_dataset(data_fpath, 
                                         trace_type=fit_params['trace_type'],
+                                        is_neuropil=is_neuropil,
                                         add_offset=True, make_equal=False)
     # Z-score or dff the traces:
     processed_traces, trialdata = aggr.process_traces(raw_traces, labels, 
@@ -2281,7 +2301,7 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
                 n_bootstrap_iters=1000, n_resamples=None, ci=0.95,
                 pass_criterion='all', model='ridge', 
                 plot_boot_distns=True, deviant_color='dodgerblue', plot_all_cis=False,
-                n_processes=1, n_subprocesses=1,
+                n_processes=1, all_new_evals=False,
                 create_new=False, rootdir='/n/coxfs01/2p-data'):
        
     # Set directories
@@ -2291,6 +2311,15 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
     if not os.path.exists(evaldir):
         os.makedirs(evaldir)
 
+    # dir to save results bec takes forever w/ spherical correction
+    tmp_roi_dir = os.path.join(fit_params['rfdir'], 'evaluation', 'tmp_files')
+    if all_new_evals:
+        if os.path.exists(tmp_roi_dir):
+            shutil.rmtree(tmp_roi_dir)
+    if not os.path.exists(tmp_roi_dir):
+        os.makedirs(tmp_roi_dir)
+ 
+ 
     #%% Do bootstrap analysis    
     print("-evaluating (%s)-" % str(create_new))
     if not create_new:
@@ -2325,7 +2354,7 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
         print("... doing rf evaluation (%i rois)" % len(roi_list))
         eval_results = evaluate_rfs(roidf_list, fit_params, 
                                     n_processes=n_processes, 
-                                    n_subprocesses=n_subprocesses) 
+                                    all_new_evals=all_new_evals) 
         save_eval_results(eval_results, fit_params)
 
     if eval_results is None: 
@@ -2443,7 +2472,7 @@ def pool_evaluation(rdf_list, params, n_processes=1, n_subproc=4):
     return results
 
 
-def evaluate_rfs(roidf_list, fit_params, n_processes=1, n_subprocesses=1):
+def evaluate_rfs(roidf_list, fit_params, n_processes=1, all_new_evals=False):
     '''
     Evaluate receptive field fits for cells with R2 > fit_thr.
 
@@ -2465,14 +2494,32 @@ def evaluate_rfs(roidf_list, fit_params, n_processes=1, n_subprocesses=1):
     sigma_scale = fit_params['sigma_scale'] if scale_sigma else 1.0
     response_type = fit_params['response_type']
     do_spherical_correction = fit_params['do_spherical_correction']
-        
+       
+    tmp_roi_dir = os.path.join(fit_params['rfdir'], 'evaluation', 'tmp_files')
+    if not os.path.exists(tmp_roi_dir):
+        os.makedirs(tmp_roi_dir)
+ 
     #print("... doing bootstrap analysis for param fits.")
     bootdf_list=[]
     start_t = time.time()
     if do_spherical_correction:
         for roidf in roidf_list: 
-            bdf = bootstrap_rf_params(roidf, fit_params=fit_params,
-                                    n_processes=n_processes) 
+            redo_roi = all_new_evals is True
+            roi = int(np.unique([r for r in roidf.columns \
+                            if r not in ['config', 'trial']])) 
+            tmp_roi_fpath = os.path.join(tmp_roi_dir, 'rid%03d.pkl' % roi)
+            if not redo_roi:
+                try:
+                    with open(tmp_roi_fpath, 'rb') as f:
+                        bdf = pkl.load(f, encoding='latin1')
+                    assert bdf is not None
+                except Exception as e:
+                    redo_roi=True
+            if redo_roi:
+                bdf = bootstrap_rf_params(roidf, fit_params=fit_params,
+                                        n_processes=n_processes) 
+                with open(tmp_roi_fpath, 'wb') as f:
+                    pkl.dump(bdf, f, protocol=2)
             bootdf_list.append(bdf)    
     else:
         bootdf_list = pool_evaluation(roidf_list, fit_params, 
@@ -2667,6 +2714,12 @@ def bootstrap_rf_params(roi_df, fit_params={},
             return None
  
         bootfits['cell'] = roi    
+
+        tmp_roi_dir = os.path.join(fit_params['rfdir'], 'evaluation', 'tmp_files')
+        tmp_roi_fpath = os.path.join(tmp_roi_dir, 'rid%03d.pkl' % roi)
+        with open(tmp_roi_fpath, 'wb') as f:
+            pkl.dump(bootfits, f, protocol=2)
+
     except KeyboardInterrupt:
         print("----exiting----")
         terminating.set()
@@ -2835,6 +2888,33 @@ def fit_linear_regr(xvals, yvals, return_regr=False, model='ridge'):
         return fitv.reshape(-1), regr
     else:
         return fitv.reshape(-1)
+
+
+def do_linear_fit(xvs, yvs, model='ridge', di=0):
+    fitv, regr = fit_linear_regr(xvs, yvs,
+                            return_regr=True, model=model)
+     
+    rmse = np.sqrt(skmetrics.mean_squared_error(yvs, fitv))
+    r2 = skmetrics.r2_score(yvs, fitv)
+    pearson_r, pearson_p = spstats.pearsonr(xvs, yvs) 
+    slope = float(regr.coef_)
+    intercept = float(regr.intercept_)
+
+    model_results = {'fitv': fitv, 
+                     'regr': regr}
+
+    regr_df = pd.DataFrame({ 
+                      'R2': r2,
+                      'RMSE': rmse,
+                      'pearson_p': pearson_p,
+                      'pearson_r': pearson_r,
+                      'coefficient': slope, # float(regr.coef_), 
+                      'intercept': intercept, #float(regr.intercept_)
+                      }, index=[di])
+    print("~~~regr results: y = %.2f + %.2f (R2=%.2f)" % (slope, intercept, r2))
+
+    return regr_df, model_results
+
 
 
 def regr_rf_fov(posdf, fit_params, eval_results, 

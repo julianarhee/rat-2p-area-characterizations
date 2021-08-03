@@ -23,17 +23,22 @@ parser.add_argument('-t', '--traceid', dest='traceid', action='store', default='
 
 parser.add_argument('-e', '--email', dest='email', action='store', default='rhee@g.harvard.edu', help='Email to send log files')
 
-parser.add_argument('-S', '--sphere', dest='do_spherical_correction', action='store_true', help='Run RF fits and eval with spherical correction (saves to: fit-2dgaus_sphr-corr')
-
 parser.add_argument('-v', '--area', dest='visual_area', action='store', default=None, help='Visual area to process (default, all)')
 
 parser.add_argument('-k', '--datakeys', nargs='*', dest='included_datakeys', action='append', help='Use like: -k DKEY DKEY DKEY')
 
+parser.add_argument('--old-data', dest='old_data_only', action='store_true',
+                default=False, help='Set flag to only run datasets before 20190511.')
+
+
+parser.add_argument('--sphere', dest='do_spherical_correction', action='store_true', help='Run RF fits and eval with spherical correction (saves to: fit-2dgaus_sphr-corr')
+
 parser.add_argument('--fit', dest='redo_fits', action='store_true',
                 default=False, help='Set flag to redo all fits.')
 
-parser.add_argument('--old-data', dest='old_data_only', action='store_true',
-                default=False, help='Set flag to only run datasets before 20190511.')
+
+parser.add_argument('--neuropil', dest='is_neuropil', action='store_true',
+     help='Run fits on NEUROPIL traces')
 
 
 args = parser.parse_args()
@@ -94,7 +99,7 @@ do_spherical_correction = args.do_spherical_correction
 rf_correction = 'sphr' if do_spherical_correction else 'reg'
 old_data_only = args.old_data_only
 redo_fits = args.redo_fits
-
+is_neuropil = args.is_neuropil
 
 # Set up logging
 # ---------------------------------------------------------------
@@ -103,31 +108,15 @@ redo_fits = args.redo_fits
 # identified unambiguously
 piper = uuid.uuid4()
 piper = str(piper)[0:4]
-logdir = 'LOG__%s_%s' % (str(visual_area), experiment) 
-if not os.path.exists(logdir):
-    os.mkdir(logdir)
 
-# Remove old logs
-old_logs = glob.glob(os.path.join(logdir, '*.err'))
-old_logs.extend(glob.glob(os.path.join(logdir, '*.out')))
-old_logs.extend(glob.glob(os.path.join(logdir, '*.txt')))
-for r in old_logs:
-    os.remove(r)
+np_str = '_neuropil' if is_neuropil else ''
 
-# Open log lfile
-sys.stdout = open('%s/INFO_%s_%s_%s.txt' % (logdir, piper, experiment, rf_correction), 'w')
-
+if visual_area in [None, 'None']:
+    logdir = 'LOG__%s%s' % (experiment, np_str)
+else:
+    logdir = 'LOG__%s%s_%s' % (experiment, np_str, str(visual_area) ) 
 
 # ---------------------------------------------------------------
-#meta_list = [('JC083', '20190508', 'FOV1_zoom2p0x', 'rfs', 'traces001'),
-#             ('JC076', '20190420', 'FOV1_zoom2p0x', 'rfs', 'traces001')]
-#             ('JC097', '20190616', 'FOV1_zoom2p0x', 'rfs', 'traces001')]
-
-#[('JC097', '20190617', 'FOV1_zoom2p0x', 'rfs', 'traces001'),
-#            ('JC084', '20190522', 'FOV1_zoom2p0x', 'rfs', 'traces001'),
-#             ('JC120', '20191111', 'FOV1_zoom2p0x', 'rfs10', 'traces001')]
-
-
 dsets = load_metadata(experiment, visual_area=visual_area,
                     do_spherical_correction=do_spherical_correction, 
                     old_data_only=old_data_only)
@@ -140,6 +129,25 @@ if included_datakeys is not None:
     if len(included_datakeys) > 0:
         print(included_datakeys)
         dsets = dsets[dsets['datakey'].isin(included_datakeys)]
+    if len(included_datakeys)==1:
+        new_logdir = '%s_%s' % (logdir, included_datakeys[0])
+        if not os.path.exists(new_logdir):
+            os.makedirs(new_logdir)
+        logdir = new_logdir
+
+
+if not os.path.exists(logdir):
+    os.mkdir(logdir)
+# Remove old logs
+old_logs = glob.glob(os.path.join(logdir, '*.err'))
+old_logs.extend(glob.glob(os.path.join(logdir, '*.out')))
+old_logs.extend(glob.glob(os.path.join(logdir, '*.txt')))
+for r in old_logs:
+    os.remove(r)
+
+# Open log lfile
+sys.stdout = open('%s/INFO_%s_%s_%s.txt' % (logdir, piper, experiment, rf_correction), 'w')
+
 
 if len(dsets)==0:
     fatal("no fovs found.")
@@ -160,10 +168,10 @@ for (datakey), g in dsets.groupby(['datakey']):
     cmd = "sbatch --job-name={PROCID}.rfs.{MTAG} \
             -o '{LOGDIR}/{PROCID}.{MTAG}.out' \
             -e '{LOGDIR}/{PROCID}.{MTAG}.err' \
-            {COMMAND} {DATAKEY} {EXP} {TRACEID} {SPHERE} {REDO}".format(
+            {COMMAND} {DATAKEY} {EXP} {TRACEID} {SPHERE} {NEUROPIL} {REDO}".format(
                 PROCID=piper, MTAG=mtag, LOGDIR=logdir, COMMAND=cmd_str, 
                 DATAKEY=datakey, EXP=experiment, TRACEID=traceid,
-                SPHERE=do_spherical_correction, REDO=redo_fits)
+                SPHERE=do_spherical_correction, NEUROPIL=is_neuropil, REDO=redo_fits)
     #info("Submitting PROCESSPID job with CMD:\n%s" % cmd)
     status, joboutput = subprocess.getstatusoutput(cmd)
     jobnum = joboutput.split(' ')[-1]

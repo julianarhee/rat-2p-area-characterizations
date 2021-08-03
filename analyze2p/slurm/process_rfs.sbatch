@@ -25,30 +25,42 @@ DATAKEY="$1"
 EXP="$2"
 TRACEID="$3"
 SPHERICAL="$4"
-REDO="$5"
+NEUROPIL="$5"
+REDO="$6"
 
 # run processing on raw data
 echo "datakey: ${DATAKEY}"
 echo "RF type: ${EXP}"
 echo "SPHERICAL: ${SPHERICAL}"
+echo "IS NEUROPIL: ${NEUROPIL}"
 echo "REDOFITS: ${REDO}"
 
 #
 if [[ ${SPHERICAL} == "True" ]]; then
     echo "Spherical Correction."
-    if [[ ${REDO} == "True" ]]; then
-        echo "Re-doing fits"
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/receptive_fields/fit_rfs.py -i $DATAKEY -R $EXP -t $TRACEID -M dff -p 0.5 -n 4 --sphere --do-fits --do-eval
-    else
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/receptive_fields/fit_rfs.py -i $DATAKEY -R $EXP -t $TRACEID -M dff -p 0.5 -n 4 --sphere --do-eval
+    if [[ ${NEUROPIL} == "True" ]]; then
+        echo "Np..."
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/receptive_fields/fit_rfs.py -i $DATAKEY -R $EXP -t $TRACEID -M dff -p 0.5 -n 4 --sphere --do-fits --neuropil 
+    else  
+        if [[ ${REDO} == "True" ]]; then
+            echo "Re-doing fits"
+            python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/receptive_fields/fit_rfs.py -i $DATAKEY -R $EXP -t $TRACEID -M dff -p 0.5 -n 4 --sphere --do-fits --do-eval
+        else
+            python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/receptive_fields/fit_rfs.py -i $DATAKEY -R $EXP -t $TRACEID -M dff -p 0.5 -n 4 --sphere --do-eval
+        fi
     fi
 else
     echo "NO spherical-correction"
-    if [[ ${REDO} == "True" ]]; then
-        echo "Re-doing fits"
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/receptive_fields/fit_rfs.py -i $DATAKEY -R $EXP -t $TRACEID -M dff -p 0.5 -n 4 --do-fits --do-eval
-    else
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/receptive_fields/fit_rfs.py -i $DATAKEY -R $EXP -t $TRACEID -M dff -p 0.5 -n 4 --do-eval
+    if [[ ${NEUROPIL} == "True" ]]; then
+        echo "Np..."
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/receptive_fields/fit_rfs.py -i $DATAKEY -R $EXP -t $TRACEID -M dff -p 0.5 -n 4 --do-fits --neuropil 
+    else 
+        if [[ ${REDO} == "True" ]]; then
+            echo "Re-doing fits"
+            python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/receptive_fields/fit_rfs.py -i $DATAKEY -R $EXP -t $TRACEID -M dff -p 0.5 -n 4 --do-fits --do-eval
+        else
+            python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/receptive_fields/fit_rfs.py -i $DATAKEY -R $EXP -t $TRACEID -M dff -p 0.5 -n 4 --do-eval
+        fi
     fi
 fi
 
