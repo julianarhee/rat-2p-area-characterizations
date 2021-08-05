@@ -967,21 +967,47 @@ def dilate_mask_centers(maskcenters, kernel_size=9):
 def dilate_from_centroids(masks_r, kernel_size=9):
     '''Calculate center of soma, then dilate to create masks for smoothed  neuropil
     '''
-    centroids = roiutils.get_roi_centroids(masks_r, xlabel='ml_pos', ylabel='ap_pos')   
+    # Load centroids
+    centroids = roiutils.calculate_roi_centroids(masks_r, xlabel='ml_pos', ylabel='ap_pos')
     centroids = centroids.astype(int)
-
-    kernel = get_kernel(kernel_size)
+    # Create masks from them
     np_tmp = np.zeros(masks_r.shape, dtype=bool)
-
     for i in range(centroids.shape[0]):
         np_tmp[i, centroids['ap_pos'].iloc[i], centroids['ml_pos'].iloc[i]] = True
-    #np_tmp[:, centroids['ap_pos'].values, centroids['ml_pos'].values] = True
-
+    # Dilate
+    kernel = get_kernel(kernel_size)
     dilated_masks = np.array([binary_dilation(np_tmp[i, :], structure=kernel ) 
           for i in range(np_tmp.shape[0])])
 
     return dilated_masks, centroids
 
+
+def dilate_centroids(datakey, desired_radius_um=20, traceid='traces001',
+                    xlabel='ml_pos', ylabel='ap_pos'):   
+    # Get pixel size
+    pixel_size = hutils.get_pixel_size()
+    um_per_pixel = np.mean(pixel_size)
+    pixels2dilate = desired_radius_um/um_per_pixel
+    kernel_size = np.ceil(pixels2dilate+2) #21
+    kernel = get_kernel(kernel_size)
+
+    # Load masks and centroids
+    zimg, masks, ctrs = roiutils.get_masks_and_centroids(datakey, traceid=traceid,
+                                    xlabel=xlabel, ylabel=ylabel)
+    centroids = ctrs.astype(int)
+    # Create masks from them
+    np_tmp = np.zeros(masks.shape, dtype=bool)
+    for i in range(centroids.shape[0]):
+        np_tmp[i, centroids[ylabel].iloc[i], centroids[xlabel].iloc[i]] = True
+
+    # Dilate
+    dilated_masks = np.array([binary_dilation(np_tmp[i, :], structure=kernel ) 
+          for i in range(np_tmp.shape[0])])
+
+    return zimg, dilated_masks, centroids
+
+ 
+ 
 
 #def get_roi_centroids(masks):
 #    '''Calculate center of soma, then return centroid coords.

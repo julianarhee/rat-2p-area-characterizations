@@ -33,6 +33,7 @@ def load_roi_assignments(animalid, session, fov, retinorun='retino_run1',
 
 
 def get_masks_and_centroids(dk, traceid='traces001',
+                        xlabel='ml_pos', ylabel='ap_pos',
                         rootdir='/n/coxfs01/2p-data'):
     '''
     Load zprojected image, masks (nrois, d2, d2), and centroids for dataset.
@@ -51,12 +52,14 @@ def get_masks_and_centroids(dk, traceid='traces001',
     masks, _ = load_roi_masks(animalid, session, fov, rois=roiid, 
                                        rois_first=True)
     # Get centroids, better for plotting
-    centroids =  get_roi_centroids(masks)
+    centroids =  calculate_roi_centroids(masks, xlabel=xlabel, ylabel=ylabel)
 
     return zimg, masks, centroids
 
-def get_roi_centroids(masks, xlabel='x', ylabel='y'):
-    '''Calculate center of soma, then return centroid coords.
+def calculate_roi_centroids(masks, xlabel='x', ylabel='y'):
+    '''
+    Calculate center of soma, then return centroid coords.
+    Assumes shape:  nrois, d1, d2 
     '''
     if np.isnan(masks.max()):
         masks[npisnan(masks)] = 0
@@ -74,7 +77,7 @@ def get_roi_centroids(masks, xlabel='x', ylabel='y'):
 
 
 def load_roi_masks(animalid, session, fov, rois=None, 
-                rois_first=False, rootdir='/n/coxfs01/2p-data'):
+                rois_first=True, rootdir='/n/coxfs01/2p-data'):
     '''
     Loads ROI masks (orig) hdf5 file.
     Returns masks, zimg
@@ -93,6 +96,7 @@ def load_roi_masks(animalid, session, fov, rois=None,
         zimg = mfile[reffile]['zproj_img']['Slice01'][:].T
        
         if rois_first:
+            # npix_y, npix_x, nrois_total = masks.shape
             masks_r0 = np.swapaxes(masks, 0, 2)
             masks = np.swapaxes(masks_r0, 1, 2)
     except Exception as e:
@@ -103,9 +107,43 @@ def load_roi_masks(animalid, session, fov, rois=None,
     return masks, zimg
 
 
-def load_roi_coords(animalid, session, fov, roiid=None,
+def load_roi_positions(datakey, roiid=None, traceid='traces001',
+                    rootdir='/n/coxfs01/2p-data'):
+    '''
+    Load pd.DataFrame() containing ALL position info for cells,
+    including converted (ml_pos, ap_pos. Loads 'roi_positions' 
+    from saved fovinfo file.
+    Called: load_roi_centroids()
+    '''
+    posdf = None
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
+    if roiid is None:
+        roiid = get_roiid_from_traceid(animalid, session, 
+                            'FOV%i_zoom2p0x' % fovn, traceid=traceid)
+    # create outpath
+    roidir = glob.glob(os.path.join(rootdir, animalid, session,
+                        'ROIs', '%s*' % roiid))[0]
+    fovinfo_fpath = os.path.join(roidir, 'fov_info.pkl')
+    try:
+        # print("... loading roi coords")
+        with open(fovinfo_fpath, 'rb') as f:
+            fovinfo = pkl.load(f, encoding='latin1')
+        assert 'roi_positions' in fovinfo.keys(), "Bad file: %s" % fovinfo_fpath
+        posdf = fovinfo['roi_positions'].copy()
+
+    except Exception as e: #AssertionError:
+        print("Error loading <%s> for %s" % (roiid, datakey))
+        traceback.print_exc()
+
+    return posdf
+
+
+def get_roi_coords(animalid, session, fov, roiid=None,
                     convert_um=True, traceid='traces001',
                     create_new=False,rootdir='/n/coxfs01/2p-data'):
+    '''Prev. called load_roi_coords().
+    Loads fovinfo (dict), 'roi_positions' is pd.DataFrame() with all the diff coords'''
+
     fovinfo = None
     roiid = get_roiid_from_traceid(animalid, session, fov, traceid=traceid)
     # create outpath
@@ -154,7 +192,7 @@ def get_roiid_from_traceid(animalid, session, fov, run_type=None,
     return roiid
 
 
-def calculate_roi_coords(masks, zimg, roi_list=None, convert_um=True):
+def calculate_roi_coords(masks, zimg, roi_list=None, convert_um=True, rois_first=True):
     '''
     Get FOV info relating cortical position to RF position of all cells.
     Info should be saved in: rfdir/fov_info.pkl
@@ -181,13 +219,16 @@ def calculate_roi_coords(masks, zimg, roi_list=None, convert_um=True):
  
     print("... getting fov info")
     # Get masks
-    npix_y, npix_x, nrois_total = masks.shape
+    if rois_first:
+        nrois_total, npix_y, npix_x = masks.shape
+    else:
+        npix_y, npix_x, nrois_total = masks.shape
 
     if roi_list is None:
         roi_list = range(nrois_total)
 
     # Create contours from maskL
-    roi_contours = contours_from_masks(masks)
+    roi_contours = contours_from_masks(masks, rois_first=rois_first)
 
     # Convert to brain coords (scale to microns)
     fov_pos_x, fov_pos_y, xlim, ylim, centroids = get_roi_position_in_fov(roi_contours,
@@ -217,17 +258,19 @@ def calculate_roi_coords(masks, zimg, roi_list=None, convert_um=True):
     return fovinfo
 
 
-def contours_from_masks(masks):
+def contours_from_masks(masks, rois_first=True):
     # Cycle through all ROIs and get their edges
     # (note:  tried doing this on sum of all ROIs, but fails if ROIs are overlapping at all)
     tmp_roi_contours = []
-    for ridx in range(masks.shape[-1]):
-        im = masks[:,:,ridx]
+    nrois = masks.shape[0] if rois_first else masks.shape[-1]
+    for ridx in range(nrois):
+        im = masks[ridx, :, :] if rois_first else masks[:,:,ridx] 
         im[im>0] = 1
         im[im==0] = np.nan #1
         im = im.astype('uint8')
         edged = cv2.Canny(im, 0, 0.9)
-        tmp_cnts = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        tmp_cnts = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, 
+                                            cv2.CHAIN_APPROX_SIMPLE)
         #tmp_cnts = tmp_cnts[0] if imutils.is_cv2() else tmp_cnts[1]
         tmp_cnts = tmp_cnts[1] if imutils.is_cv2() else tmp_cnts[0]
         tmp_roi_contours.append((ridx, tmp_cnts[0]))
@@ -310,17 +353,4 @@ def transform_fov_posdf(posdf, fov_keys=('fov_xpos', 'fov_ypos'),
     return posdf
 
 
-def get_transformation_matrix(u1, u2):
-    a, b = u1[0], u1[1]
-    c, d = u2[0], u2[1]
-
-    a_21 = 1. / ( (-a*d/b) + c)
-    a_11 = (-d/b) * a_21
-
-    a_22 = 1./((-c*b/a)+d)
-    a_12 = (-c/a) * a_22
-
-    M = np.array( [ [a_11, a_12], [a_21, a_22] ])
-    
-    return M
 

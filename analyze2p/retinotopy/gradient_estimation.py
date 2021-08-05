@@ -133,31 +133,6 @@ def fill_and_smooth_nans(img, kx=1, ky=1):
     #print(z.shape, znew.shape)
     return zfinal #:znew #.T #a
 
-def dilate_mask_centers(maskcenters, kernel_size=9):
-    '''Calculate center of soma, then dilate to create masks for smoothed  neuropil
-    '''
-    kernel_radius = (kernel_size - 1) // 2
-    x, y = np.ogrid[-kernel_radius:kernel_radius+1, -kernel_radius:kernel_radius+1]
-    dist = (x**2 + y**2)**0.5 # shape (kernel_size, kernel_size)
-
-    # let's create three kernels for the sake of example
-    radii = np.array([kernel_size/3., kernel_size/2.5, kernel_size/2.])[...,None,None] # shape (num_radii, 1, 1)
-    # using ... allows compatibility with arbitrarily-shaped radius arrays
-
-    kernel = (1 - (dist - radii).clip(0,1)).sum(axis=0)# shape (num_radii, kernel_size, kernel_size)
-
-    dilated_masks = np.zeros(maskcenters.shape, dtype=maskcenters.dtype)
-    for roi in range(maskcenters.shape[0]):
-        img = maskcenters[roi, :, :].copy()
-        x, y = np.where(img>0)
-        centroid = (sum(x) / len(x), sum(y) / len(x))
-        #print(centroid)
-        np_tmp = np.zeros(img.shape, dtype=bool)
-        np_tmp[centroid] = True
-        dilation = binary_dilation(np_tmp, structure=kernel )
-        dilated_masks[roi, : :] = dilation
-    return dilated_masks
-
 def mask_rois(masks, value_array, mask_thr=0.1, return_array=False):
     '''
     Assign a value to each mask (value_array should match N masks).
@@ -723,7 +698,7 @@ def roi_gradients(animalid, session, fov, retinorun='retino_run1',
     print("... dilation diameter (kernel, %s): %.2fum" % (str(kernel.shape), kernel_diam_um))
 
     # Dilate all masks with kernel
-    dilated_masks = dilate_mask_centers(masks_soma.astype(float), kernel_size=kernel_size)
+    dilated_masks = retutils.dilate_mask_centers(masks_soma.astype(float), kernel_size=kernel_size)
 
     #%% Assign phase to neuropil
     use_cont = True

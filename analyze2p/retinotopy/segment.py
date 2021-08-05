@@ -268,15 +268,16 @@ def fill_and_smooth_nans_missing(img, kx=1, ky=1):
     return zfinal.T #znew.T #a
 
 
-def smooth_maps(start_az, start_el, smooth_fwhm=12, smooth_spline=2, fill_nans=True,
+def smooth_maps(start_az, start_el, smooth_fwhm=12, smooth_spline=(1,1), 
+                fill_nans=True,
                 smooth_spline_x=None, smooth_spline_y=None, target_sigma_um=25, 
                 start_with_transformed=True, use_phase_smooth=False, ds_factor=2):
 
     pixel_size = hutils.get_pixel_size()
     pixel_size_ds = (pixel_size[0]*ds_factor, pixel_size[1]*ds_factor)
 
-    smooth_spline_x = smooth_spline if smooth_spline_x is None else smooth_spline_x
-    smooth_spline_y = smooth_spline if smooth_spline_y is None else smooth_spline_y
+    smooth_spline_x = smooth_spline[0] if smooth_spline_x is None else smooth_spline_x
+    smooth_spline_y = smooth_spline[1] if smooth_spline_y is None else smooth_spline_y
 
     um_per_pix = np.mean(pixel_size) if start_with_transformed \
                     else np.mean(pixel_size_ds)

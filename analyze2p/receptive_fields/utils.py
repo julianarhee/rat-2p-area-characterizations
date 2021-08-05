@@ -1024,7 +1024,7 @@ def add_rf_positions(rfdf, calculate_position=False, traceid='traces001'):
     for (va, dk, exp), g in rfdf.groupby(['visual_area', 'datakey', 'experiment']):
         session, animalid, fovnum = split_datakey_str(dk)
 
-        fcoords = rutils.load_roi_coords(animalid, session, 'FOV%i_zoom2p0x' % fovnum,
+        fcoords = rutils.get_roi_coords(animalid, session, 'FOV%i_zoom2p0x' % fovnum,
                                   traceid=traceid, create_new=False)
 
         #for ei, e_df in g.groupby(['experiment']):
@@ -1472,8 +1472,6 @@ def sphr_correct_maps(rfmaps_arr, fit_params,
     # Downsample screen resolution
     resolution_ds = [int(i/ds_factor) for i in \
                      fit_params['screen']['resolution'][::-1]]
-    print("Screen res (ds=%ix): [%i, %i]" \
-                    % (ds_factor, resolution_ds[0], resolution_ds[1]))
     # Get Spherical coordinate mapping
     if fit_params['use_linear']:
         # Get linear coordinates in degrees (downsampled)
@@ -1513,7 +1511,7 @@ def initializer(terminating_):
     global terminating
     terminating = terminating_
 
-def parallelize_dataframe(df, func, fit_params, use_lin=False, n_processes=4):
+def parallelize_dataframe(df, func, fit_params,  n_processes=4):
     #cart_x=None, cart_y=None, sphr_th=None, sphr_ph=None,
     #                      row_vals=None, col_vals=None, resolution=None, n_processes=4):
     results = []
@@ -1531,9 +1529,9 @@ def parallelize_dataframe(df, func, fit_params, use_lin=False, n_processes=4):
         pool.close()
         pool.join()
   
-    print(results[0].shape)
+    #print(results[0].shape)
     df = pd.concat(results, axis=1)
-    print(df.shape)
+    #print(df.shape)
     return df #results
 
 
@@ -2404,7 +2402,7 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
 
 #    session, animalid, fovn = hutils.split_datakey_str(datakey)
 #    traceid = fit_params['rfdir'].split('/traces/')[1].split('_')[0] 
-#    fovcoords = roiutils.load_roi_coords(animalid, session, 'FOV%i_zoom2p0x' % fovn,
+#    fovcoords = roiutils.get_roi_coords(animalid, session, 'FOV%i_zoom2p0x' % fovn,
 #                                      traceid=traceid, create_new=False)
 #    posdf = pd.concat([fitdf,
 #                   fovcoords['roi_positions'].loc[fitdf.index]], axis=1)
@@ -2619,28 +2617,18 @@ def bootstrap_rf_params(roi_df, fit_params={},
     try:
         #if not terminating.is_set():
         #    time.sleep(1)
-            
-        #if do_spherical_correction:
-        #    grid_points, cart_vals, sphr_vals = coordinates_for_transformation(fit_params)
-
         # Get all trials for each config (indicese_= trial reps, columns = conditions)
-        roi = int(np.unique([r for r in roi_df.columns if r not in ['config', 'trial']])) 
+        roi = int(np.unique([r for r in roi_df.columns \
+                        if r not in ['config', 'trial']])) 
         roi_df = pd.concat([g for c, g in roi_df.groupby('config')]) 
         roi_df.index = roi_df.groupby('config').cumcount().values
         responses_df = roi_df.pivot(columns='config', values=roi)
 
-#        responses_df = pd.concat([pd.Series(g[roi], name=c)\
-#                        .reset_index(drop=True)\
-#                        for c, g in roi_df.groupby(['config'])], axis=1).dropna(axis=0)        
-#        # Bootstrap distN of responses (rand w replacement):
-#        grouplist = [group_configs(group, response_type) \
-#                        for config, group in rdf.groupby(['config'])]
-#        responses_df = pd.concat(grouplist, axis=1) 
-
         # Get mean response across re-sampled trials for each condition 
         # (i.e., each position). Do this n-bootstrap-iters times
         # cols = boot iters, rows = configs
-        bootresp_ = pd.concat([responses_df.sample(n_resamples, replace=True).mean(axis=0) 
+        bootresp_ = pd.concat([responses_df.sample(n_resamples, replace=True)\
+                                .mean(axis=0) 
                                 for ni in range(n_bootstrap_iters)], axis=1)
 
         # Reshape array so that it matches for fitrf changs 
@@ -2711,6 +2699,7 @@ def bootstrap_rf_params(roi_df, fit_params={},
                                     row_vals=row_vals, col_vals=col_vals)
         bootfits = bootfits_.T
         if len(bootfits.shape)==1:
+            print("... %i no fits" % rid)
             return None
  
         bootfits['cell'] = roi    
@@ -2719,6 +2708,7 @@ def bootstrap_rf_params(roi_df, fit_params={},
         tmp_roi_fpath = os.path.join(tmp_roi_dir, 'rid%03d.pkl' % roi)
         with open(tmp_roi_fpath, 'wb') as f:
             pkl.dump(bootfits, f, protocol=2)
+        print("... saved: %s" % os.path.split(tmp_roi_fpath)[-1])
 
     except KeyboardInterrupt:
         print("----exiting----")
@@ -2890,7 +2880,7 @@ def fit_linear_regr(xvals, yvals, return_regr=False, model='ridge'):
         return fitv.reshape(-1)
 
 
-def do_linear_fit(xvs, yvs, model='ridge', di=0):
+def do_linear_fit(xvs, yvs, model='ridge', di=0, verbose=False):
     fitv, regr = fit_linear_regr(xvs, yvs,
                             return_regr=True, model=model)
      
@@ -2911,7 +2901,8 @@ def do_linear_fit(xvs, yvs, model='ridge', di=0):
                       'coefficient': slope, # float(regr.coef_), 
                       'intercept': intercept, #float(regr.intercept_)
                       }, index=[di])
-    print("~~~regr results: y = %.2f + %.2f (R2=%.2f)" % (slope, intercept, r2))
+    if verbose:
+        print("~~~regr results: y = %.2f + %.2f (R2=%.2f)" % (slope, intercept, r2))
 
     return regr_df, model_results
 

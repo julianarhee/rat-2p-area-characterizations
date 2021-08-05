@@ -462,7 +462,7 @@ def add_roi_positions(rfdf, calculate_position=False, traceid='traces001'):
     for (va, dk, exp), g in rfdf.groupby(['visual_area', 'datakey', 'experiment']):
         session, animalid, fovnum = hutils.split_datakey_str(dk)
         try:
-            fcoords = roiutils.load_roi_coords(animalid, session, 'FOV%i_zoom2p0x' % fovnum,
+            fcoords = roiutils.get_roi_coords(animalid, session, 'FOV%i_zoom2p0x' % fovnum,
                                       traceid=traceid, create_new=False)
 
             #for ei, e_df in g.groupby(['experiment']):
