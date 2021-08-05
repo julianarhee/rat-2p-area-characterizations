@@ -285,6 +285,8 @@ def get_rf_overlaps(rf_polys):
 def rfits_to_df(fitr,  fit_params={}, roi_list=None,
                 scale_sigma=True, sigma_scale=2.35, convert_coords=True):
     '''
+    fitr: fit_results dict
+
     Takes each roi's RF fit results, converts to screen units, and return as dataframe.
     Scale to make size FWFM if scale_sigma is True.
     '''

@@ -19,7 +19,7 @@ import cv2
 import h5py
 
 import math
-import skimage
+#import skimage
 import time
 
 import numpy as np
@@ -204,7 +204,9 @@ def get_processed_maps(datakey, retinorun='retino_run1',
     return pmaps, pparams
 
 
-# Smoothing
+# --------------------------------------------------------------------
+# Smoothing/Map processing
+# --------------------------------------------------------------------
 from scipy import ndimage as nd
 def fill_nans(data, invalid=None):
     """
@@ -330,7 +332,36 @@ def smooth_maps(start_az, start_el, smooth_fwhm=12, smooth_spline=(1,1),
     return azim_, elev_ 
 
 
+# --------------------------------------------------------------------
 # PLOTTING
+# --------------------------------------------------------------------
+def plot_smoothing_results(sm_azim, sm_elev, fig=None, axn=None):
+    '''plot smoothing results (smoothed, final)'''
+    if axn is None:
+        fig, axn = pl.subplots(1, 4, figsize=(7,3))
+    az_min, az_max = np.nanmin(sm_azim['input']), np.nanmax(sm_azim['input'])
+    el_min, el_max = np.nanmin(sm_elev['input']), np.nanmax(sm_elev['input'])
+    plotn=0
+    for ai, skey in enumerate(['smoothed', 'final']):
+        ax=axn[plotn]
+        if plotn==0:
+            ax.set_title('Azimuth', loc='left')
+        im1 = sm_azim[skey].copy()
+        ax.imshow(im1, cmap='Spectral', vmin=az_min, vmax=az_max)
+
+        ax=axn[plotn+2]
+        if plotn==0:
+            ax.set_title('Elevation', loc='left')
+        im2 = sm_elev[skey].copy()
+        ax.imshow(im2, cmap='Spectral', vmin=el_min, vmax=el_max)
+        plotn+=1
+    pl.subplots_adjust(left=0.05, right=0.85, wspace=0.2, bottom=0.2, top=0.8)
+    
+    for ax in axn.flat:
+        ax.axis('off')
+    return fig, axn
+
+
 def plot_processing_steps_pixels(filt_az, azim_smoothed, azim_fillnan, az_fill,
                             filt_el, elev_smoothed, elev_fillnan, el_fill,
                             cmap_phase='nipy_spectral', show_cbar=False,
@@ -1062,5 +1093,84 @@ def plot_labeled_rois(labeled_image, roi_assignments, roi_masks, cmap='colorblin
     
     return ax
 
+
+def get_background_maps(dk, experiment='rfs', traceid='traces001',
+                        response_type='dff', is_neuropil=True, 
+                        do_spherical_correction=False, 
+                        create_new=False, redo_smooth=False, 
+                        desired_radius_um=20,
+                        target_sigma_um=20, smooth_spline_x=1, smooth_spline_y=1,
+                        ds_factor=1, fit_thr=0.5):
+    '''
+    Load RF fitting results from tiles protocol. Create smoothed background maps
+    for AZ and EL.
+
+    Returns:
+        res: (dict)
+            Keys: 'azim_orig', 'azim_final', 'elev_orig', 'elev_final', 'fitdf'
+    '''
+    res=None
+    try:
+        fit_results, fit_params = rfutils.load_fit_results(dk, experiment=experiment,
+                                traceid=traceid, response_type=response_type,
+                                is_neuropil=is_neuropil,
+                                do_spherical_correction=do_spherical_correction)
+    except FileNotFoundError as e:
+        print(" skipping %s" % dk)
+        return Non
+    maps_outfile = os.path.join(fit_params['rfdir'], 'neuropil_maps.pkl')
+    redo = create_new is True
+    if not create_new:
+        try:
+            with open(maps_outfile, 'rb') as f:
+                res = pkl.load(f)
+            azim_np = res['azim_orig']
+            elev_np = res['elev_orig']
+        except Exception as e:
+            redo=True
+    if redo:
+        redo_smooth=True
+        fitdf_all = rfutils.rfits_to_df(fit_results, fit_params, 
+                               convert_coords=True, scale_sigma=True)
+        fitdf = fitdf_all[fitdf_all['r2']>fit_thr].copy()
+        roi_list = fitdf.index.tolist()
+        # Get masks
+        zproj, dilated_masks, centroids = retutils.dilate_centroids(dk,
+                                            desired_radius_um=desired_radius_um,
+                                            traceid=traceid)
+        ixs = np.sum(dilated_masks, axis=0)
+        # Get maps
+        azim_ = np.array([dilated_masks[i]*v for i, v \
+                                    in enumerate(fitdf['x0'].values)])
+        azim_np = np.true_divide(np.nansum(azim_, axis=0), ixs)
+        elev_ = np.array([dilated_masks[i]*v for i, v \
+                                    in enumerate(fitdf['y0'].values)])
+        elev_np = np.true_divide(np.nansum(elev_, axis=0), ixs)
+    
+    if redo_smooth:
+        # Smmooth
+        pixel_size = hutils.get_pixel_size()
+        sm_azim, sm_elev = smooth_maps(azim_np, elev_np, 
+                                target_sigma_um=target_sigma_um,  
+                                smooth_spline=(smooth_spline_x, smooth_spline_y),
+                                fill_nans=True,
+                                start_with_transformed=False, 
+                                use_phase_smooth=False, ds_factor=ds_factor)
+        sm_azim.update({'input': azim_np})
+        sm_elev.update({'input': elev_np})
+        fig, axn = plot_smoothing_results(sm_azim, sm_elev)
+        fig.text(0.01, 0.9, dk)
+        pl.savefig(os.path.join(fit_params['rfdir'], 'neuropil_maps.svg'))
+        pl.close()
+        res = {'azim_orig': azim_np, 
+               'azim_final': sm_azim['final'],
+               'elev_orig': elev_np, 
+               'elev_final': sm_elev['final'],
+               'fitdf': fitdf,
+               'zproj': zproj}
+        with open(maps_outfile, 'wb') as f:
+            pkl.dump(res, f, protocol=2)
+
+    return res
 
 

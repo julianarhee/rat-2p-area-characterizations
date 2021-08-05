@@ -453,7 +453,7 @@ def add_roi_positions(rfdf, calculate_position=False, traceid='traces001'):
     if 'fovnum' not in rfdf.columns:
         rfdf = hutils.split_datakey(rfdf)
 
-    print("Adding ROI position info...")
+    #print("Adding ROI position info...")
     pos_params = ['fov_xpos', 'fov_xpos_pix', 'fov_ypos', 'fov_ypos_pix', 'ml_pos','ap_pos']
     for p in pos_params:
         rfdf[p] = None

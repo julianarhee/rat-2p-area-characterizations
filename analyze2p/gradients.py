@@ -35,33 +35,6 @@ import analyze2p.extraction.rois as roiutils
 # --------------------------------------------------------------------
 # Creating background maps
 # --------------------------------------------------------------------
-def plot_results(sm_azim, sm_elev, fig=None, axn=None):
-    '''plot smoothing results (smoothed, final)'''
-    if axn is None:
-        fig, axn = pl.subplots(1, 4, figsize=(7,3))
-    az_min, az_max = np.nanmin(sm_azim['input']), np.nanmax(sm_azim['input'])
-    el_min, el_max = np.nanmin(sm_elev['input']), np.nanmax(sm_elev['input'])
-    plotn=0
-    for ai, skey in enumerate(['smoothed', 'final']):
-        ax=axn[plotn]
-        if plotn==0:
-            ax.set_title('Azimuth', loc='left')
-        im1 = sm_azim[skey].copy()
-        ax.imshow(im1, cmap='Spectral', vmin=az_min, vmax=az_max)
-
-        ax=axn[plotn+2]
-        if plotn==0:
-            ax.set_title('Elevation', loc='left')
-        im2 = sm_elev[skey].copy()
-        ax.imshow(im2, cmap='Spectral', vmin=el_min, vmax=el_max)
-        plotn+=1
-    pl.subplots_adjust(left=0.05, right=0.85, wspace=0.2, bottom=0.2, top=0.8)
-    
-    for ax in axn.flat:
-        ax.axis('off')
-    return fig, axn
-
-
 def get_background_maps(dk, experiment='rfs', traceid='traces001',
                         response_type='dff', is_neuropil=True, 
                         do_spherical_correction=False, 
@@ -70,7 +43,7 @@ def get_background_maps(dk, experiment='rfs', traceid='traces001',
                         target_sigma_um=20, smooth_spline_x=1, smooth_spline_y=1,
                         ds_factor=1, fit_thr=0.5):
     '''
-    Load RF fitting results from tiles protocol. Create smoothed background maps
+    Load RF fitting results from TILES protocol. Create smoothed background maps
     for AZ and EL.
 
     Returns:
@@ -114,10 +87,11 @@ def get_background_maps(dk, experiment='rfs', traceid='traces001',
         elev_ = np.array([dilated_masks[i]*v for i, v \
                                     in enumerate(fitdf['y0'].values)])
         elev_np = np.true_divide(np.nansum(elev_, axis=0), ixs)
+    
     if redo_smooth:
         # Smmooth
         pixel_size = hutils.get_pixel_size()
-        sm_azim, sm_elev = seg.smooth_maps(azim_np, elev_np, 
+        sm_azim, sm_elev = smooth_maps(azim_np, elev_np, 
                                 target_sigma_um=target_sigma_um,  
                                 smooth_spline=(smooth_spline_x, smooth_spline_y),
                                 fill_nans=True,
@@ -125,7 +99,7 @@ def get_background_maps(dk, experiment='rfs', traceid='traces001',
                                 use_phase_smooth=False, ds_factor=ds_factor)
         sm_azim.update({'input': azim_np})
         sm_elev.update({'input': elev_np})
-        fig, axn = plot_results(sm_azim, sm_elev)
+        fig, axn = plot_smoothing_results(sm_azim, sm_elev)
         fig.text(0.01, 0.9, dk)
         pl.savefig(os.path.join(fit_params['rfdir'], 'neuropil_maps.svg'))
         pl.close()
@@ -139,6 +113,9 @@ def get_background_maps(dk, experiment='rfs', traceid='traces001',
             pkl.dump(res, f, protocol=2)
 
     return res
+
+
+
 
 
 def cycle_and_load_maps(dk_list, target_sigma_um=20, desired_radius_um=20,
@@ -246,7 +223,7 @@ def load_movingbar_results(dk, retinorun, traceid='traces001',
     pixel_size_ds = (pixel_size[0]*ds_factor, pixel_size[1]*ds_factor)
     d1 = int(d1_orig/ds_factor)
     d2 = int(d2_orig/ds_factor)
-    print(d1, d2)
+    #print(d1, d2)
     # Load fft 
     fft_results = retutils.load_fft_results(dk,
                                     retinorun=retinorun, traceid=traceid, 
@@ -359,11 +336,12 @@ def load_gradients(dk, va, retinorun='retino_run1', create_new=False,
     gradients_basedir = os.path.join(fovdir, 'segmentation')
     if not os.path.exists(gradients_basedir):
         os.makedirs(gradients_basedir) 
-    gradients_fpath = os.path.join(gradients_basedir, 'results_%s.pkl' % va)
+    gradients_fpath = os.path.join(gradients_basedir, 'gradient_results.pkl')
     if not create_new:
         try: 
             with open(gradients_fpath, 'rb') as f:
                 results = pkl.load(f)
+            assert va in results.keys(), "Area <%s> not in results. creating now." % va
         except Exception as e:
             create_new=True
         
@@ -372,7 +350,6 @@ def load_gradients(dk, va, retinorun='retino_run1', create_new=False,
         seg_results, seg_params = seg.load_segmentation_results(dk, retinorun=retinorun)
         segmented_areas = seg_results['areas']
         region_props = seg_results['region_props']
-        print(segmented_areas.keys())
         assert va in segmented_areas.keys(), \
             "Visual area <%s> not in region. Found: %s" % (va, str(segmented_areas.keys()))
         curr_area_mask = segmented_areas[va]['mask'].copy()
@@ -381,16 +358,22 @@ def load_gradients(dk, va, retinorun='retino_run1', create_new=False,
                                             map_type='final', protocol='BAR')
         # Calculate gradients
         grad_az, grad_el = seg.calculate_gradients(curr_area_mask, AZMAP_NP, ELMAP_NP)
-    
-        results = {'az_gradients': grad_az,
-                   'el_gradients': grad_el,
-                   'area_mask': curr_area_mask,
-                   'retinorun': retinorun,
-                   'visual_area': va}
+
+        # Save
+        results={}
+        if os.path.exists(gradients_fpath):
+            with open(gradients_fpath, 'rb') as f:
+                results = pkl.load(f)
+       
+        curr_results = {'az_gradients': grad_az,
+                        'el_gradients': grad_el,
+                        'area_mask': curr_area_mask,
+                        'retinorun': retinorun}
+        results.update({va: curr_results})
         with open(gradients_fpath, 'wb') as f:
             pkl.dump(results, f, protocol=2)
             
-    return results
+    return results[va]
 
 def plot_gradients(az_map, el_map, grad_az, grad_el,
                   spacing=200, scale=0.0001, width=0.01, headwidth=20):
@@ -677,24 +660,30 @@ def load_models(dk, va, rootdir='/n/coxfs01/2p-data'):
         alignment_fpath = os.path.join(curr_dst_dir, 'alignment.pkl')
         with open(alignment_fpath, 'rb') as f:
             regr_results = pkl.load(f)
+        assert va in regr_results, "Visual area not found"
         REGR_NP = regr_results[va].copy()
     except Exception as e:
         return None
     
     return REGR_NP
 
-def update_models(dk, va, REGR_NP, rootdir='/n/coxfs01/2p-data'):
+def update_models(dk, va, REGR_NP, create_new=False, 
+                    rootdir='/n/coxfs01/2p-data'):
     session, animalid, fovn = hutils.split_datakey_str(dk)
     fovdir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovn))[0]
     curr_dst_dir = os.path.join(fovdir, 'segmentation')
     alignment_fpath = os.path.join(curr_dst_dir, 'alignment.pkl')
-    regr_results={}
-    if os.path.exists(alignment_fpath):
+    results={}
+    if os.path.exists(alignment_fpath) and (create_new is False):
         with open(alignment_fpath, 'rb') as f:
-            regr_results = pkl.load(f)
-    regr_results.update{va: REGR_NP}
+            results = pkl.load(f)
+        if not isinstance(results, dict):
+            results={}
+
+    results.update({va: REGR_NP})
     with open(alignment_fpath, 'wb') as f:
-        pkl.dump(regr_results, f, protocol=2)
+        pkl.dump(results, f, protocol=2)
+
     return
 
 #
@@ -732,6 +721,9 @@ def get_soma_data(dk, experiment='rfs', retinorun='retino_run1',
                         traceid=traceid, response_type=response_type,
                         is_neuropil=False,
                         do_spherical_correction=do_spherical_correction)
+        if fit_results is None:
+            return None
+
         fitdf_all = rfutils.rfits_to_df(fit_results, fit_params, 
                                 convert_coords=True, scale_sigma=True)
         fitdf_soma = fitdf_all[fitdf_all['r2']>fit_thr].copy()
@@ -779,7 +771,6 @@ def predict_cortex_position(regr, cond='az', points=None):
 def predict_retino_position(regr, cond='az', points=None):
     g_intercept = float(regr[regr.cond==cond]['intercept'])
     g_slope = float(regr[regr.cond==cond]['coefficient'])
-    print(g_intercept, g_slope)
     predicted_ret_x = (points * g_slope) + g_intercept
 
     return predicted_ret_x
