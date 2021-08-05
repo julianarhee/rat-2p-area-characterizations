@@ -866,23 +866,16 @@ def image_gradient(img):
     gradmag = np.sqrt(gdx**2 + gdy**2)
 
     # 3) Take the absolute value of the x and y gradients
-    abs_gdx = np.absolute(gdx)
-    abs_gdy = np.absolute(gdy)
+    #abs_gdx = np.absolute(gdx)
+    #abs_gdy = np.absolute(gdy)
 
     # 4) Use np.arctan2(abs_sobely, abs_sobelx) to calculate the direction of the gradient
     abs_gd = np.arctan2(gdy, gdx) # np.arctan2(abs_gdy, abs_gdx) # [-pi, pi]
-
     # Get mean direction
-    #mean_dir = np.rad2deg(np.arctan2(gdy.mean(), gdx.mean())) 
-#    mean_dir = np.rad2deg(spstats.circmean([np.arctan2(gy, gx) 
-#                         for gy, gx in zip(gdy.ravel(), gdx.ravel())],
-#                         low=-np.pi, high=np.pi)) # TODO why this diff
     mean_dir = np.rad2deg(spstats.circmean([np.arctan2(gy, gx) 
                          for gy, gx in zip(gdy.ravel(), gdx.ravel()) \
                                  if ((not np.isnan(gy)) and (not np.isnan(gx)))],
                          low=-np.pi, high=np.pi))
-
-
     # Get unit vector
     avg_gradient = spstats.circmean(abs_gd[~np.isnan(abs_gd)], low=-np.pi, high=np.pi) 
     dirvec = (np.cos(avg_gradient), np.sin(avg_gradient))
@@ -911,6 +904,7 @@ def calculate_gradients(curr_segmented_mask, img_az, img_el):
     grad_el = image_gradient(thr_img_el)
 
     return grad_az, grad_el
+
 
 def plot_gradients_in_area(labeled_image, img_az, img_el, grad_az, grad_el, 
                            cmap_phase='nipy_Spectral', contour_lc='r', contour_lw=1,
@@ -943,7 +937,6 @@ def plot_gradients_in_area(labeled_image, img_az, img_el, grad_az, grad_el,
     #ax.imshow(thr_img_el, cmap=cmap_phase, vmin=vmin, vmax=vmax)
     plot_gradients(grad_el, ax=ax, draw_interval=spacing, scale=scale, width=width,
                   headwidth=headwidth)
-
     # Unit vectors ------------
     # Get average unit vector
     avg_dir_el = np.rad2deg(grad_el['mean_direction'])
@@ -979,6 +972,7 @@ def plot_gradients_in_area(labeled_image, img_az, img_el, grad_az, grad_el,
     pl.subplots_adjust(wspace=0.5, hspace=0.5)
 
     return fig
+
 
 def plot_gradients(grad_, ax=None, draw_interval=3, 
                    scale=1, width=0.005, toy=False, headwidth=5):

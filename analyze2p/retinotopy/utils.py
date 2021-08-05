@@ -90,7 +90,8 @@ def select_strongest_retinorun(projection_df):
 def get_final_maps(magratios_soma, phases_soma, trials_by_cond=None, 
                     mag_thr=0.01, delay_thr=0.5, verbose=False,
                    dims=(512, 512), ds_factor=2, use_pixels=False):
-    
+    if mag_thr is None:
+        mag_thr = -np.inf
     # Get absolute maps from conditions
     magmaps, absolute_az, absolute_el, delay_az, delay_el = absolute_maps_from_conds(
                             magratios_soma, phases_soma, trials_by_cond=trials_by_cond,

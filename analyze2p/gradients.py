@@ -172,7 +172,7 @@ def cycle_and_load_maps(dk_list, target_sigma_um=20, desired_radius_um=20,
     if create_new or redo_smooth:
         MAPS = dict() #dict((k, ) for k in dk_list)
         for dk in dk_list:
-            res = grd.get_background_maps(dk, experiment=experiment, traceid=traceid,
+            res = get_background_maps(dk, experiment=experiment, traceid=traceid,
                             response_type=response_type, is_neuropil=is_neuropil,  
                             do_spherical_correction=do_spherical_correction,    
                             create_new=create_new, redo_smooth=redo_smooth, 
@@ -195,6 +195,36 @@ def get_best_retinorun(datakey):
     all_retinos = retutils.get_average_mag_across_pixels(datakey)     
     retinorun = all_retinos.loc[all_retinos[1].idxmax()][0] 
     return retinorun
+
+
+
+def get_neuropil_data(dk, retinorun, mag_thr=0.001, delay_map_thr=1.0, ds_factor=2,
+                    visual_areas=['V1', 'Lm', 'Li']):
+    '''
+    Wrapper for loading neuropil data from movingbar.
+    Loads FFT results and calculates final retino pref. estimates for each NP mask.
+    Converts phase to linear (screen) coords in DEG visual angle.
+    Adds CTX position info for each centroid (Assumes single VA for all cells,
+    so should filter with seg.load_roi_assignments() after).
+    Filters out poorly responding cells.
+
+    Returns:  retinodf_np (pd.DataFrame)
+    '''
+    df = None
+    # Load FFT results
+    mags_soma, phases_soma, mags_np, phases_np, dims = load_movingbar_results(dk, 
+                                                                              retinorun)
+    # Get maps:  abs_vmin, abs_vmax = (-np.pi, np.pi)
+    mvb_np = retutils.get_final_maps(mags_np, phases_np, 
+                        trials_by_cond=None,
+                        mag_thr=None, dims=dims,
+                        ds_factor=ds_factor, use_pixels=False)
+    # Filter bad responses
+    df = adjust_retinodf(mvb_np.dropna(), mag_thr=mag_thr)
+    # Add cell position info
+    df = add_position_info(df, dk, 'retino', retinorun=retinorun)
+
+    return df
 
 def load_movingbar_results(dk, retinorun, traceid='traces001',
                         rootdir='/n/coxfs01/2p-data'):
@@ -302,6 +332,65 @@ def adjust_retinodf(mvb_np, mag_thr=0.02):
 # --------------------------------------------------------------------
 # Calculating gradients
 # --------------------------------------------------------------------
+def load_gradients(dk, va, retinorun='retino_run1', create_new=False,
+                    rootdir='/n/coxfs01/2p-data'):
+    '''
+    Load gradient results for specified visual area and run.
+    Results are in: <FOVDIR>/segmentation/results_VAREA.pkl
+
+    Returns:
+    
+    results: (dict)
+        'az/el_gradients': {
+            image: gradient image (az)
+            magnitude: np.sqrt(gdx**2 + gdy**2)
+            gradient_x: gdx values
+            gradient_y: gdy values
+            direction: direction of gradient at each point
+            mean_deg/_direction:  mean direction in DEG or RAD
+            vhat: unit vector 
+        }
+        area_mask:  binary mask with 1's corresponding to specified visual area (va)
+        retinorun:  best run (used to calculate grads)
+        visual_area: area specified in fov
+    '''
+    session, animalid, fovn = hutils.split_datakey_str(dk)
+    fovdir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovn))[0]
+    gradients_basedir = os.path.join(fovdir, 'segmentation')
+    if not os.path.exists(gradients_basedir):
+        os.makedirs(gradients_basedir) 
+    gradients_fpath = os.path.join(gradients_basedir, 'results_%s.pkl' % va)
+    if not create_new:
+        try: 
+            with open(gradients_fpath, 'rb') as f:
+                results = pkl.load(f)
+        except Exception as e:
+            create_new=True
+        
+    if create_new:
+        # Load area segmentation results 
+        seg_results, seg_params = seg.load_segmentation_results(dk, retinorun=retinorun)
+        segmented_areas = seg_results['areas']
+        region_props = seg_results['region_props']
+        print(segmented_areas.keys())
+        assert va in segmented_areas.keys(), \
+            "Visual area <%s> not in region. Found: %s" % (va, str(segmented_areas.keys()))
+        curr_area_mask = segmented_areas[va]['mask'].copy()
+        # Load NP masks
+        AZMAP_NP, ELMAP_NP = load_neuropil_background(dk, retinorun,
+                                            map_type='final', protocol='BAR')
+        # Calculate gradients
+        grad_az, grad_el = seg.calculate_gradients(curr_area_mask, AZMAP_NP, ELMAP_NP)
+    
+        results = {'az_gradients': grad_az,
+                   'el_gradients': grad_el,
+                   'area_mask': curr_area_mask,
+                   'retinorun': retinorun,
+                   'visual_area': va}
+        with open(gradients_fpath, 'wb') as f:
+            pkl.dump(results, f, protocol=2)
+            
+    return results
 
 def plot_gradients(az_map, el_map, grad_az, grad_el,
                   spacing=200, scale=0.0001, width=0.01, headwidth=20):
@@ -380,7 +469,7 @@ def align_cortex_to_gradient(df, gvectors, xlabel='ml_pos', ylabel='ap_pos'):
     transf_df, M = project_onto_gradient_vectors(df, u1, u2, 
                                     xlabel='ml_proj', ylabel='ap_proj')
     # rename
-    
+
     return transf_df, M
 
 
@@ -420,39 +509,69 @@ def X_align_cortex_to_gradient(df, gvectors, xlabel='ml_pos', ylabel='ap_pos'):
     return df_, T1, T2
 
 
-def get_projection_points(grad_az, grad_el):
-    '''
-    Use gradient info and FOV info of image (pixel locs) to  project pixel locations
-    onto the direction of the normalized mean gradient vector.
-    '''
-    gimg_az = grad_az['image'].copy()
-    gimg_el = grad_el['image'].copy()
-    d1, d2 = grad_az['image'].shape
 
-    vhat_az = grad_az['vhat'].copy() #[0], -0.04) #abs(grad_az['vhat'][1]))
-    vhat_el = grad_el['vhat'].copy() #[0], -0.04) #abs(grad_az['vhat'][1]))
-
-    proj_az = np.array([np.dot(np.array((xv, yv)), vhat_az) for yv in np.arange(0, d1) for xv in np.arange(0, d2)])
-    ret_az = np.array([gimg_az[xv, yv] for xv in np.arange(0, d1) for yv in np.arange(0, d2)] )
-
-    proj_el = np.array([np.dot(np.array((xv, yv)), vhat_el) for yv in np.arange(0, d1) for xv in np.arange(0, d2)])
-    ret_el = np.array([gimg_el[xv, yv] for xv in np.arange(0, d1) for yv in np.arange(0, d2)] )
-
-    pix = np.array([xv for yv in np.arange(0, d1) for xv in np.arange(0, d2) ])
-    #coords = np.array([np.array((xv, yv)) for yv in np.arange(0, d1) for xv in np.arange(0, d2)])
-    
-    projections = {'proj_az': proj_az,
-                   'proj_el': proj_el,
-                   'retino_az': ret_az,
-                   'retino_el': ret_el,
-                   'pixel_ixs': pix}
-    
-    return projections 
 
 
 # --------------------------------------------------------------------
 # Model CTX vs RETINOTOPIC POS.
 # --------------------------------------------------------------------
+#from sklearn.linear_model import LinearRegression, Ridge, Lasso
+#from sklearn.model_selection import train_test_split
+import scipy.stats as spstats
+import sklearn.metrics as skmetrics #import mean_squared_error
+
+def fit_linear_regr(xvals, yvals, return_regr=False, model='ridge'):
+    from sklearn.linear_model import LinearRegression, Ridge, Lasso
+    if model=='ridge':
+        regr = Ridge()
+    elif model=='Lasso':
+        regr = Lasso()
+    else:
+        model = 'ols'
+        regr = LinearRegression()
+    if len(xvals.shape) == 1:
+        xvals = np.array(xvals).reshape(-1, 1)
+        yvals = np.array(yvals).reshape(-1, 1)
+    else:
+        xvals = np.array(xvals)
+        yvals = np.array(yvals)
+    if any([np.isnan(x) for x in xvals]) or any([np.isnan(y) for y in yvals]):
+        print("NAN")
+    regr.fit(xvals, yvals)
+    fitv = regr.predict(xvals)
+    if return_regr:
+        return fitv.reshape(-1), regr
+    else:
+        return fitv.reshape(-1)
+
+
+def do_linear_fit(xvs, yvs, model='ridge', di=0, verbose=False):
+    fitv, regr = fit_linear_regr(xvs, yvs,
+                            return_regr=True, model=model)
+     
+    rmse = np.sqrt(skmetrics.mean_squared_error(yvs, fitv))
+    r2 = skmetrics.r2_score(yvs, fitv)
+    pearson_r, pearson_p = spstats.pearsonr(xvs, yvs) 
+    slope = float(regr.coef_)
+    intercept = float(regr.intercept_)
+
+    model_results = {'fitv': fitv, 
+                     'regr': regr}
+
+    regr_df = pd.DataFrame({ 
+                      'R2': r2,
+                      'RMSE': rmse,
+                      'pearson_p': pearson_p,
+                      'pearson_r': pearson_r,
+                      'coefficient': slope, # float(regr.coef_), 
+                      'intercept': intercept, #float(regr.intercept_)
+                      }, index=[di])
+    if verbose:
+        print("~~~regr results: y = %.2f + %.2f (R2=%.2f)" % (slope, intercept, r2))
+
+    return regr_df, model_results
+
+
 def regress_cortex_and_retino_pos(df, xvar='pos', model='ridge'):
     '''
     Linear regression for each condition (az, el). 
@@ -465,7 +584,7 @@ def regress_cortex_and_retino_pos(df, xvar='pos', model='ridge'):
 
         xvs = df['%s_%s' % (ctx_label, xvar)].values
         yvs = df['%s' % ret_label].values
-        regr_, linmodel = rfutils.do_linear_fit(xvs, yvs, model=model)
+        regr_, linmodel = do_linear_fit(xvs, yvs, model=model)
         regr_['cond'] = cond
         r_.append(regr_)
     regr_tiles = pd.concat(r_).reset_index(drop=True)
@@ -517,15 +636,81 @@ def plot_regression_ctx_vs_retino_pos(df, regr):
     return fig
 
 
+def plot_measured_and_aligned(aligned_np, REGR_NP, REGR_MEAS):
+    fig, axn = pl.subplots(2,2, figsize=(6.5,6))
+    for ai, cond in enumerate(['az', 'el']):
+        regr_ = REGR_NP[REGR_NP.cond==cond].copy()
+        ctx_ = 'ml' if cond=='az' else 'ap'
+        ret_ = 'x' if cond=='az' else 'y'
+        ax=axn[0, ai]
+        sns.regplot('%s_pos' % ctx_, '%s0' % ret_, data=aligned_np, 
+                    ax=ax, color='k', scatter_kws={'s':2}, label='measured')
+        regr_meas_ = REGR_MEAS[REGR_MEAS.cond==cond].copy()
+        regr_meas_str = 'y=%.2fx+%.2f (R2=%.2f)\npearson r=%.2f, p=%.2f'\
+                        % (regr_meas_['coefficient'], regr_meas_['intercept'], 
+                           regr_meas_['R2'], 
+                           regr_meas_['pearson_r'], regr_meas_['pearson_p'])
+        ax.set_title(regr_meas_str, loc='left', fontsize=8)
+        ax=axn[1, ai]
+        sns.regplot('%s_proj' % ctx_, '%s0' % ret_, data=aligned_np, 
+                    ax=ax, color='m', scatter_kws={'s':2}, label='aligned')
+        # show linear fit
+        (slope, intercept), = regr_[['coefficient', 'intercept']].values
+        xvs = aligned_np['%s_pos' % ctx_].values
+        yvs = xvs*slope + intercept
+        regr_str = 'y=%.2fx+%.2f (R2=%.2f)\npearson r=%.2f, p=%.2f'\
+                        % (slope, intercept, regr_['R2'], 
+                           regr_['pearson_r'], regr_['pearson_p'])
+        ax.plot(xvs, yvs, 'r:', label='regression')
+        ax.set_title(regr_str, loc='left', fontsize=8)
+    pl.subplots_adjust(bottom=0.2, wspace=0.5, hspace=0.8, right=0.75, top=0.85)
+    pl.legend(bbox_to_anchor=(1,1), loc='upper left', fontsize=6)
+    return fig
+
+
+def load_models(dk, va, rootdir='/n/coxfs01/2p-data'):
+    REGR_NP=None
+    try:
+        session, animalid, fovn = hutils.split_datakey_str(dk)
+        fovdir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovn))[0]
+        curr_dst_dir = os.path.join(fovdir, 'segmentation')
+        alignment_fpath = os.path.join(curr_dst_dir, 'alignment.pkl')
+        with open(alignment_fpath, 'rb') as f:
+            regr_results = pkl.load(f)
+        REGR_NP = regr_results[va].copy()
+    except Exception as e:
+        return None
+    
+    return REGR_NP
+
+def update_models(dk, va, REGR_NP, rootdir='/n/coxfs01/2p-data'):
+    session, animalid, fovn = hutils.split_datakey_str(dk)
+    fovdir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovn))[0]
+    curr_dst_dir = os.path.join(fovdir, 'segmentation')
+    alignment_fpath = os.path.join(curr_dst_dir, 'alignment.pkl')
+    regr_results={}
+    if os.path.exists(alignment_fpath):
+        with open(alignment_fpath, 'rb') as f:
+            regr_results = pkl.load(f)
+    regr_results.update{va: REGR_NP}
+    with open(alignment_fpath, 'wb') as f:
+        pkl.dump(regr_results, f, protocol=2)
+    return
+
 #
 # --------------------------------------------------------------------
 # Predictions and whatnot
 # --------------------------------------------------------------------
 
-def load_soma_estimates(dk, experiment='rfs', retinorun='retino_run1', 
-                        protocol='BAR', traceid='traces001',
+def get_soma_data(dk, experiment='rfs', retinorun='retino_run1', 
+                        protocol='TILE', traceid='traces001',
                         response_type='dff', do_spherical_correction=False, fit_thr=0.5,
                         mag_thr=0.01):
+    '''
+    Load SOMA data. **Specify RETINORUN for correct roi assignments 
+    (even if protocol is TILE).
+    ''' 
+    df=None
     if protocol=='BAR':
         magthr_2p=0.001
         delay_map_thr=1.0
@@ -553,8 +738,33 @@ def load_soma_estimates(dk, experiment='rfs', retinorun='retino_run1',
         # Add position info
         fitdf_soma['cell'] = fitdf_soma.index.tolist()
         df = fitdf_soma.copy()
-    return df
 
+    # Add pos info to NP masks
+    df = add_position_info(df, dk, experiment, retinorun=retinorun)
+
+    return df.reset_index(drop=True)
+
+
+
+def add_position_info(df, dk, experiment, retinorun='retino_run1'):
+    '''
+    Correctly assign visual area to each cell based on segmentation results,
+    specify RETINORUN for loading roi assignemnts.
+    
+    '''
+    # Add pos info to NP masks
+    df['cell'] = df.index.tolist()
+    # Assign va to each cell
+    roi_assignments = seg.load_roi_assignments(dk, retinorun=retinorun)
+    df['visual_area'] = None
+    for va, rois_ in roi_assignments.items():
+        df.loc[df['cell'].isin(rois_), 'visual_area'] = str(va)
+    # Add other meta info
+    df = hutils.add_meta_to_df(df, {'datakey': dk,
+                                    'experiment': experiment})
+    df = aggr.add_roi_positions(df)
+
+    return df
 
 
 # predicted_rf_locs = slope*proj_locs + intercept
@@ -569,10 +779,27 @@ def predict_cortex_position(regr, cond='az', points=None):
 def predict_retino_position(regr, cond='az', points=None):
     g_intercept = float(regr[regr.cond==cond]['intercept'])
     g_slope = float(regr[regr.cond==cond]['coefficient'])
+    print(g_intercept, g_slope)
     predicted_ret_x = (points * g_slope) + g_intercept
 
     return predicted_ret_x
 
+
+def get_deviations(df):
+    df['deg_scatter_az'] = abs(df['x0']-df['predicted_x0'])
+    df['deg_scatter_el'] = abs(df['y0']-df['predicted_y0'])
+    df['dist_scatter_az'] = abs(df['ml_proj']-df['predicted_ml_proj'])
+    df['dist_scatter_el'] = abs(df['ap_proj']-df['predicted_ap_proj'])
+    deviations = df[['cell', 'deg_scatter_az', 'dist_scatter_az']].copy()\
+                    .rename(columns={'deg_scatter_az': 'deg_scatter', 
+                                     'dist_scatter_az': 'dist_scatter'})
+    deviations['axis'] = 'az'
+    devE = df[['cell', 'deg_scatter_el', 'dist_scatter_el']].copy()\
+                    .rename(columns={'deg_scatter_el': 'deg_scatter', 
+                                     'dist_scatter_el': 'dist_scatter'})
+    devE['axis'] = 'el'
+    deviations = pd.concat([deviations, devE], axis=0).reset_index(drop=True)
+    return deviations
 
 
 

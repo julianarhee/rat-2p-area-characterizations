@@ -458,18 +458,18 @@ def add_roi_positions(rfdf, calculate_position=False, traceid='traces001'):
     for p in pos_params:
         rfdf[p] = None
     p_list=[]
-    #for (animalid, session, fovnum, exp), g in rfdf.groupby(['animalid', 'session', 'fovnum', 'experiment']):
     for (va, dk, exp), g in rfdf.groupby(['visual_area', 'datakey', 'experiment']):
+        if va in [None, 'None']:
+            continue
         session, animalid, fovnum = hutils.split_datakey_str(dk)
         try:
             fcoords = roiutils.get_roi_coords(animalid, session, 'FOV%i_zoom2p0x' % fovnum,
                                       traceid=traceid, create_new=False)
-
-            #for ei, e_df in g.groupby(['experiment']):
             cell_ids = g['cell'].unique()
             p_ = fcoords['roi_positions'].loc[cell_ids]
             for p in pos_params:
                 rfdf.loc[g.index, p] = p_[p].values
+            rfdf[pos_params] = rfdf[pos_params].astype(float)
         except Exception as e:
             print('{ERROR} %s, %s' % (va, dk))
             traceback.print_exc()
