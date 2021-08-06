@@ -6,6 +6,7 @@ import sys
 import pandas as pd
 import numpy as np
 import scipy.stats as spstats
+import statsmodels
 
 # ###############################################################
 # STATS
@@ -36,6 +37,7 @@ def do_mannwhitney(mdf, metric='I_rs', multi_comp_test='holm'):
     '''
     
     #import statsmodels.api as sm
+    import statsmodels.api as sm
 
     visual_areas = ['V1', 'Lm', 'Li']
     mpairs = list(itertools.combinations(visual_areas, 2))

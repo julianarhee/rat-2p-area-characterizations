@@ -5,7 +5,7 @@ import json
 import traceback
 
 # import pickle as pkl
-import statsmodels as sm
+import statsmodels
 import dill as pkl
 import numpy as np
 import pylab as pl
@@ -20,7 +20,7 @@ import matplotlib as mpl
 mpl.use('agg')
 
 from matplotlib.lines import Line2D
-import statsmodels as sm
+#import statsmodels as sm
 #import statsmodels.api as sm # put this in Nb
 
 from .stats import do_mannwhitney
@@ -314,7 +314,7 @@ def pairwise_compare_single_metric(comdf, curr_metric='avg_size',
                         c1='rfs', c2='rfs10', compare_var='experiment',
                         c1_label=None, c2_label=None,
                         ax=None, marker='o', visual_areas=['V1', 'Lm', 'Li'],
-                        lw=1, alpha=1., 
+                        lw=1, alpha=1., size=5,
                         xlabel_offset=-1, area_colors=None, bar_ci=95, bar_lw=0.5,
                         return_stats=False, round_to=3, ttest=True):
 
@@ -348,7 +348,7 @@ def pairwise_compare_single_metric(comdf, curr_metric='avg_size',
         for pi, p in enumerate(by_exp):
             ax.plot([aix-offset, aix+offset], p, marker=marker, color=color,
                     alpha=alpha, lw=lw,  zorder=0, markerfacecolor=None,
-                    markeredgecolor=color, label=visual_area) #label)
+                    markeredgecolor=color, label=visual_area, markersize=size) #label)
         pdict.update({'visual_area': visual_area})
         res = pd.DataFrame(pdict, index=[ai])
         r_.append(res)
@@ -379,7 +379,10 @@ def annotate_sig_on_paired_plot(ax, plotd, pstats, metric, lw=1.,
     for v in sig_areas:
         vix = visual_areas.index(v)
         xticks = ax.get_xticks()
-        x1, x2 = xticks[vix*2], xticks[(vix*2)+1]
+        if len(xticks)==len(visual_areas):
+            x1, x2 = xticks[vix]-0.25, xticks[vix]+0.25
+        else:
+            x1, x2 = xticks[vix*2], xticks[(vix*2)+1]
         y, h, col = plotd[metric].max() + offset, h, 'k'
         ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
         ax.text((x1+x2)*.5, y+h, "*", ha='center', va='bottom', color=col)
@@ -565,11 +568,14 @@ def custom_legend_markers(colors=['m', 'c'], labels=['label1', 'label2'], marker
     from matplotlib.patches import Patch
     from matplotlib.lines import Line2D
 
-    leg_elements=[]
+    leg_h=[]
     for col, label in zip(colors, labels):
-        leg_elements.append(Line2D([0], [0], marker=marker, color=col, label=label))
-
-    return leg_elements
+        if marker is None:
+            leg_h.append(Patch(facecolor=col, edgecolor=None, label=label))
+        else: 
+            leg_h.append(Line2D([0], [0], marker=marker, color=col, label=label))
+    
+    return leg_h
 
 def darken_cmap(colormap='spectral', alpha=0.9, 
         cmapdir = '/n/coxfs01/julianarhee/colormaps'):
