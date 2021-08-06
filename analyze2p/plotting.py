@@ -314,8 +314,11 @@ def pairwise_compare_single_metric(comdf, curr_metric='avg_size',
                         c1='rfs', c2='rfs10', compare_var='experiment',
                         c1_label=None, c2_label=None,
                         ax=None, marker='o', visual_areas=['V1', 'Lm', 'Li'],
+                        lw=1, alpha=1., 
                         xlabel_offset=-1, area_colors=None, bar_ci=95, bar_lw=0.5,
                         return_stats=False, round_to=3, ttest=True):
+
+    import analyze2p.stats as st
     assert 'datakey' in comdf.columns, "Need a sorter, 'datakey' not found."
     if area_colors is None:
         visual_areas = ['V1', 'Lm', 'Li']
@@ -333,10 +336,19 @@ def pairwise_compare_single_metric(comdf, curr_metric='avg_size',
     r_=[]
     for ai, visual_area in enumerate(visual_areas):
         plotdf = comdf[comdf['visual_area']==visual_area]
-        ax, pdict = plot_paired(plotdf, aix=aix, curr_metric=curr_metric, ax=ax,
-                        c1=c1, c2=c2, compare_var=compare_var, offset=offset,
-                        marker=marker, color=area_colors[visual_area], lw=0.5, 
-                        return_stats=True, round_to=round_to, ttest=ttest)
+        # Do ttest or wilcoxon 
+        pdict, a_vals, b_vals = st.paired_ttest_from_df(plotdf, 
+                                    metric=curr_metric, c1=c1, c2=c2,
+                                    compare_var=compare_var, 
+                                    round_to=round_to, 
+                                    return_vals=True, ttest=ttest)
+        # plot
+        by_exp = [(a, e) for a, e in zip(a_vals, b_vals)]
+        color=area_colors[visual_area]
+        for pi, p in enumerate(by_exp):
+            ax.plot([aix-offset, aix+offset], p, marker=marker, color=color,
+                    alpha=alpha, lw=lw,  zorder=0, markerfacecolor=None,
+                    markeredgecolor=color, label=visual_area) #label)
         pdict.update({'visual_area': visual_area})
         res = pd.DataFrame(pdict, index=[ai])
         r_.append(res)
@@ -360,7 +372,19 @@ def pairwise_compare_single_metric(comdf, curr_metric='avg_size',
     else: 
         return ax
 
+def annotate_sig_on_paired_plot(ax, plotd, pstats, metric, lw=1.,
+                                stat='p_val', thr=0.05, offset=2, h=2,
+                                visual_areas=['V1', 'Lm', 'Li']):
+    sig_areas = list(pstats[pstats[stat]<thr]['visual_area'])
+    for v in sig_areas:
+        vix = visual_areas.index(v)
+        xticks = ax.get_xticks()
+        x1, x2 = xticks[vix*2], xticks[(vix*2)+1]
+        y, h, col = plotd[metric].max() + offset, h, 'k'
+        ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
+        ax.text((x1+x2)*.5, y+h, "*", ha='center', va='bottom', color=col)
 
+    return
 
 # STATS
 # Plotting
