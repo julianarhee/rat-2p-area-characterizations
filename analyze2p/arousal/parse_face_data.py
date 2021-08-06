@@ -35,7 +35,7 @@ from scipy import stats as spstats
 #from pipeline.python.eyetracker import dlc_utils as dlcutils
 from analyze2p.arousal import dlc_utils as dlcutils
 import analyze2p.aggregate_datasets as aggr
-import analyze2p.utils.helpers as hutils
+import analyze2p.utils as hutils
 
 
 
@@ -59,13 +59,15 @@ def extract_options(options):
             dest='response_type', default='dff', 
             help="response type [default: dff]")
 
-    parser.add_option('-i', '--animalid', action='store', dest='animalid', 
-            default=None, help="animalid")
-    parser.add_option('-A', '--fov', action='store', dest='fov', 
-            default='FOV1_zoom2p0x', help="fov (default: FOV1_zoom2p0x)")
-    parser.add_option('-S', '--session', action='store', dest='session', 
-            default='', help="session (YYYYMMDD)")
-
+    parser.add_option('-i', '--datakey', action='store', dest='datakey', 
+            default=None, help="YYYYMMDD_JCxx_fovX")
+#    parser.add_option('-i', '--animalid', action='store', dest='animalid', 
+#            default=None, help="animalid")
+#    parser.add_option('-A', '--fov', action='store', dest='fov', 
+#            default='FOV1_zoom2p0x', help="fov (default: FOV1_zoom2p0x)")
+#    parser.add_option('-S', '--session', action='store', dest='session', 
+#            default='', help="session (YYYYMMDD)")
+#
 
     parser.add_option('-p', '--iti-pre', action='store', dest='iti_pre', 
             default=1.0, help="pre-stimulus iti (dfeault: 1.0 sec)")
@@ -121,11 +123,14 @@ def parse_all_missing(experiment, create_new=False,
                     eyetracker_dir='/n/coxfs01/2p-data/eyetracker_tmp'):
 
     '''
-    Cycle through all datasets for specified experiment type, get pupildata.
+    Cycle through all datasets for specified experiment type, get pupildata,
+    which is the posedata (extracted from DLC) aligned to trials.
    
-    redo_fov: bool
-        Set TRUE to re-save extracted/aligned pupil traces for each FOV.
+    realign: bool
+        Set TRUE to realign pose data to trials.
 
+    recombine: bool
+        Set TRUE to recombin/aggr all the runs for a given experiment/fov.
     '''
 
     exclude_for_now = ['20190315_JC070_fov1', '20190517_JC083_fov1']
@@ -190,9 +195,10 @@ def parse_all_missing(experiment, create_new=False,
 def main(options):
     opts = extract_options(options)
 
-    animalid=opts.animalid
-    session=opts.session
-    fov=opts.fov
+    #animalid=opts.animalid
+    #session=opts.session
+    #fov=opts.fov
+    datakey = opts.datakey
     experiment=opts.experiment
     traceid=opts.traceid
 
@@ -219,7 +225,10 @@ def main(options):
     eyetracker_dir = opts.eyetracker_dir
     print("TRACEID: %s" % traceid)
 
-    if animalid is None:
+    pupil_framerate=20.
+    aggregate_metrics=True
+
+    if datakey is None:
         missing = parse_all_missing(experiment,
                             traceid=traceid, 
                             iti_pre=iti_pre, iti_post=iti_post,
@@ -228,7 +237,8 @@ def main(options):
                             pupil_epoch=pupil_epoch,
                             snapshot=snapshot, verbose=verbose,
                             rootdir=rootdir, eyetracker_dir=eyetracker_dir,
-                            create_new=create_new, realign=realign, recombine=recombine)
+                            create_new=create_new, 
+                            realign=realign, recombine=recombine)
         print("Done!")
         print("Missing DLC or eyetracker data for %s dsets: " % (len(missing)))
         for i in missing:
@@ -246,6 +256,16 @@ def main(options):
                             realign=realign, recombine=recombine)
  
         print("******[%s|%s|%s] Finished parsing eyetracker data (snapshot=%i)" % (animalid, session, experiment, snapshot))
+
+
+    if aggregate_metrics:
+        aggr_pupilmetrics, aggr_params, missing_dfs = dlc.aggregate_dataframes(
+                            experiment=experiment, trial_epoch=pupil_epoch,
+                            alignment_type=alignment_type, 
+                            iti_pre=iti_pre, iti_post=iti_post, 
+                            in_rate=pupil_framerate, out_rate=pupil_framerate,
+                            return_missing=True,
+                            create_new=True, realign=False, recombine=False)
 
     return
 

@@ -88,6 +88,30 @@ def save_traces_and_params(datakey, experiment, ptraces, params,
 
     return
 
+def load_fov_metrics(datakey, experiment,  
+                    trial_epoch='stimulus', snapshot=391800,
+                    rootdir='/n/coxfs01/2p-data'):
+    df_ = None
+    params_ = None
+    # Set output dir
+    session, animalid, fovnum = hutils.split_datakey_str(datakey)                 
+    rundir = glob.glob(os.path.join(rootdir, animalid, session, 
+                    'FOV%i_*' % fovnum, 'combined_%s_static' % experiment))[0]
+    dst_dir = os.path.join(rundir, 'facetracker')
+
+    metric_id = create_trial_metrics_id(snapshot=snapshot, 
+                                trial_epoch=trial_epoch)
+    
+    results_fpath = os.path.join(dst_dir, '%s.pkl' % metric_id)
+    params_fpath = os.path.join(dst_dir, '%s_params.json' % metric_id)
+
+    with open(results_fpath, 'rb') as f:
+        df_ = pkl.load(f)
+    with open(params_fpath, 'r') as f:
+        params_ = json.load(f)
+
+    return df_, params_
+
 
 def save_fov_metrics(datakey, experiment, df_, params_, 
                     trial_epoch='stimulus', snapshot=391800,
@@ -167,8 +191,11 @@ def aggregate_traces(experiment, traceid='traces001',
     create_new: bool
         Set TRUE to recreate aggregated .pkl file with ALL traces.
     
-    redo_fov: bool
-        Set TRUE to re-save extracted/aligned pupil traces for each FOV.
+    realign: bool
+        Set TRUE to realign traces to trials.
+
+    recombine: bool
+        Set TRUE to re-aggregate run data for each dataset.
 
     Returns
     
@@ -398,8 +425,8 @@ def aggregate_dataframes(experiment, trial_epoch='stimulus',
     Load or create AGGREGATED dict of pupil dataframes (per-trial metrics)
     (prev called load_pupil_data)
     
-    Takes pupil traces, resample, then returns dict of pupil dataframes.
-    Durations are in seconds.
+    Set realign=False and recombine=False to just load fov traces 
+    and calculate trial metrics.
 
     trial_epoch : (str)
         'pre': Use PRE-stimulus period for response metric.
@@ -408,9 +435,13 @@ def aggregate_dataframes(experiment, trial_epoch='stimulus',
  
     create_new: bool
         Set TRUE to recreate aggregated .pkl file with ALL traces.
-    
+
+    Takes pupil traces, resample, then returns dict of pupil dataframes.
+    Durations are in seconds.
+  
     realign: bool
         Set TRUE to re-align aggregate traces for each FOV.
+
     recombine: bool
         Set TRUE to re-combine all pupildata across runs for each FOV.
 
@@ -422,29 +453,50 @@ def aggregate_dataframes(experiment, trial_epoch='stimulus',
     '''
     print("~~~~~~~~~~~~ Aggregating pupil dataframes. ~~~~~~~~~~~")
 
-    aggr_dfs=None; aggr_params=None; missing_traces=[];
+    aggr_dfs=None; aggr_params=None; missing_dsets=[];
     if realign or recombine:
         create_new=True
 
     if (create_new is False):
         try:
-            aggr_dfs, aggr_params, missing_dsets = load_dataframes(experiment, 
-                                        snapshot=snapshot, 
-                                        trial_epoch=trial_epoch, 
-                                        aggregate_dir=aggregate_dir, 
-                                        return_missing=True)
-            assert aggr_dfs is not None, "No aggregated dfs. Creating new."
+            print("Re-aggregating")
+            sdata = aggr.get_aggregate_info(traceid=traceid, 
+                                    fov_type=fov_type, state=state, 
+                                    return_cells=False)
+            edata = sdata[sdata['experiment']==experiment].copy()
+            dk_list = edata['datakey'].unique()
+            aggr_dfs={}
+            aggr_params={}
+            for dk in dk_list:
+                try:
+                    fovdf, fovparams = load_fov_metrics(dk, experiment,
+                                         trial_epoch=trial_epoch, snapshot=snapshot)
+
+                    assert fovdf is not None
+                    aggr_dfs[dk] = fovdf
+                    aggr_params[dk] = fovparams
+                except Exception as e:
+                    missing_dsets.append(dk)
+                    continue
+                
+#            aggr_dfs, aggr_params, missing_dsets = load_dataframes(experiment, 
+#                                        snapshot=snapshot, 
+#                                        trial_epoch=trial_epoch, 
+#                                        aggregate_dir=aggregate_dir, 
+#                                        return_missing=True)
+            assert len(aggr_dfs)>0, "No aggregated dfs. Creating new."
         except Exception as e:
             create_new=True
 
     if create_new:
         # Load traces
-        redo_traces_too = (realign is True or recombine is True)
-        aggr_traces, aggr_traces_params, missing_traces = aggregate_traces(experiment, 
+        remake_traces = (realign is True or recombine is True)
+        aggr_traces, aggr_traces_params, missing_dsets = aggregate_traces(
+                                        experiment, 
                                         alignment_type=alignment_type, 
                                         snapshot=snapshot, 
                                         traceid=traceid, 
-                                        create_new=redo_traces_too,
+                                        create_new=remake_traces,
                                         realign=realign, recombine=recombine,
                                         return_missing=True)
         # Calculate per-trial metrics 
@@ -471,7 +523,7 @@ def aggregate_dataframes(experiment, trial_epoch='stimulus',
         print("Saved aggr. metrics to disk.")
 
     if return_missing:
-        return aggr_dfs, aggr_params, missing_traces
+        return aggr_dfs, aggr_params, missing_dsets
     else:
         return aggr_dfs, aggr_params
 
@@ -496,7 +548,7 @@ def parsed_traces_to_metrics(ptraces, params, in_rate=20., out_rate=20.,
     stim_durs = np.unique([round(s/1E3, 1) for s \
                                     in ptraces['stim_dur_ms'].unique()])
     assert len(stim_durs)==1, "Bad stim durs: %s" % str(stim_durs)
-    stim_dur = float(stim_durs[0])*1000
+    stim_dur = float(stim_durs[0]) #*1000
     desired_nframes = int((stim_dur + iti_pre + iti_post)*out_rate)
     iti_pre_ms=iti_pre*1000
     new_stim_on = int(round(iti_pre*out_rate))
@@ -790,6 +842,17 @@ def get_pose_data(datakey, experiment, feature_list=['pupil'],
 
     recombine: bool
         Set TRUE to re-create/combine pupildata from extracted hdf5 features.
+
+    Returns:
+    
+    trialmeta (pd.DataFrame)
+        labels for each frame and trial
+
+    pupildata (pd.DataFrame)
+        all extracted frames and trials
+    
+    params (dict)
+        Params for parsing trials         
     ''' 
     trialmeta=None; pupildata=None; params=None;
 
@@ -1915,7 +1978,7 @@ def match_neural_and_pupil_trials(neuraldf, pupildf, equalize_conditions=False):
     make sure neural data trials = pupil data trials
     Former name:  match_trials_df
     '''
-    from pipeline.python.classifications.aggregate_data_stats import equal_counts_df
+    #from pipeline.python.classifications.aggregate_data_stats import equal_counts_df
     trials_with_pupil = list(pupildf['trial'].unique())
     trials_with_neural = neuraldf.index.tolist()
     n_pupil_trials = len(trials_with_pupil)
@@ -1936,7 +1999,7 @@ def match_neural_and_pupil_trials(neuraldf, pupildf, equalize_conditions=False):
         pupildf0 = pupildf.copy() 
     # Equalize trial numbers after all neural and pupil trials matched 
     if equalize_conditions:
-        neuraldf1 = equal_counts_df(neuraldf0)
+        neuraldf1 = aggr.equal_counts_df(neuraldf0)
         new_trials_neural = neuraldf1.index.tolist()
         new_trials_pupil = pupildf0['trial'].unique()
         if len(new_trials_neural) < len(new_trials_pupil):
@@ -1959,7 +2022,9 @@ def neural_trials_from_pupil_trials(neuraldf, pupildf):
     return None
 
 def split_pupil_range(pupildf, feature_name='pupil_area', n_cuts=3, return_bins=False):
-    '''
+    ''' 
+    Split pupil into "high" and "low" (Returns pd.DataFrame for each).
+
     n_cuts (int)
         4: use quartiles (0.25,  0.5 ,  0.75)
         3: use H/M/L (0.33, 0.66)
@@ -2063,7 +2128,8 @@ def get_valid_neuraldata_and_pupildata(pupildata, MEANS, SDF, verbose=False, ret
             bad_alignment.append((datakey, n_bad))
 
         # Count train configs
-        train_configs = get_train_configs(sdf, class_name=class_name, class_a=class_a, class_b=class_b,
+        train_configs = get_train_configs(sdf, class_name=class_name, 
+                                    class_a=class_a, class_b=class_b,
                                     train_transform_name=train_transform_name, 
                                     train_transform_value=train_transform_value)
         # Get counts
@@ -2081,7 +2147,8 @@ def get_valid_neuraldata_and_pupildata(pupildata, MEANS, SDF, verbose=False, ret
         pdata['datakey'] = datakey
        
         if verbose and (ntrials_total != ndata.shape[0]):
-            print('... %s: Dropping %i of %i trials' % (datakey, ntrials_dropped, ntrials_total))
+            print('... %s: Dropping %i of %i trials' \
+                        % (datakey, ntrials_dropped, ntrials_total))
             
         if return_valid_only:
             pupil_ = pdata.loc[pdata_match.index]

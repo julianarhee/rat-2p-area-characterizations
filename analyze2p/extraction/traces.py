@@ -42,6 +42,42 @@ def get_data_fpath(datakey, experiment_name='rfs10', traceid='traces001',
 
     return data_fpath 
 
+
+def get_trial_alignment(datakey, curr_exp, traceid='traces001',
+        rootdir='/n/coxfs01/2p-data'):
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
+    try:
+        extraction_files = sorted(glob.glob(os.path.join(rootdir, 
+                                animalid, session, 'FOV%i*' % fovn, 
+                                '*%s*' % curr_exp, 'traces', 
+                                '%s*' % traceid,'event_alignment.json')), 
+                                key=natural_keys) 
+        assert len(extraction_files) > 0, \
+            "(%s, %s) No extraction info found..." % (datakey, curr_exp)
+    except AssertionError:
+        return None
+    
+    for i, ifile in enumerate(extraction_files):
+        with open(ifile, 'r') as f:
+            info = json.load(f)
+        if i==0:
+            infodict = dict((k, [v]) for k, v in info.items() if isnumber(v)) 
+        else:
+            for k, v in info.items():
+                if isnumber(v): 
+                    infodict[k].append(v)
+    try: 
+        for k, v in infodict.items():
+            nvs = np.unique(v)
+            assert len(nvs)==1, "%s: more than 1 value found: (%s, %s)" \
+                                    % (datakey, k, str(nvs))
+            infodict[k] = np.unique(v)[0]
+    except AssertionError:
+        return -1
+
+    return infodict
+
+ 
 # 
 # --------------------------------------------------------------------
 # Data processing

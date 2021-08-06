@@ -226,6 +226,32 @@ def select_stimulus_configs(datakey, experiment, select_stimuli=None):
         
     return curr_cfgs
 
+
+
+def aggregate_alignment_info(edata, traceid='traces001'):
+    exp=str(edata['experiment'].unique()) 
+    i=0
+    d_=[]
+    for (va, dk), g in edata.groupby(['visual_area', 'datakey']):
+        # Alignment info
+        alignment_info = traceutils.get_trial_alignment(dk, exp, traceid=traceid)
+        if alignment_info==-1:
+            print("Realign: %s" % dk)
+            continue
+        iti_pre_ms = float(alignment_info['iti_pre'])*1000
+        iti_post_ms = float(alignment_info['iti_post'])*1000
+        #print("ITI pre/post: %.1f ms, %.1f ms" % (iti_pre_ms, iti_post_ms))
+        d_.append(pd.DataFrame({'visual_area': va, 
+                                 'iti_pre': float(alignment_info['iti_pre']),
+                                 'iti_post': float(alignment_info['iti_post']),
+                                 'stim_dur': float(alignment_info['stim_on_sec']),
+                                 'datakey': dk}, index=[i]))
+        i+=1
+    A = pd.concat(d_, axis=0).reset_index(drop=True)  
+
+    return A
+
+
 # ###############################################################
 # Data formatting
 # ###############################################################
