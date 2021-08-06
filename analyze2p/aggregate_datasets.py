@@ -108,7 +108,7 @@ def get_stimuli(datakey, experiment, rootdir='/n/coxfs01/2p-data', verbose=False
     Returns 'sdf' (dataframe, index='config001', etc. columns=stimulus parameters).
     '''
     session, animalid, fovn = hutils.split_datakey_str(datakey)
-    if 'rfs' in experiment and int(session)<20190512:
+    if 'rfs' in experiment and int(session)<20190511:
         experiment_name = 'gratings'
     else:
         experiment_name = experiment

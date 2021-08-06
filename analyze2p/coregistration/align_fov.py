@@ -10,7 +10,7 @@ Created on Wed Sep 19 18:19:52 2018
 import matplotlib
 #matplotlib.use('agg')
 import sys
-sys.path.append('/usr/local/lib/python2.7/site-packages')
+#sys.path.append('/usr/local/lib/python2.7/site-packages')
 import math
 import json
 import os
@@ -27,14 +27,19 @@ import pprint
 pp = pprint.PrettyPrinter(indent=4)
 
 import pylab as pl
-import cPickle as pkl
+import _pickle as pkl
 import numpy as np
 import tifffile as tf
 
-from pipeline.python.utils import natural_keys
+#from pipeline.python.utils import natural_keys
 from dateutil.parser import parse
 import cv2
+import analyze2p.utils as hutils
 #%%
+##
+# -----------------------------------------------------------------------------
+# Image transformation/rotation to match WF
+# -----------------------------------------------------------------------------
 def rotate_image(mat, angle):
     """
     Rotates an image (angle in degrees) and expands image to avoid cropping
@@ -46,7 +51,7 @@ def rotate_image(mat, angle):
     rotation_mat = cv2.getRotationMatrix2D(image_center, angle, 1.)
 
     # rotation calculates the cos and sin, taking absolutes of those.
-    abs_cos = abs(rotation_mat[0,0]) 
+    abs_cos = abs(rotation_mat[0,0])
     abs_sin = abs(rotation_mat[0,1])
 
     # find the new width and height bounds
@@ -61,7 +66,6 @@ def rotate_image(mat, angle):
     rotated_mat = cv2.warpAffine(mat, rotation_mat, (bound_w, bound_h))
     return rotated_mat
 
-
 def transform_2p_fov(img, pixel_size, zoom_factor=1., normalize=True):
     '''
     First, left/right reflection and rotation of 2p image to match orientation of widefield view.
@@ -72,7 +76,7 @@ def transform_2p_fov(img, pixel_size, zoom_factor=1., normalize=True):
     return scaled_
 
 
-def orient_2p_to_macro(avg, zoom_factor, normalize=True, 
+def orient_2p_to_macro(avg, zoom_factor, normalize=True,
                     acquisition_dir='/tmp', channel_ix=0, plot=False, save=True): #,
                         #xaxis_conversion=2.312, yaxis_conversion=1.904):
     '''
@@ -83,78 +87,83 @@ def orient_2p_to_macro(avg, zoom_factor, normalize=True,
     '''
     # Scale:
     d1, d2 = avg.shape # (img height, img width)
-    #print("Input img shape: (%i, %i)" % (d1, d2))
-    #scaled = cv2.resize(avg, dsize=(d1, int(d2*zoom_factor)), interpolation=cv2.INTER_CUBIC)  #, dtype=avg.dtype)
-    #new_d1 = d1*xaxis_conversion
-    #new_d2 = d2*yaxis_conversion
-    #scaled_pix = cv2.resize(avg, (new_d1, new_d2))
     
     # dsize: (v1, v2) -- v1 specifies COLS, v2 specifies ROWS (i.e., img_w, img_h)
-    scaled = cv2.resize(avg, dsize=(int(d1*zoom_factor), d2), interpolation=cv2.INTER_CUBIC)  #, dtype=avg.dtype)
-     
+    scaled = cv2.resize(avg, dsize=(int(d1*zoom_factor), d2), \
+                    interpolation=cv2.INTER_CUBIC)  #, dtype=avg.dtype)
+
     # Rotate leftward:
     rotated = rotate_image(scaled, 90)
-    
+
     # Flip L/R:
     transformed = np.fliplr(rotated)
-    
+
     # Cut off super low vals, Convert range from 0, 255
     if normalize:
-        transformed[transformed<-50] = 0 
+        transformed[transformed<-50] = 0
         normed = cv2.normalize(transformed, None, 0, 255, cv2.NORM_MINMAX)
-        
+
         # Convert to 8-bit
         img8 = cv2.convertScaleAbs(normed)
-        
+
         # Equalize hist:
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(10,10))
         eq = clahe.apply(img8)
-            
-        if plot:
-            pl.figure()
-            pl.subplot(2,2,1); pl.title('orig'); pl.imshow(rotated); pl.colorbar();
-            pl.subplot(2,2,2); pl.title('normalized'); pl.imshow(normed); pl.colorbar();
-            pl.subplot(2,2,3); pl.title('8 bit'); pl.imshow(img8); pl.colorbar();
-            pl.subplot(2,2,4); pl.title('equalize'); pl.imshow(eq); pl.colorbar();
-            pl.savefig(os.path.join(acquisition_dir, 'anatomical', 'transform_steps_Ch%i.png' % int(channel_ix+1)))
-            pl.close()
-       
     else:
         eq = transformed.copy()
 
-    if save:
-        transformed_img_path = os.path.join(acquisition_dir, 'anatomical', 'anatomical_Channel%02d_transformed.tif' % int(channel_ix+1))
-        tf.imsave(transformed_img_path, eq)
-        return transformed_img_path
+    if normalize:
+        final = img8.copy()
     else:
-        if normalize:
-            return img8 #eq #transformed_img_path
-        else:
-            return eq
+        final = eq.copy()
+
+    if plot:
+        fig = plot_transformation_steps(scaled, rotated, normed, final)
+        pl.savefig(os.path.join(acquisition_dir, 'anatomical', \
+                    'transform_steps_Ch%i.png' % int(channel_ix+1)))
+        pl.close()
+
+    if normalize:
+        return img8 #eq #transformed_img_path
+    else:
+        return eq
     
- 
 def scale_2p_fov(transformed_image, pixel_size=(2.312, 1.888)):
-    xaxis_conversion, yaxis_conversion = pixel_size 
+    xaxis_conversion, yaxis_conversion = pixel_size
 
     d1, d2 = transformed_image.shape # d1=HEIGHT, d2=WIDTH
     new_d1 = int(round(d1*xaxis_conversion,1)) # yaxis corresponds to M-L axis (now along )
-    new_d2 = int(round(d2*yaxis_conversion,1)) # xaxis corresopnds to A-P axis (d2 is iamge width) 
+    new_d2 = int(round(d2*yaxis_conversion,1)) # xaxis corresopnds to A-P axis (d2 is iamge width)
     im_r = cv2.resize(transformed_image, (new_d2, new_d1))
 
     return im_r
 
-    
+
+def plot_transformation_steps(rotated, normed, img8, eq):
+    pl.figure()
+    pl.subplot(2,2,1); pl.title('orig'); pl.imshow(rotated); pl.colorbar();
+    pl.subplot(2,2,2); pl.title('normalized'); pl.imshow(normed); pl.colorbar();
+    pl.subplot(2,2,3); pl.title('8 bit'); pl.imshow(img8); pl.colorbar();
+    pl.subplot(2,2,4); pl.title('equalize'); pl.imshow(eq); pl.colorbar();
+    return fig
+
+   
+# ----------------
+       
 def transform_anatomicals(acquisition_dir):
     image_paths = []
-    anatomical_fpath = glob.glob(os.path.join(acquisition_dir, 'anatomical', 'processed', 'processed*', 'mcorrected*', '*.tif'))
-    assert len(anatomical_fpath) == 1, "More than 1 anatomical .tif found: %s" % str(anatomical_fpath)
+    anatomical_fpath = glob.glob(os.path.join(acquisition_dir, 'anatomical', \
+                                'processed', 'processed*', 'mcorrected*', '*.tif'))
+    assert len(anatomical_fpath) == 1, \
+                    "More than 1 anatomical .tif found: %s" % str(anatomical_fpath)
     anatomical_fpath = anatomical_fpath[0]
     
     # Load corrected tif stack:
     img = tf.imread(anatomical_fpath)
     
     # Load SI meta data:
-    si_fpath = glob.glob(os.path.join(acquisition_dir, 'anatomical', 'raw*', 'SI*.json'))[0]
+    si_fpath = glob.glob(os.path.join(acquisition_dir, \
+                                'anatomical', 'raw*', 'SI*.json'))[0]
     with open(si_fpath, 'r') as f: SI = json.load(f)
     SI = SI['File001']['SI']
     
@@ -171,13 +180,19 @@ def transform_anatomicals(acquisition_dir):
         channel_img = img[channel_ix::nchannels, :, :]
             
         # Get the group-averaged sum of single channel:
-        avg = np.sum(np.dstack([np.mean(channel_img[i::nslices, :, :], axis=0) for i in range(nslices)]), axis=-1, dtype=channel_img.dtype)
+        avg = np.sum(np.dstack([np.mean(channel_img[i::nslices, :, :], axis=0) \
+                    for i in range(nslices)]), axis=-1, dtype=channel_img.dtype)
         
         # Transform img:
-        image_path = orient_2p_to_macro(avg, zoom_factor, 
+        eq = orient_2p_to_macro(avg, zoom_factor, 
                                     acquisition_dir=acquisition_dir, 
                                     channel_ix=channel_ix, plot=True)
-        image_paths.append(image_path)
+        img_path = os.path.join(acquisition_dir, 'anatomical', \
+                                    'anatomical_Channel%02d_transformed.tif' \
+                                    % int(channel_ix+1))
+        tf.imsave(img_path, eq)
+
+        image_paths.append(img_path)
         
     return image_paths
 
@@ -271,20 +286,20 @@ def align_to_reference(sample, reference, outdir, sample_name='sample'):
     global refPt, image
 
     # GET SAMPLE:
-    print "Sample that will be aligned to ref is: ", sample.shape
+    print("Sample that will be aligned to ref is: ", sample.shape)
 
     refPt = []
     image = copy.copy(sample)
     sample_pts_img, sample_pts = get_registration_points(image)
     #sample_pts = copy.copy(refPt)
     npoints = len(sample_pts)
-    print "GOT %i SAMPLE POINTS: " % npoints
-    print sample_pts
+    print("GOT %i SAMPLE POINTS: " % npoints)
+    print(sample_pts)
 
     # Save chosen SAMPLE points:
     sample_points_path = os.path.join(outdir, 'sample_points_%s.png' % sample_name)
     cv2.imwrite(sample_points_path, sample_pts_img)
-    print "Saved SAMPLE points to:\n%s" % sample_points_path
+    print("Saved SAMPLE points to:\n%s" % sample_points_path)
 
 
     #% GET corresponding reference points:
@@ -294,12 +309,12 @@ def align_to_reference(sample, reference, outdir, sample_name='sample'):
     npoints = len(reference_pts)
 
     # DISPLAY REF IMAGE:
-    print "GOT %i reference test POINTS: " % npoints
-    print reference_pts
+    print("GOT %i reference test POINTS: " % npoints)
+    print(reference_pts)
     # Save chosen REF points:
     ref_points_path = os.path.join(outdir, 'reference_points_%s.png' % sample_name)
     cv2.imwrite(ref_points_path, ref_pts_img)
-    print "Saved REFERENCE points to:\n%s" % ref_points_path
+    print("Saved REFERENCE points to:\n%s" % ref_points_path)
     cv2.destroyAllWindows()
 
     #%
@@ -323,7 +338,7 @@ def align_to_reference(sample, reference, outdir, sample_name='sample'):
     #coreg_info['transform_mat'] = M
 
     coreg_hash = hash(frozenset(coreg_info.items()))
-    print "COREG HASH: %s" % coreg_hash
+    print("COREG HASH: %s" % coreg_hash)
 
     return M, out, coreg_info, coreg_hash
 
@@ -331,7 +346,7 @@ def align_to_reference(sample, reference, outdir, sample_name='sample'):
 
 def plot_transforms(sampleimg, referenceimg, out, npoints, out_path='/tmp'):
 
-    print "Making figure..."
+    print("Making figure...")
     # plt.figure(figsize=(10,0))
     pl.figure()
 
@@ -360,13 +375,13 @@ def plot_transforms(sampleimg, referenceimg, out, npoints, out_path='/tmp'):
     pl.tight_layout()
     
     imname = 'warp_transforms_npoints%i.png' % (npoints)
-    print imname
+    print(imname)
     pl.savefig(os.path.join(out_path, imname))
     #pl.show()
 
 #%
 def plot_merged(reference, out, npoints=None, out_path='/tmp'):
-    print "Getting MERGED figure..."
+    print("Getting MERGED figure...")
 
     pl.figure()
     merged = np.zeros((reference.shape[0], reference.shape[1], 3), dtype=np.uint8)
@@ -380,7 +395,7 @@ def plot_merged(reference, out, npoints=None, out_path='/tmp'):
     else:
         imname = 'overlay_npoints%i' % npoints #(sample_fn, reference_fn, npoints)
 
-    print os.path.join(out_path, imname)
+    print(os.path.join(out_path, imname))
     pl.savefig(os.path.join(out_path, imname))
 
     #pl.show()
@@ -396,7 +411,7 @@ class Animal():
         self.coreg_dir = os.path.join(self.rootdir, self.animalid, 'coreg')
         if not os.path.exists(self.coreg_dir):
             os.makedirs(self.coreg_dir)
-        print "Saving coreg results to: %s" % self.coreg_dir
+        print("Saving coreg results to: %s" % self.coreg_dir)
                 
         self.get_reference(path_to_macro=optsE.macro_path)
         
@@ -411,16 +426,20 @@ class Animal():
     def get_reference(self, path_to_macro=None):
         if path_to_macro is None:
             try:
-                macro_paths = glob.glob(os.path.join(self.rootdir, self.animalid, 'macro_maps', '20*', '*urf.png'))
-                assert len(macro_paths) == 1, "Not sure which image to use as reference..."
+                macro_paths = glob.glob(os.path.join(self.rootdir, self.animalid, \
+                                                'macro_maps', '20*', '*urf.png'))
+                assert len(macro_paths) == 1, \
+                                        "Not sure which image to use as reference..."
                 path_to_macro = macro_paths[0]
             except Exception as e:
-                macro_paths = glob.glob(os.path.join(self.rootdir, self.animalid, 'macro_maps', '20*', '*.tiff'))
-                assert len(macro_paths) > 0, "Nothing in macro dir: %s. ABORING." % macro_paths
+                macro_paths = glob.glob(os.path.join(self.rootdir, self.animalid, \
+                                                'macro_maps', '20*', '*.tiff'))
+                assert len(macro_paths) > 0, \
+                                    "Nothing in macro dir: %s. ABORING." % macro_paths
                 
-                print "Found these images..."
+                print("Found these images...")
                 for i, mpath in enumerate(macro_paths):
-                    print i, mpath
+                    print(i, mpath)
                 select = input("Select IDX: ")
                 path_to_macro = macro_paths[select]
                
@@ -428,7 +447,7 @@ class Animal():
             reference = cv2.imread(path_to_macro, cv2.IMREAD_GRAYSCALE)
         else: 
             reference = tf.imread(path_to_macro)
-        print "REF:",  reference.shape
+        print("REF:",  reference.shape)
         self.reference = reference
         self.reference_fpath = path_to_macro
         
@@ -436,12 +455,12 @@ class Animal():
     def add_fov(self, optsE):
         curr_fov = '%s_%s' % (optsE.session, optsE.acquisition)
         if curr_fov not in self.session_list.keys():
-            print "... Adding new FOV -- %s -- to list." % curr_fov
+            print("... Adding new FOV -- %s -- to list." % curr_fov)
             self.session_list.update({curr_fov: FOV(optsE)})
         else:
             redo = raw_input("... FOV -- %s -- exists. Re-do alignment?\nPress [Y] to redo, Enter to escape: " % curr_fov)
             if redo == 'Y':
-                print "Re-adding FOV to list."
+                print("Re-adding FOV to list.")
                 self.session_list.update({curr_fov: FOV(optsE)})
             else:
                 return -1
@@ -453,7 +472,7 @@ class Animal():
         
     def align_fov(self, curr_fov):
         
-        print "... ALIGNING:  current FOV is %s" % curr_fov
+        print("... ALIGNING:  current FOV is %s" % curr_fov)
         M, out, coreg_info, coreg_hash = align_to_reference(self.session_list[curr_fov].image, self.reference, self.session_list[curr_fov].coreg_dir, sample_name=curr_fov)
         #npoints = len(coreg_info['sample_points_x'])
 
@@ -515,21 +534,21 @@ class FOV():
         acquisition_dir = os.path.join(self.rootdir, self.animalid, self.session, self.acquisition)
         
         # Get transformed, 8bit anatomical image to align to macro map:
-        image_paths = sorted(glob.glob(os.path.join(acquisition_dir, 'anatomical', 'anatomical_Channel*_transformed.tif')), key=natural_keys)
+        image_paths = sorted(glob.glob(os.path.join(acquisition_dir, 'anatomical', 'anatomical_Channel*_transformed.tif')), key=hutils.natural_keys)
         if len(image_paths) == 0:
-            print "No anatomical transformed images found. Creating now."
+            print("No anatomical transformed images found. Creating now.")
             image_paths = self.transform_anatomicals()
        
         # check if scaled for pixels
         xaxis_conversion, yaxis_conversion = self.pixel_size
-        scaled_paths = sorted(glob.glob(os.path.join(acquisition_dir, 'anatomical', 'anatomical_Channel*_transformed_scaled.tif')), key=natural_keys)
+        scaled_paths = sorted(glob.glob(os.path.join(acquisition_dir, 'anatomical', 'anatomical_Channel*_transformed_scaled.tif')), key=hutils.natural_keys)
         if len(scaled_paths)==0:
             scaled_paths = self.scale_anatomicals(image_paths) 
                                                   #xaxis_conversion=xaxis_conversion,
                                                   #yaxis_conversion=yaxis_conversion)
 
         if len(scaled_paths) > 1:
-            print "More than 1 channel img found:"
+            print("More than 1 channel img found:")
             ch1 = tf.imread([f for f in scaled_paths if 'Channel01' in f][0])
             ch2 = tf.imread([f for f in scaled_paths if 'Channel02' in f][0])
             fig = pl.figure(figsize=(10,4))
@@ -539,7 +558,7 @@ class FOV():
             pl.show(block=False)
             
             for i, img_path in enumerate(scaled_paths):
-                print i, img_path
+                print(i, img_path)
             select = input("Choose IDX of channel to use: ")
             self.image_path = scaled_paths[select]
             pl.close(fig)
@@ -620,9 +639,13 @@ class FOV():
             avg = np.sum(np.dstack([np.mean(channel_img[i::nslices, :, :], axis=0) for i in range(nslices)]), axis=-1, dtype=channel_img.dtype)
             
             # Transform img:
-            image_path = orient_2p_to_macro(avg, zoom_factor, 
-                                            acquisition_dir=acquisition_dir, 
-                                            channel_ix=channel_ix, plot=True)
+            eq = orient_2p_to_macro(avg, zoom_factor, 
+                                        acquisition_dir=acquisition_dir, 
+                                        channel_ix=channel_ix, plot=True)
+            image_path = os.path.join(acquisition_dir, 'anatomical', \
+                                        'anatomical_Channel%02d_transformed.tif' \
+                                        % int(channel_ix+1))
+            tf.imsave(image_path, eq)
             image_paths.append(image_path)
         
         self.meta['nchannels'] = nchannels
@@ -677,24 +700,12 @@ def main(options):
     optsE = extract_options(options)
     animal_fpath = os.path.join(optsE.rootdir, optsE.animalid, 'coreg', 'FOVs.pkl')
     if not os.path.exists(animal_fpath):
-        print "--- Creating NEW animal object! ---"
+        print("--- Creating NEW animal object! ---")
         A = Animal(optsE)
         A.save_me()
     else:
         with open(animal_fpath, 'rb') as f: A = pkl.load(f)
        
-#        for fkey, currfv in A.session_list.items():
-#            if not hasattr(currfv, 'pixel_size'):
-#                fv_ = FOV(optsE) #setattr(xx, vv, 'test')
-#                print('%s - adding px' % fkey)
-#                for vv in dir(currfv):
-#                    if _ in vv:
-#                        continue
-##                    if callable(getattr(currfv, vv)):
-##                        continue
-##                    setattr(fv_, vv, getattr(currfv, vv))
-#                A.session_list[fkey] = fv_
-#
     state = A.add_fov(optsE)
     if state is None:
         curr_fov = '%s_%s' % (optsE.session, optsE.acquisition)
@@ -708,7 +719,7 @@ def main(options):
             reselect_points = A.check_alignment(curr_fov)
 
     A.save_me()
-    print A.session_list
+    print(A.session_list)
 
 
 if __name__ == '__main__':
@@ -739,7 +750,7 @@ def load_image(image_path):
     else:
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         image = image[:,:,1]
-    print "Image size is: ", image.shape
+    print("Image size is: ", image.shape)
 
     return image, imghash
 #%%

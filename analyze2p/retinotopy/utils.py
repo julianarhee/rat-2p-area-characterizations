@@ -1168,11 +1168,14 @@ def smooth_phase_array(theta,sigma,sz):
 
 def shift_map(phase_az):
     phaseC_az=np.copy(phase_az)
-    if phase_az[~np.isnan(phase_az)].min() < 0 and phase_az[~np.isnan(phase_az)].max() > 0:
-        phaseC_az[phase_az<0]=-phase_az[phase_az<0]
-        phaseC_az[phase_az>0]=(2*np.pi)-phase_az[phase_az>0]
-    else:
-        print("Already non-negative (min/max: %.2f, %.2f)" % (phase_az.min(), phase_az.max()))
+    phaseC_az[phase_az<0]=-phase_az[phase_az<0]
+    phaseC_az[phase_az>0]=(2*np.pi)-phase_az[phase_az>0]
+
+#    if phase_az[~np.isnan(phase_az)].min() < 0 and phase_az[~np.isnan(phase_az)].max() > 0:
+#        phaseC_az[phase_az<0]=-phase_az[phase_az<0]
+#        phaseC_az[phase_az>0]=(2*np.pi)-phase_az[phase_az>0]
+#    else:
+#        print("Already non-negative (min/max: %.2f, %.2f)" % (phase_az.min(), phase_az.max()))
     return phaseC_az
 
 
@@ -1188,9 +1191,12 @@ def convert_to_absolute(cond_data, smooth_fwhm=7, smooth=True, power_metric='mag
     vmin = 0
     vmax = 2*np.pi
 
-    combined_phase_map = convert_absolute_phasemap(cond_data, smooth_fwhm=smooth_fwhm, smooth=smooth)
-    combined_mag_map =  convert_absolute_magmap(cond_data, smooth_fwhm=smooth_fwhm, smooth=smooth, 
+    combined_phase_map = convert_absolute_phasemap(cond_data, 
+                                    smooth_fwhm=smooth_fwhm, smooth=smooth)
+    combined_mag_map =  convert_absolute_magmap(cond_data, 
+                                    smooth_fwhm=smooth_fwhm, smooth=smooth, 
                                                 power_metric=power_metric)
+
     return combined_phase_map, combined_mag_map #_shift
 
 

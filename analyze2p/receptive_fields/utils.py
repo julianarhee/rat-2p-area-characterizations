@@ -634,9 +634,10 @@ def load_fit_results(datakey, experiment='rfs', is_neuropil=False,
                         'FOV%i_*' % fovn, 'combined_%s_*' % run_name,
                         'traces/%s*' % traceid, 'receptive_fields', 
                         '%s' % fit_desc))[0]
+        #print(rfdir)
         if is_neuropil:
             rfdir = os.path.join(rfdir, 'neuropil')
-    except AssertionError as e:
+    except Exception as e:
         traceback.print_exc()
        
     # Load results
@@ -2701,7 +2702,7 @@ def bootstrap_rf_params(roi_df, fit_params={},
                                     row_vals=row_vals, col_vals=col_vals)
         bootfits = bootfits_.T
         if len(bootfits.shape)==1:
-            print("... %i no fits" % rid)
+            print("... %i no fits" % roi)
             return None
  
         bootfits['cell'] = roi    

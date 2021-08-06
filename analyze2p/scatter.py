@@ -185,7 +185,7 @@ def load_movingbar_results(dk, retinorun, traceid='traces001',
     retinoid, RETID = retutils.load_retino_analysis_info(
                         dk, run=retinorun, use_pixels=False)
     data_id = '_'.join([dk, retinorun, retinoid])
-    print("DATA ID: %s" % data_id)
+    #print("DATA ID: %s" % data_id)
     scaninfo = retutils.get_protocol_info(dk, run=retinorun)
 
     # Image dimensions
@@ -683,6 +683,7 @@ def get_soma_data(dk, experiment='rfs', retinorun='retino_run1',
                         is_neuropil=False,
                         do_spherical_correction=do_spherical_correction)
         if fit_results is None:
+            print("%s - NO FIT RESULTS (%s)" % (dk, experiment))
             return None
 
         fitdf_all = rfutils.rfits_to_df(fit_results, fit_params, 
@@ -690,9 +691,10 @@ def get_soma_data(dk, experiment='rfs', retinorun='retino_run1',
         fitdf_soma = fitdf_all[fitdf_all['r2']>fit_thr].copy()
         # Add position info
         fitdf_soma['cell'] = fitdf_soma.index.tolist()
-        df = fitdf_soma.copy()
+        df = fitdf_soma.dropna()
 
     # Add pos info to NP masks
+    print("adding pos")
     df = add_position_info(df, dk, experiment, retinorun=retinorun)
 
     return df.reset_index(drop=True)
@@ -832,6 +834,8 @@ def get_gradient_results(dk, va, do_gradients=False, do_model=False, plot=True,
     '''
     create_new to completely overwrite ALL found gradient results
     '''
+    retinorun, AZMAP_NP, ELMAP_NP, GVECTORS, REGR_NP = None, None, None, None, None
+
     if plot:
         if not os.path.exists(plot_dst_dir):
             os.makedirs(plot_dst_dir)
@@ -852,34 +856,34 @@ def get_gradient_results(dk, va, do_gradients=False, do_model=False, plot=True,
         plot=True
         do_model=True
 
+
     if do_model:
         # 1. Get retino data for NEUROPIL (background)
         retinodf_np = get_neuropil_data(dk, retinorun, mag_thr=np_mag_thr, 
                                             delay_map_thr=np_delay_map_thr, 
                                             ds_factor=np_ds_factor)
-        assert retinodf_np is not None, 'ERROR: %s, %s - no df' % (dk, retinorun)
-
-        # 2. Align FOV to gradient vector direction 
-        aligned_, M = align_cortex_to_gradient(retinodf_np, GVECTORS,
-                                          xlabel='ml_pos', ylabel='ap_pos')
-        aligned_np = pd.concat([retinodf_np, aligned_], axis=1).dropna()
-        # 3. Fit model
-        REGR_NP = regress_cortex_and_retino_pos(aligned_np, \
-                        xvar='proj', model='ridge')
-        regr_np_meas = regress_cortex_and_retino_pos(aligned_np, \
-                        xvar='pos', model='ridge')
-        # Save
-        update_models(dk, va, REGR_NP, create_new=create_new)
-        if verbose:
-            print("NEUROPIL, MEASURED:")
-            print(regr_np_meas.to_markdown())
-            print("NEUROPIL, ALIGNED:")
-            print(REGR_NP.to_markdown())
-        fig = plot_measured_and_aligned(aligned_np, REGR_NP, regr_np_meas)
-        fig.text(0.01, 0.95, 'Aligned CTX. vs retino\n(BAR, Neuropil, %s)' % dk)
-        figname = 'measured_vs_aligned_NEUROPIL'
-        pl.savefig(os.path.join(plot_dst_dir, '%s.svg' % figname))
-        pl.close()
+        if retinodf_np is not None:
+            # 2. Align FOV to gradient vector direction 
+            aligned_, M = align_cortex_to_gradient(retinodf_np, GVECTORS,
+                                              xlabel='ml_pos', ylabel='ap_pos')
+            aligned_np = pd.concat([retinodf_np, aligned_], axis=1).dropna()
+            # 3. Fit model
+            REGR_NP = regress_cortex_and_retino_pos(aligned_np, \
+                            xvar='proj', model='ridge')
+            regr_np_meas = regress_cortex_and_retino_pos(aligned_np, \
+                            xvar='pos', model='ridge')
+            # Save
+            update_models(dk, va, REGR_NP, create_new=create_new)
+            if verbose:
+                print("NEUROPIL, MEASURED:")
+                print(regr_np_meas.to_markdown())
+                print("NEUROPIL, ALIGNED:")
+                print(REGR_NP.to_markdown())
+            fig = plot_measured_and_aligned(aligned_np, REGR_NP, regr_np_meas)
+            fig.text(0.01, 0.95, 'Aligned CTX. vs retino\n(BAR, Neuropil, %s)' % dk)
+            figname = 'measured_vs_aligned_NEUROPIL'
+            pl.savefig(os.path.join(plot_dst_dir, '%s.svg' % figname))
+            pl.close()
 
     return retinorun, AZMAP_NP, ELMAP_NP, GVECTORS, REGR_NP
 
@@ -892,6 +896,9 @@ def get_aligned_soma(dk, retinorun, GVECTORS, REGR_NP, experiment='rfs',
                                 protocol=protocol, traceid=traceid,
                                 response_type=response_type,
                                 do_spherical_correction=do_spherical_correction)
+    if df_soma is None:
+        return None
+
     #### Align soma coords to gradient
     aligned_, M = align_cortex_to_gradient(df_soma, GVECTORS,
                                       xlabel='ml_pos', ylabel='ap_pos')
@@ -942,12 +949,13 @@ def get_aligned_soma(dk, retinorun, GVECTORS, REGR_NP, experiment='rfs',
     
     return aligned_soma.reset_index(drop=True)
 
-def do_visualization(dk, df_, AZMAP_NP, ELMAP_NP, traceid='traces001', 
+def do_visualization(dk, df_, AZMAP_NP, ELMAP_NP, experiment='rfs',
+                     traceid='traces001', 
                     markersize=50, lw=0.5, alpha=1, cmap='Spectral', 
                     plot_true=True, plot_predicted=True, plot_lines=True,
                     plot_dst_dir='/tmp'):
     # # Visualization
-    zimg, masks, ctrs = roiutils.get_masks_and_centroids(dk, traceid=traceid)
+    zimg, masks, ctrs = roiutils.get_masks_and_centroids(dk, experiment, traceid=traceid)
     pixel_size = hutils.get_pixel_size()
     zimg_r = retutils.transform_2p_fov(zimg, pixel_size)
     fig = visualize_scatter_on_fov(df_, AZMAP_NP, ELMAP_NP, zimg_r=zimg_r,
@@ -983,7 +991,8 @@ def do_scatter_analysis(dk, va, do_gradients=False, do_model=False,
     curr_dst_dir = os.path.join(fovdir, 'segmentation')
     if not os.path.exists(curr_dst_dir):
         os.makedirs(curr_dst_dir)
-
+    has_retino=True
+    has_rfs=True
     try:
         retinorun, AZMAP_NP, ELMAP_NP, GVECTORS, REGR_NP = get_gradient_results(dk, va, 
                                 do_gradients=do_gradients, do_model=do_model, 
@@ -992,56 +1001,67 @@ def do_scatter_analysis(dk, va, do_gradients=False, do_model=False,
                                 np_ds_factor=np_ds_factor,
                                 plot=plot, cmap=cmap, plot_dst_dir=curr_dst_dir,
                                 verbose=verbose)  
-        protocol = 'TILE' if 'rfs' in experiment else 'BAR'
-        soma_dst_dir = os.path.join(curr_dst_dir, 'scatter_%s' % experiment)
-        if not os.path.exists(soma_dst_dir):
-            os.makedirs(soma_dst_dir)
-        aligned_soma = get_aligned_soma(dk, retinorun, GVECTORS, REGR_NP, 
-                                experiment=experiment,
-                                traceid=traceid, protocol=protocol, 
-                                response_type=response_type,
-                                do_spherical_correction=do_spherical_correction,
-                                verbose=verbose, plot=plot, plot_dst_dir=soma_dst_dir)
+        if REGR_NP is None:
+            has_retino=False
 
-        if plot:
-            # FOV scatter coords 
-            markersize=50
-            lw=0.6
-            alpha=1
-            plot_true=True
-            plot_predicted=True
-            plot_lines=True
-            do_visualization(dk, aligned_soma, AZMAP_NP, ELMAP_NP, traceid=traceid, 
-                            markersize=50, lw=0.5, alpha=1, cmap=cmap,
-                            plot_true=True, plot_predicted=True, plot_lines=True,
-                            plot_dst_dir=soma_dst_dir)
+        if has_retino:
+            protocol = 'TILE' if 'rfs' in experiment else 'BAR'
+            soma_dst_dir = os.path.join(curr_dst_dir, 'scatter_%s' % experiment)
+            if not os.path.exists(soma_dst_dir):
+                os.makedirs(soma_dst_dir)
+            aligned_soma = get_aligned_soma(dk, retinorun, GVECTORS, REGR_NP, 
+                                    experiment=experiment,
+                                    traceid=traceid, protocol=protocol, 
+                                    response_type=response_type,
+                                    do_spherical_correction=do_spherical_correction,
+                                    verbose=verbose, plot=plot, plot_dst_dir=soma_dst_dir)
+            if aligned_soma is None:
+                has_rfs=False
+                
+            if has_rfs and plot:
+                # FOV scatter coords 
+                markersize=50
+                lw=0.6
+                alpha=1
+                plot_true=True
+                plot_predicted=True
+                plot_lines=True
+                do_visualization(dk, aligned_soma, AZMAP_NP, ELMAP_NP, 
+                                experiment=experiment, traceid=traceid, 
+                                markersize=50, lw=0.5, alpha=1, cmap=cmap,
+                                plot_true=True, plot_predicted=True, plot_lines=True,
+                                plot_dst_dir=soma_dst_dir)
 
-
-        # # Calculate scatter
-        deviations = get_deviations(aligned_soma)
-        if plot:
-            # Plot
-            fig, axn = pl.subplots(1,2, figsize=(6.5, 3))
-            ax=axn[0]
-            sns.histplot(deviations, x='deg_scatter', hue='axis', ax=ax,
-                        stat='probability', cumulative=False )
-            ax.set_title('Retino scatter (deg)')
-            ax=axn[1]
-            sns.histplot(deviations, x='dist_scatter', hue='axis', ax=ax,
-                        stat='probability', cumulative=False)
-            ax.set_title('Cortical scatter (um)')
-            pl.subplots_adjust(left=0.1, right=0.8, bottom=0.25, top=0.85, 
-                                wspace=0.5, hspace=0.5)
-            pl.savefig(os.path.join(soma_dst_dir, 'deviations.svg'))
-            pl.close()
-
-        update_results(dk, va, deviations, soma_dst_dir, create_new=create_new)
+            if has_rfs:
+                # # Calculate scatter
+                deviations = get_deviations(aligned_soma)
+            if has_rfs and plot:
+                # Plot
+                fig, axn = pl.subplots(1,2, figsize=(6.5, 3))
+                ax=axn[0]
+                sns.histplot(deviations, x='deg_scatter', hue='axis', ax=ax,
+                            stat='probability', cumulative=False )
+                ax.set_title('Retino scatter (deg)')
+                ax=axn[1]
+                sns.histplot(deviations, x='dist_scatter', hue='axis', ax=ax,
+                            stat='probability', cumulative=False)
+                ax.set_title('Cortical scatter (um)')
+                pl.subplots_adjust(left=0.1, right=0.8, bottom=0.25, top=0.85, 
+                                    wspace=0.5, hspace=0.5)
+                pl.savefig(os.path.join(soma_dst_dir, 'deviations.svg'))
+                pl.close()
+            
+            update_results(dk, va, deviations, soma_dst_dir, create_new=create_new)
 
     except Exception as e:
         print("ERROR in %s, %s" % (dk, retinorun))
-
         traceback.print_exc()
-        
+
+    if not has_retino:
+        print("ERROR: no retino")
+    if not has_rfs:
+        print("ERROR: no rfs")
+  
     return deviations
 
 def update_results(dk, va, soma_results, soma_dst_dir, create_new=False):
@@ -1060,18 +1080,25 @@ def update_results(dk, va, soma_results, soma_dst_dir, create_new=False):
 
     return
 
-def load_results(dk, va, rootdir='/n/coxfs01/2p-data'):
+       
+def load_results(dk, va, experiment='rfs', verbose=False,
+                    rootdir='/n/coxfs01/2p-data'):
+    '''
+     soma_dst_dir = os.path.join(curr_dst_dir, 'scatter_%s' % experiment)
+    '''
     currdf=None
     try:
         session, animalid, fovn = hutils.split_datakey_str(dk)
         fovdir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovn))[0]
-        curr_dst_dir = os.path.join(fovdir, 'segmentation')
-        results_fpath = os.path.join(curr_dst_dir, 'scatter_results.pkl')
+        soma_dst_dir = os.path.join(fovdir, 'segmentation', 'scatter_%s' % experiment)
+        results_fpath = os.path.join(soma_dst_dir, 'scatter_results.pkl')
         with open(results_fpath, 'rb') as f:
             results = pkl.load(f)
         assert va in results.keys(), 'Visual area not found in scatter analysis'
         currdf = results[va].copy()
     except Exception as e:
+        if verbose:
+            traceback.print_exc()
         return None
     
     return currdf
@@ -1127,6 +1154,9 @@ def extract_options(options):
                       help="Recalculate gradients from NP image")
     parser.add_option('--model',  action='store_true', dest='do_model', default=False,
                       help="Refit model for retino-pos and ctx-pos on NP image")
+    parser.add_option('--new',  action='store_true', dest='create_new', default=False,
+                      help="Create new scatter_results file")
+
 
     parser.add_option('--plot',  action='store_true', dest='plot', default=False,
                       help="plot and save figures")
@@ -1177,13 +1207,15 @@ def main(options):
     cmap= optsE.cmap
 
     # fit params
+    create_new= optsE.create_new
     do_gradients = optsE.do_gradients
     do_model = optsE.do_model
     plot = optsE.plot
-    if do_gradients:
+    if create_new or do_gradients:
+        do_gradients=True
         do_model=True
         plot=True
-
+    
     # RF params
     response_type = optsE.response_type
     do_spherical_correction = optsE.do_spherical_correction
@@ -1196,12 +1228,20 @@ def main(options):
     verbose = optsE.verbose
     cycle_all = optsE.cycle_all
 
+    if experiment is None:
+        exp_list=['rfs', 'rfs10']
+    else:     
+        exp_list = [experiment]
+
     if cycle_all:
         sdata = aggr.get_aggregate_info(visual_areas=['V1', 'Lm', 'Li'], 
                                         return_cells=False)
-        meta = sdata[(sdata.experiment==experiment)]
+        if va is not None:
+            meta = sdata[(sdata.experiment.isin([exp_list])) & (sdata.visual_area==va)]
+        else:
+            meta = sdata[(sdata.experiment.isin([exp_list]))]
         for (va, dk, experiment), g in meta.groupby(['visual_area', 'datakey', 'experiment']):
-            print("Area: %s, all <%s> datasets" % (va, experiment))
+            print("    Area: %s - %s (%s) " % (va, dk, experiment))
             deviants = do_scatter_analysis(dk, va, experiment=experiment, 
                             do_gradients=do_gradients, do_model=do_model,
                             np_mag_thr=np_mag_thr, np_delay_map_thr=np_delay_map_thr, 
@@ -1209,27 +1249,28 @@ def main(options):
                             response_type=response_type, 
                             do_spherical_correction=do_spherical_correction,
                             traceid=traceid,
-                            cmap=cmap, plot=plot, verbose=verbose)
+                            cmap=cmap, plot=plot, verbose=verbose, create_new=create_new)
     else:
         assert dk is not None, "Must specify datakey" 
-        if (va is None):
-            sdata = aggr.get_aggregate_info(visual_areas=['V1', 'Lm', 'Li'], 
+        sdata = aggr.get_aggregate_info(visual_areas=['V1', 'Lm', 'Li'], 
                                         return_cells=False)
-            meta = sdata[(sdata.datakey==dk) & (sdata.experiment==experiment)]
-            found_areas = meta['visual_area'].unique()
+        if (va is None):
+            meta = sdata[(sdata.datakey==dk) & (sdata.experiment.isin(exp_list))]
         else:
-            found_areas = [va]
-        for va in found_areas:
+            meta = sdata[(sdata.datakey==dk) & (sdata.experiment.isin(exp_list)) \
+                       & (sdata.visual_area==va)] 
+        for (va, experiment), g in meta.groupby(['visual_area', 'experiment']):
             print("Processing: %s, %s" % (va, dk))
-            deviants = do_scatter_analysis(dk, va, 
+            deviants = do_scatter_analysis(dk, va, experiment=experiment,
+                            traceid=traceid,
                             do_gradients=do_gradients, do_model=do_model,
                             np_mag_thr=np_mag_thr, np_delay_map_thr=np_delay_map_thr, 
                             np_ds_factor=np_ds_factor,
                             response_type=response_type, 
                             do_spherical_correction=do_spherical_correction,
-                            experiment=experiment, traceid=traceid,
-                            cmap=cmap, plot=plot, verbose=verbose)
-
+                            cmap=cmap, plot=plot, verbose=verbose, create_new=create_new)
+            if deviants is not None:
+                print(deviants.shape)
 
     print("Done.")
 

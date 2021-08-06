@@ -110,11 +110,12 @@ piper = uuid.uuid4()
 piper = str(piper)[0:4]
 
 np_str = '_neuropil' if is_neuropil else ''
+spherical_str = 'sphr_' if do_spherical_correction else ''
 
 if visual_area in [None, 'None']:
-    logdir = 'LOG__%s%s' % (experiment, np_str)
+    logdir = 'LOG__%s%s%s' % (spherical_str, experiment, np_str)
 else:
-    logdir = 'LOG__%s%s_%s' % (experiment, np_str, str(visual_area) ) 
+    logdir = 'LOG__%s%s%s_%s' % (spherical_str, experiment, np_str, str(visual_area) ) 
 
 # ---------------------------------------------------------------
 dsets = load_metadata(experiment, visual_area=visual_area,
@@ -138,6 +139,7 @@ if included_datakeys is not None:
 
 if not os.path.exists(logdir):
     os.mkdir(logdir)
+
 # Remove old logs
 old_logs = glob.glob(os.path.join(logdir, '*.err'))
 old_logs.extend(glob.glob(os.path.join(logdir, '*.out')))
@@ -157,7 +159,10 @@ info("found %i [%s] datasets to process." % (len(dsets), experiment))
 #                               run the pipeline                               #
 ################################################################################
 basedir='/n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations'
-cmd_str = '%s/analyze2p/slurm/process_rfs.sbatch' % basedir
+if do_spherical_correction:
+    cmd_str = '%s/analyze2p/slurm/process_rfs_spherical.sbatch' % basedir
+else:
+    cmd_str = '%s/analyze2p/slurm/process_rfs.sbatch' % basedir
 
 # Run it
 jobids = [] # {}
@@ -168,10 +173,10 @@ for (datakey), g in dsets.groupby(['datakey']):
     cmd = "sbatch --job-name={PROCID}.rfs.{MTAG} \
             -o '{LOGDIR}/{PROCID}.{MTAG}.out' \
             -e '{LOGDIR}/{PROCID}.{MTAG}.err' \
-            {COMMAND} {DATAKEY} {EXP} {TRACEID} {SPHERE} {NEUROPIL} {REDO}".format(
+            {COMMAND} {DATAKEY} {EXP} {TRACEID} {NEUROPIL} {REDO}".format(
                 PROCID=piper, MTAG=mtag, LOGDIR=logdir, COMMAND=cmd_str, 
                 DATAKEY=datakey, EXP=experiment, TRACEID=traceid,
-                SPHERE=do_spherical_correction, NEUROPIL=is_neuropil, REDO=redo_fits)
+                NEUROPIL=is_neuropil, REDO=redo_fits)
     #info("Submitting PROCESSPID job with CMD:\n%s" % cmd)
     status, joboutput = subprocess.getstatusoutput(cmd)
     jobnum = joboutput.split(' ')[-1]
