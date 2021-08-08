@@ -693,6 +693,23 @@ def create_results_id(C_value=None,
    
     return results_id
 
+def create_aggregate_id(experiment, C_value=None,
+                    trial_epoch='stimulus', 
+                    response_type='dff', responsive_test='resp', 
+                    overlap_thr=None): 
+    '''
+    test_type: generatlization test name (size_single, size_subset, morph, morph_single)
+    trial_epoch: mean val over time period (stimulus, plushalf, baseline) 
+    '''
+    C_str = 'tuneC' if C_value is None else 'C%.2f' % C_value
+    overlap_str = 'noRF' if overlap_thr is None else 'overlap%.2f' % overlap_thr
+    #test_str='all' if test_type is None else test_type
+    response_str = '%s-%s' % (response_type, responsive_test)
+    results_id='%s__%s__%s__%s__%s' \
+                % (experiment, response_str, trial_epoch, overlap_str, C_str)
+   
+    return results_id
+
 
 
 def decode_from_fov(datakey, visual_area, experiment, neuraldf,
@@ -836,6 +853,47 @@ def decoding_analysis(dk, va, experiment,
         print("--- done by_fov ---")
 
     return
+
+
+# --------------------------------------------------------------------
+# Aggregate functions
+# --------------------------------------------------------------------
+def aggregate_iterated_results(experiment, meta, test_type=None,
+                      traceid='traces001',
+                      trial_epoch='plushalf', responsive_test='nstds', 
+                      C_value=1., break_correlations=False, 
+                      overlap_thr=None, 
+                      rootdir='/n/coxfs01/2p-data'):
+    test_str = 'default' if test_type is None else test_type
+    iterdf=None
+    missing_=[]
+    d_list=[]
+    for (va, dk), g in meta.groupby(['visual_area', 'datakey']):
+        results_id = create_results_id(C_value=C_value, 
+                                       visual_area=va,
+                                       trial_epoch=trial_epoch,
+                                       responsive_test=responsive_test,
+                                       break_correlations=break_correlations,
+                                       overlap_thr=overlap_thr)
+        try:
+            session, animalid, fovn = hutils.split_datakey_str(dk)
+            results_dir = glob.glob(os.path.join(rootdir, animalid, session, 
+                              'FOV%i_*' % fovn,
+                              'combined_%s_*' % experiment, 'traces/%s*' % traceid, 
+                              'decoding_test', test_str))[0]
+            results_fpath = os.path.join(results_dir, '%s.pkl' % results_id)
+            assert os.path.exists(results_fpath), 'Not found:\n    %s' % results_fpath
+        except Exception as e:
+            missing_.append((va, dk))
+            #traceback.print_exc()
+            continue
+        with open(results_fpath, 'rb') as f:
+            res = pkl.load(f)
+        d_list.append(res)
+    if len(d_list)>0:
+        iterdf = pd.concat(d_list)
+    
+    return iterdf, missing_
 
 
 def extract_options(options):
