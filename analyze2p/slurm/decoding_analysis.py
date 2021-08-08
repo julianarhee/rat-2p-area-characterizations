@@ -33,6 +33,10 @@ parser.add_argument('-T', '--test', dest='test_type', action='store', default=No
 
 parser.add_argument('--break', dest='break_corrs', action='store_true', default=False, help='Break noise correlations')
 
+parser.add_argument('-S', '--sample-sizes', nargs='+', dest='sample_sizes', default=[], help='Use like: -S 1 2 4')
+
+parser.add_argument('--match-rfs', dest='match_rfs', action='store_true', default=False, help='Match RF size')
+
 
 args = parser.parse_args()
 
@@ -80,6 +84,8 @@ analysis_type = args.analysis_type
 test_type = None if args.test_type in ['None', None] else args.test_type
 break_corrs = args.break_corrs
 
+sample_sizes = [int(i) for i in args.sample_sizes]
+match_rfs= args.match_rfs
 
 # Set up logging
 # ---------------------------------------------------------------
@@ -95,7 +101,10 @@ analysis_str = '%s_%s' % (analysis_type, test_str)
 if visual_area in [None, 'None']:
     logdir = 'LOG__%s_%s_%s' % (experiment, analysis_str, corr_str)
 else:
-    logdir = 'LOG__%s_%s_%s_%s' %  (experiment, analysis_str, corr_str, str(visual_area)) 
+    logdir = 'LOG__%s_%s_%s_%s' %  (experiment, analysis_str, str(visual_area), corr_str) 
+
+if match_rfs:
+    logdir = 'matchRF_%s' % logdir
 
 # ---------------------------------------------------------------
 dsets = load_metadata(experiment, visual_area=visual_area)
@@ -140,22 +149,54 @@ cmd_str = '%s/analyze2p/slurm/decoding_analysis.sbatch' % basedir
 
 # Run it
 jobids = [] # {}
-for (va, dk), g in dsets.groupby(['visual_area', 'datakey']):
+if analysis_type=='by_ncells':
+    # -----------------------------------------------------------------
+    # BY NCELLS
+    # -----------------------------------------------------------------
+    dk=None
+    if len(sample_sizes)==0:
+        sample_sizes = [1, 2, 4, 8, 16, 32, 64, 96, 128, 256] 
+    visual_areas = ['V1', 'Lm', 'Li'] if visual_area is None else [visual_area]
+    info("Testing %i areas: %s" % (len(visual_areas), str(visual_areas)))
+    info("Testing %i sample size: %s" % (len(sample_sizes), str(sample_sizes)))
+    for va in visual_areas:
+        for n_cells_sample in sample_sizes: #ncells_test:
+            mtag = '%s_%s_%s_%i' % (experiment, va, test_str, n_cells_sample) 
+            print("MTAG: %s" % mtag)
+            #
+            cmd = "sbatch --job-name={PROCID}.dcode.{MTAG} \
+                -o '{LOGDIR}/{PROCID}.{MTAG}.out' \
+                -e '{LOGDIR}/{PROCID}.{MTAG}.err' \
+                {CMD} {TID} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS} {MATCHRF}".format(
+                    PROCID=piper, MTAG=mtag, LOGDIR=logdir, CMD=cmd_str, 
+                    TID=traceid, EXP=experiment, VA=va, DKEY=dk, 
+                    ANALYSIS=analysis_type, TEST=test_type, CORRS=break_corrs,
+                    NCELLS=n_cells_sample, MATCHRF=match_rfs)
+            #info("Submitting PROCESSPID job with CMD:\n%s" % cmd)
+            status, joboutput = subprocess.getstatusoutput(cmd)
+            jobnum = joboutput.split(' ')[-1]
+            jobids.append(jobnum)
+            info("[%s]: %s" % (jobnum, mtag))
 
-    mtag = '%s_%s_%s' % (experiment, dk, va) 
+elif analysis_type=='by_fov':
+    n_cells_sample=None
+    for (va, dk), g in dsets.groupby(['visual_area', 'datakey']):
 
-    cmd = "sbatch --job-name={PROCID}.dcode.{MTAG} \
+        mtag = '%s_%s_%s_%s' % (experiment, va, dk, test_str) 
+
+        cmd = "sbatch --job-name={PROCID}.dcode.{MTAG} \
             -o '{LOGDIR}/{PROCID}.{MTAG}.out' \
             -e '{LOGDIR}/{PROCID}.{MTAG}.err' \
-            {COMMAND} {TRACEID} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS}".format(
-                PROCID=piper, MTAG=mtag, LOGDIR=logdir, COMMAND=cmd_str, 
-                TRACEID=traceid, EXP=experiment, VA=va, DKEY=dk, 
-                ANALYSIS=analysis_type, TEST=test_type, CORRS=break_corrs)
-    #info("Submitting PROCESSPID job with CMD:\n%s" % cmd)
-    status, joboutput = subprocess.getstatusoutput(cmd)
-    jobnum = joboutput.split(' ')[-1]
-    jobids.append(jobnum)
-    info("[%s]: %s" % (jobnum, mtag))
+            {CMD} {TID} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS} {MATCHRF}".format(
+                    PROCID=piper, MTAG=mtag, LOGDIR=logdir, CMD=cmd_str, 
+                    TID=traceid, EXP=experiment, VA=va, DKEY=dk, 
+                    ANALYSIS=analysis_type, TEST=test_type, CORRS=break_corrs,
+                    NCELLS=n_cells_sample, MATCHRF=match_rfs)
+        #info("Submitting PROCESSPID job with CMD:\n%s" % cmd)
+        status, joboutput = subprocess.getstatusoutput(cmd)
+        jobnum = joboutput.split(' ')[-1]
+        jobids.append(jobnum)
+        info("[%s]: %s" % (jobnum, mtag))
 
 
 #info("****done!****")

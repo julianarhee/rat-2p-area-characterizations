@@ -102,7 +102,8 @@ def reformat_morph_values(sdf, verbose=False):
     return sdf
 
 
-def get_stimuli(datakey, experiment, rootdir='/n/coxfs01/2p-data', verbose=False):
+def get_stimuli(datakey, experiment, match_names=False,
+                    rootdir='/n/coxfs01/2p-data', verbose=False):
     '''
     Get stimulus info for a given experiment and imaging site.
     Returns 'sdf' (dataframe, index='config001', etc. columns=stimulus parameters).
@@ -122,8 +123,12 @@ def get_stimuli(datakey, experiment, rootdir='/n/coxfs01/2p-data', verbose=False
         sdf = pd.DataFrame(dset['sconfigs'][()]).T
         if 'blobs' in experiment:
             sdf = reformat_morph_values(sdf)
+        if match_names:
+            sdf = match_config_names(sdf.copy())
+
     except IndexError as e:
-        print("(%s) No labels.npz for exp name ~%s~. Found:" % (datakey, experiment_name))
+        print("(%s) No labels.npz for exp name ~%s~. Found:" \
+                        % (datakey, experiment_name))
         tdir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovn,
                         'combined_%s_static' % experiment_name, \
                         'traces/traces*', 'data_arrays', '*.npz'))
@@ -141,7 +146,7 @@ def get_master_sdf(experiment='blobs', images_only=False):
     '''
     Get "standard" stimulus info.
     '''
-    sdf_master = get_stimuli('20190522_JC084_fov1', experiment)
+    sdf_master = get_stimuli('20190522_JC084_fov1', experiment, match_names=False)
     if images_only:
         sdf_master=sdf_master[sdf_master['morphlevel']!=-1].copy()
     
@@ -194,6 +199,21 @@ def check_sdfs(stim_datakeys, experiment='blobs', traceid='traces001', images_on
     else:
         return SDF
 
+
+def match_config_names(sdf):
+    sdf_master = get_master_sdf(images_only=False)
+    key_names = ['morphlevel', 'size']
+    updated_keys={}
+    for old_ix in sdf.index:
+        # Find corresponding index in "master"
+        new_ix = sdf_master[(sdf_master[key_names]==sdf.loc[old_ix,  key_names])\
+                            .all(1)].index[0]
+        updated_keys.update({old_ix: new_ix})
+    # rename
+    sdf0 = sdf.rename(index=updated_keys)
+    # Save renamed key 
+
+    return sdf0
 
 def select_stimulus_configs(datakey, experiment, select_stimuli=None):
     '''
@@ -386,6 +406,20 @@ def choose_best_fov(which_fovs, criterion='max', colname='cell'):
 
     return max_loc
 
+
+def unique_cell_df(CELLS, countby=['visual_area', 'datakey', 'cell'], 
+                    criterion='max', colname='cell'):
+
+    counts = CELLS[countby].drop_duplicates()\
+                        .groupby(['visual_area', 'datakey']).count().reset_index()
+    counts = hutils.split_datakey(counts) 
+    best_dfs = select_best_fovs(counts, criterion=criterion, colname=colname)
+    dkeys = [(v, k) for (v, k), g in best_dfs.groupby(['visual_area', 'datakey'])]
+    final_cells = pd.concat([g for (v, k), g in \
+                            CELLS.groupby(['visual_area', 'datakey']) \
+                            if (v, k) in dkeys])
+    return final_cells
+ 
 # def load_sorted_fovs(aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
 #     dsets_file = os.path.join(aggregate_dir, 'data-stats', 'sorted_datasets.json')
 #     with open(dsets_file, 'r') as f:
@@ -512,6 +546,89 @@ def add_roi_positions(rfdf, calculate_position=False, traceid='traces001'):
 
     return rfdf
 
+
+def assign_global_cell_ids(cells0):
+    cells1 = cells0.reset_index(drop=True)
+    cells1['global_ix'] = None
+    for va, g in cells1.groupby(['visual_area']):
+        ncells_in_area = g.shape[0]
+        global_ids = np.arange(0, ncells_in_area)
+        cells1.loc[g.index, 'global_ix'] = global_ids
+    return cells1
+
+#def assign_global_cell_id(cells):
+#    cells['global_ix'] = 0
+#    for v, g in cells.groupby(['visual_area']):
+#        cells['global_ix'].loc[g.index] = np.arange(0, g.shape[0])
+#    return cells.reset_index(drop=True)
+#
+#def global_cells(cells, remove_too_few=True, min_ncells=5,  return_counts=False):
+#    '''
+#    cells - dataframe, each row is a cell, has datakey/visual_area fields
+#
+#    Returns:
+#    
+#    roidf (dataframe)
+#        Globally-indexed rois ('dset_roi' = roi ID in dataset, 'roi': global index)
+#    
+#    roi_counters (dict)
+#        Counts of cells by area (optional)
+#
+#    '''
+#    visual_areas=cells['visual_area'].unique() #['V1', 'Lm', 'Li']
+#    print("Assigned visual areas: %s" % str(visual_areas))
+# 
+#    incl_keys = []
+#    if remove_too_few:
+#        for (v, k), g in cells.groupby(['visual_area', 'datakey']):
+#            if len(g['cell'].unique()) < min_ncells:
+#                continue
+#            incl_keys.append(k) 
+#    else:
+#        incl_keys = cells['datakey'].unique()
+# 
+#    nocells=[]; notrials=[];
+#    roi_counters = dict((v, 0) for v in visual_areas)
+#    roidf = []
+#    for (visual_area, datakey), g in cells[cells['datakey'].isin(incl_keys)].groupby(['visual_area', 'datakey']):
+#
+#        roi_counter = roi_counters[visual_area]
+#
+#        # Reindex roi ids for global
+#        roi_list = sorted(g['cell'].unique()) 
+#        nrs = len(roi_list)
+#        roi_ids = [i+roi_counter for i, r in enumerate(roi_list)]
+#      
+#        # Append to full df
+#        roi_dict = {'roi': roi_ids,
+#                   'dset_roi': roi_list,
+#                   'visual_area': [visual_area for _ in np.arange(0, nrs)],
+#                   'datakey': [datakey for _ in np.arange(0, nrs)]}
+#        if 'global_ix' in g.columns:
+#            roi_dict.update({'global_ix': g['global_ix'].values})
+#
+#        roidf.append(pd.DataFrame(roi_dict))
+#      
+#        # Update global roi id counter
+#        roi_counters[visual_area] += len(roi_ids)
+#
+#    if len(roidf)==0:
+#        if return_counts:
+#            return None, None
+#        else:
+#            return None
+#
+#    roidf = pd.concat(roidf, axis=0).reset_index(drop=True)        
+#    roidf['animalid'] = [d.split('_')[1] for d in roidf['datakey']]
+#    roidf['session'] = [d.split('_')[0] for d in roidf['datakey']]
+#    roidf['fovnum'] = [int(d.split('_')[2][3:]) for d in roidf['datakey']]
+#   
+#    if return_counts:
+#        return roidf, roi_counters
+#    else:
+#        return roidf
+#
+#
 
 # ===============================================================
 # Dataset selection

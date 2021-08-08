@@ -46,6 +46,82 @@ from inspect import currentframe, getframeinfo
 from pandas.core.common import SettingWithCopyError
 pd.options.mode.chained_assignment='warn' #'raise' # 'warn'
 
+
+# ======================================================================
+# RF/retino funcs
+# ======================================================================
+import analyze2p.receptive_fields.utils as rfutils
+def get_rfdf(cells0, sdata, response_type='dff', do_spherical_correction=False):
+    # Get cells and metadata
+    assigned_cells, rf_meta = aggr.select_assigned_cells(cells0, sdata, 
+                                                    experiments=['rfs', 'rfs10']) 
+    # Load RF fit data
+    rf_fit_desc = rfutils.get_fit_desc(response_type=response_type, 
+                                do_spherical_correction=do_spherical_correction)
+    rfdata = rfutils.aggregate_rfdata(rf_meta, assigned_cells, 
+                                fit_desc=rf_fit_desc,
+                                reliable_only=False)
+    # Combined rfs5/rfs10
+    #combined_rfs = rfutils.combine_rfs_single(rfdata) 
+    r_list=[]
+    for (va, dk), rdf in rfdata.groupby(['visual_area', 'datakey']):
+        if va in ['V1', 'Lm']:
+            df_ = rdf[rdf.experiment=='rfs'].copy()
+        else:
+            if 'rfs10' in rdf['experiment'].values:
+                df_ = rdf[rdf.experiment=='rfs10'].copy()
+        r_list.append(df_)
+    rfdf = pd.concat(r_list).reset_index(drop=True)
+    return rfdf
+
+def get_cells_with_rfs(CELLS, rfdf):
+    '''
+    CELLS should be assigned + responsive cells (from NDATA)
+    rfdf should only have 1 value per cell
+    '''
+    c_list=[]
+    for (va, dk), cg in CELLS.groupby(['visual_area', 'datakey']):
+        rdf=rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk)].copy()
+        common_cells = np.intersect1d(rdf['cell'].unique(), cg['cell'].unique())
+        df_ = cg[cg['cell'].isin(common_cells)].copy()
+        rf_ = rdf[rdf['cell'].isin(common_cells)].copy()
+        assert df_.shape[0]==rf_.shape[0], 'Bad selection'
+        new_ = pd.merge(df_, rf_)
+        assert new_.shape[0]==df_.shape[0], "bad merge"
+        c_list.append(new_)
+    cells_RF = pd.concat(c_list, axis=0).reset_index(drop=True)
+    return cells_RF
+
+
+def get_quartile_limits(vals, whis=1.5):
+    med = np.median(vals)
+    top = np.percentile(vals, 75)
+    bott = np.percentile(vals, 25)
+    iqr = abs(top-bott)
+    up_ = (iqr)*whis + top
+    lo_ = bott - (iqr)*whis
+    return lo_, up_
+
+def limit_cells_by_rf(cells_RF, rf_lim=None):
+
+    if rf_lim=='maxmin':
+        rf_upper = cells_RF.groupby('visual_area')['std_avg'].max().min()
+        rf_lower = cells_RF.groupby('visual_area')['std_avg'].min().max()
+    elif rf_lim=='percentile':
+        lims = pd.concat([pd.DataFrame(\
+                    get_quartile_limits(cg['std_avg'].values, whis=1.5),
+                    columns=[va], index=['lower', 'upper'])\
+                    for va, cg in cells_RF.groupby('visual_area')], axis=1)
+        rf_lower, rf_upper = lims.loc['lower'].max(), lims.loc['upper'].min()
+    else:
+        rf_upper=16.6
+        rf_lower=6.9
+
+    cells_lim = cells_RF[(cells_RF['std_avg']<=rf_upper) 
+                    & (cells_RF['std_avg']>=rf_lower)].copy()
+    return cells_lim
+
+
 # ======================================================================
 # Calculation functions 
 # ======================================================================
@@ -561,7 +637,7 @@ def train_test_size_single(iter_num, curr_data, sdf, verbose=False,
 
 
 def fit_svm_mp(neuraldf, sdf, test_type, n_iterations=50, n_processes=1, 
-                    break_correlations=False,
+                    break_correlations=False, n_cells_sample=None,
                     C_value=None, test_split=0.2, cv_nfolds=5, 
                     class_name='morphlevel', class_values=None,
                     variation_name='size', variation_values=None,
@@ -585,13 +661,13 @@ def fit_svm_mp(neuraldf, sdf, test_type, n_iterations=50, n_processes=1,
     #### Define MP worker
     results = []
     terminating = mp.Event() 
-    def worker(out_q, n_iters, test_type, **kwargs):
+    def worker(out_q, n_iters, **kwargs):
         i_list = []        
         for ni in n_iters:
             # Decoding -----------------------------------------------------
             start_t = time.time()
-            i_df = select_test(ni, test_type, neuraldf, sdf, 
-                               break_correlations, **inargs)  
+            i_df = select_test(ni, test_type, neuraldf, sdf, # can access from outer 
+                               break_correlations, **inargs) 
             if i_df is None:
                 out_q.put(None)
                 raise ValueError("No results for current iter")
@@ -600,7 +676,6 @@ def fit_svm_mp(neuraldf, sdf, test_type, n_iterations=50, n_processes=1,
             i_list.append(i_df)
         iterdf_chunk = pd.concat(i_list, axis=0)
         out_q.put(iterdf_chunk)  
-
     try:        
         # Each process gets "chunksize' filenames and a queue to put his out-dict into:
         iter_list = np.arange(0, n_iterations) #gdf.groups.keys()
@@ -611,8 +686,7 @@ def fit_svm_mp(neuraldf, sdf, test_type, n_iterations=50, n_processes=1,
             p = mp.Process(target=worker, 
                            args=(
                                 out_q, 
-                                iter_list[chunksize * i:chunksize * (i + 1)],
-                                test_type),
+                                iter_list[chunksize * i:chunksize * (i + 1)]),
                            kwargs=inargs)
             procs.append(p)
             p.start() # start asynchronously
@@ -675,17 +749,24 @@ def select_test(ni, test_type, ndata, sdf, break_correlations, **kwargs):
 
 
 # --------------------------------------------------------------------
+# Save info
+# --------------------------------------------------------------------
+
 def create_results_id(C_value=None,
                     visual_area='varea', trial_epoch='stimulus', 
                     response_type='dff', responsive_test='resp', 
-                    break_correlations=False, overlap_thr=None): 
+                    break_correlations=False, 
+                    match_rfs=False, overlap_thr=None): 
     '''
     test_type: generatlization test name (size_single, size_subset, morph, morph_single)
     trial_epoch: mean val over time period (stimulus, plushalf, baseline) 
     '''
     C_str = 'tuneC' if C_value is None else 'C%.2f' % C_value
     corr_str = 'nocorrs' if break_correlations else 'intact'
-    overlap_str = 'noRF' if overlap_thr is None else 'overlap%.2f' % overlap_thr
+    if match_rfs:
+        overlap_str = 'matchRF'
+    else:
+        overlap_str = 'noRF' if overlap_thr is None else 'overlap%.2f' % overlap_thr
     #test_str='all' if test_type is None else test_type
     response_str = '%s-%s' % (response_type, responsive_test)
     results_id='%s__%s__%s__%s__%s__%s' \
@@ -710,9 +791,10 @@ def create_aggregate_id(experiment, C_value=None,
    
     return results_id
 
-
-
-def decode_from_fov(datakey, visual_area, experiment, neuraldf,
+# --------------------------------------------------------------------
+# BY_FOV 
+# --------------------------------------------------------------------
+def decode_from_fov(datakey, experiment, neuraldf,
                     sdf=None, test_type=None, results_id='results',
                     n_iterations=50, n_processes=1, break_correlations=False,
                     traceid='traces001', 
@@ -720,6 +802,10 @@ def decode_from_fov(datakey, visual_area, experiment, neuraldf,
     '''
     Fit FOV n_iterations times (multiproc). Save all iterations in dataframe.
     '''
+    curr_areas = neuraldf['visual_area'].unique()
+    assert len(curr_areas)==1, "Too many visual areas in global cell df"
+    visual_area = curr_areas[0]
+
     # Set output dir and file
     session, animalid, fovnum = hutils.split_datakey_str(datakey)
     traceid_dir = glob.glob(os.path.join(rootdir, animalid, session, 
@@ -735,14 +821,14 @@ def decode_from_fov(datakey, visual_area, experiment, neuraldf,
     if os.path.exists(results_outfile):
         os.remove(results_outfile)
     # Zscore data 
-    ndf_z = aggr.get_zscored_from_ndf(neuraldf)
-    
+    ndf_z = aggr.get_zscored_from_ndf(neuraldf) 
     n_cells = int(ndf_z.shape[1]-1) 
     if clf_params['verbose']:
         print("... BY_FOV [%s] %s, n=%i cells" % (visual_area, datakey, n_cells))
+
     # Stimulus info
     if sdf is None:
-        sdf = aggr.get_stimuli(dk, experiment)
+        sdf = aggr.get_stimuli(dk, experiment, match_names=True)
     # Decode
     start_t = time.time()
     iter_results = fit_svm_mp(ndf_z, sdf, test_type, 
@@ -785,8 +871,254 @@ def shuffle_trials(ndf_z):
 
     return ndf_r
 
+# --------------------------------------------------------------------
+# BY_NCELLS
+# --------------------------------------------------------------------
+def decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA, 
+                    sdf=None, test_type=None, results_id='results',
+                    n_iterations=50, n_processes=2, break_correlations=False,
+                    dst_dir='/tmp', **clf_params):
+    '''
+    Create psuedo-population by sampling n_cells from global_rois.
+    Do decoding analysis
+    '''
+    curr_areas = GCELLS['visual_area'].unique()
+    assert len(curr_areas)==1, "Too many visual areas in global cell df"
+    visual_area = curr_areas[0]
 
-# -----------------------------------------------------------------------
+    #### Set output dir and file
+    results_outfile = os.path.join(dst_dir, '%s_%03d.pkl' % (results_id, n_cells_sample))
+    # remove old file
+    if os.path.exists(results_outfile):
+        os.remove(results_outfile)
+
+    #### Get neural means
+    print("... Starting decoding analysis")
+
+    # ------ STIMULUS INFO -----------------------------------------
+    if sdf is None:
+        sdf = aggr.get_master_sdf(images_only=True)
+    sdf['config'] = sdf.index.tolist()
+
+    
+    # Decode
+    try:
+        start_t = time.time()
+        iter_results = iterate_by_ncells(NDATA, GCELLS, sdf, test_type, 
+                                n_cells_sample=n_cells_sample,
+                                n_iterations=n_iterations,
+                                n_processes=n_processes,
+                                break_correlations=break_correlations,
+                                **clf_params)
+        end_t = time.time() - start_t
+        print("--> Elapsed time: {0:.2f}sec".format(end_t))
+        assert iter_results is not None, "NONE -- %s (%i cells)" \
+                % (visual_area, n_cells_sample)
+    except Exception as e:
+        traceback.print_exc()
+        return None
+
+    # DATA - concat 3 conds
+    iter_results['visual_area'] = visual_area
+    iter_results['datakey'] = 'aggregate'
+    iter_results['n_cells'] = n_cells_sample
+
+    with open(results_outfile, 'wb') as f:
+        pkl.dump(iter_results, f, protocol=2)
+
+    if test_type is None:
+        print(iter_results.groupby(['condition', 'n_cells']).mean())   
+    else:
+        print(iter_results.groupby(['condition', 'n_cells', 'train_transform']).mean())   
+    print("@@@@@@@@@ done. %s (n=%i cells) @@@@@@@@@@" % (visual_area,n_cells_sample))
+    print(results_outfile) 
+ 
+    return 
+
+
+
+
+def iterate_by_ncells(NDATA, GCELLS, sdf, test_type, n_cells_sample=1,
+                    n_iterations=50, n_processes=1, 
+                    break_correlations=False,
+                    C_value=None, test_split=0.2, cv_nfolds=5, 
+                    class_name='morphlevel', class_values=None,
+                    variation_name='size', variation_values=None,
+                    n_train_configs=4, 
+                    balance_configs=True,do_shuffle=True, return_clf=True,
+                    verbose=False):
+    iterdf = None
+    inargs={'C_value': C_value,
+            'cv_nfolds': cv_nfolds,  
+            'test_split': test_split,
+            'class_name': class_name,
+            'class_values': class_values,
+            'variation_name': variation_name,
+            'variation_values': variation_values,
+            'verbose': verbose,
+            'do_shuffle': do_shuffle,
+            'balance_configs': balance_configs,
+            'n_train_configs': n_train_configs
+    }
+ 
+    # Select how to filter trial-matching
+    #equalize_by='config', match_all_configs=True,
+    #with_replacement=False):   
+
+    #train_labels = sdf[sdf[class_name].isin(class_values)][equalize_by].unique()
+    common_labels = None #if match_all_configs else train_labels
+    with_replacement=False
+
+    # Stimulus info
+    if sdf is None:
+        sdf = aggr.get_master_sdf() #aggr.get_stimuli(dk, experiment, match_names=True)
+
+    #### Define MP worker
+    results = []
+    terminating = mp.Event() 
+    def worker_by_ncells(out_q, n_iters, **kwargs):
+        i_=[]
+        for ni in n_iters:
+            # Get new sample set
+            #print("... sampling data, n=%i cells" % n_cells_sample)
+            randi_cells = random.randint(1, 10000)
+            neuraldf = sample_neuraldata_for_N_cells(n_cells_sample, NDATA, GCELLS, 
+                                         with_replacement=with_replacement,
+                                         train_configs=common_labels, 
+                                         randi=randi_cells)
+            neuraldf = aggr.get_zscored_from_ndf(neuraldf.copy())
+            # Decoding -----------------------------------------------------
+            start_t = time.time()
+            i_df = select_test(ni, test_type, neuraldf, sdf, 
+                               break_correlations, **inargs)  
+            if i_df is None:
+                out_q.put(None)
+                raise ValueError("No results for current iter")
+            end_t = time.time() - start_t
+            #print("--> Elapsed time: {0:.2f}sec".format(end_t))
+            i_df['randi_cells'] = randi_cells
+            i_.append(i_df)
+        curr_iterdf = pd.concat(i_, axis=0)
+        out_q.put(curr_iterdf) 
+    try:        
+        # Each process gets "chunksize' filenames and a queue to put his out-dict into:
+        iter_list = np.arange(0, n_iterations) #gdf.groups.keys()
+        out_q = mp.Queue()
+        chunksize = int(math.ceil(len(iter_list) / float(n_processes)))
+        procs = []
+        for i in range(n_processes):
+            p = mp.Process(target=worker_by_ncells, 
+                           args=(
+                                out_q, 
+                                iter_list[chunksize * i:chunksize * (i + 1)]),
+                           kwargs=inargs)
+            procs.append(p)
+            p.start() # start asynchronously
+        # Collect all results into 1 results dict. 
+        results = []
+        for i in range(n_processes):
+            results.append(out_q.get(99999))
+        # Wait for all worker processes to finish
+        for p in procs:
+            p.join() # will block until finished
+    except KeyboardInterrupt:
+        terminating.set()
+        print("***Terminating!")
+    except Exception as e:
+        traceback.print_exc()
+        terminating.set()
+    finally:
+        for p in procs:
+            p.join()
+
+    if len(results)>0:
+        iterdf = pd.concat(results, axis=0)
+        iterdf['n_cells'] = n_cells_sample
+
+    return iterdf
+
+def sample_neuraldata_for_N_cells(n_cells_sample, NDATA, GCELLS,  
+                    with_replacement=False, train_configs=None, randi=None): 
+
+    assert len(GCELLS['visual_area'].unique())==1, "Too many areas in GCELLS"
+    va = GCELLS['visual_area'].unique()[0]
+
+    # Get current global RIDs
+    ncells_t = GCELLS.shape[0]                      
+    # Random sample N cells out of all cells in area (w/o replacement)
+    celldf = GCELLS.sample(n=n_cells_sample, replace=with_replacement, 
+                                random_state=randi)
+    curr_cells = celldf['global_ix'].values
+    assert len(curr_cells)==len(np.unique(curr_cells))
+    # Get corresponding neural data of selected datakeys and cells
+    curr_dkeys = celldf['datakey'].unique()
+    ndata0 = NDATA[(NDATA.visual_area==va) & (NDATA.datakey.isin(curr_dkeys))].copy()
+    ndata0['cell'] = ndata0['cell'].astype(float)
+
+    # Make sure equal num trials per condition for all dsets
+    if train_configs is not None:
+        count_these = ndata0[ndata0['config'].isin(train_configs)].copy() 
+    else:
+        count_these = ndata0.copy()
+    min_ntrials_by_config = count_these[['datakey', 'config', 'trial']]\
+                                    .drop_duplicates()\
+                                    .groupby(['datakey'])['config']\
+                                    .value_counts().min()
+    #print("Min samples per config: %i" % min_ntrials_by_config)
+    # Sample the data
+    d_list=[]
+    for dk, dk_rois in celldf.groupby(['datakey']):
+        assert dk in ndata0['datakey'].unique(), "ERROR: %s not found" % dk
+        # Get current trials, make equal to min_ntrials_by_config
+        subdata = ndata0[(ndata0.datakey==dk) 
+                       & (ndata0['cell'].isin(dk_rois['cell'].values))].copy()
+        tmpd = pd.concat([tmat.sample(n=min_ntrials_by_config,\
+                                    replace=False, random_state=None) \
+                             for (rid, cfg), tmat in subdata\
+                              .groupby(['cell', 'config'])], axis=0)
+        tmpd['cell'] = tmpd['cell'].astype(float)
+
+        # For each RID sample belonging to current dataset, get RID order
+        # Use global index to get matching dset-relative cell ID
+        sampled_cells = pd.concat([\
+                            dk_rois[dk_rois['global_ix']==gid][['cell', 'global_ix']] 
+                            for gid in curr_cells])
+        sampled_dset_rois = sampled_cells['cell'].values
+        sampled_global_rois = sampled_cells['global_ix'].values
+        cell_lut = dict((k, v) for k, v in zip(sampled_dset_rois, sampled_global_rois))
+
+        # Get response + config, replace dset roi  name with global roi name
+        curr_ndata = pd.concat([tmpd[tmpd['cell']==rid][['config', 'response']]\
+                            .rename(columns={'response': cell_lut[rid]})\
+                            .sort_values(by='config').reset_index(drop=True) \
+                            for rid in sampled_dset_rois], axis=1)
+        # drop duplicate config columns
+        curr_ndata = curr_ndata.loc[:,~curr_ndata.T.duplicated(keep='first')]
+        d_list.append(curr_ndata)
+    new_neuraldf = pd.concat(d_list, axis=1)[curr_cells]
+
+    # And, get configs
+    new_cfgs = pd.concat(d_list, axis=1)['config']
+    assert new_cfgs.shape[0]==new_neuraldf.shape[0], "Bad trials"
+    if len(new_cfgs.shape) > 1:
+        #print("Requested configs: %s" % 'all' if train_configs is None \
+        #        else str(train_configs)) 
+        new_cfgs = new_cfgs.loc[:,~new_cfgs.T.duplicated(keep='first')]
+        assert new_cfgs.shape[1]==1, "Bad configs: %s" \
+                % str(celldf['datakey'].unique())
+
+    new_ndf = pd.concat([new_neuraldf, new_cfgs], axis=1)
+    
+    # Restack
+    ndf = aggr.unstacked_neuraldf_to_stacked(new_ndf, response_type='response', \
+                        id_vars=['config', 'trial'])
+
+    return ndf
+
+# --------------------------------------------------------------------
+# Main functions
+# --------------------------------------------------------------------
+
 def decoding_analysis(dk, va, experiment,  
                     analysis_type='by_fov',
                     response_type='dff', traceid='traces001',
@@ -795,13 +1127,24 @@ def decoding_analysis(dk, va, experiment,
                     overlap_thr=None,
                     test_type=None, 
                     break_correlations=False,
+                    n_cells_sample=None, drop_repeats=True, match_rfs=False,
                     C_value=None, test_split=0.2, cv_nfolds=5, 
                     class_name='morphlevel', class_values=None,
                     variation_name='size', variation_values=None,
                     n_train_configs=4, 
                     balance_configs=True, do_shuffle=True,
                     n_iterations=50, n_processes=1,
-                    rootdir='/n/coxfs01/2p-data', verbose=False): 
+                    rootdir='/n/coxfs01/2p-data', verbose=False,
+                    aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas',
+                    visual_areas=['V1', 'Lm', 'Li']): 
+    # Metadata    
+    sdata, cells0 = aggr.get_aggregate_info(visual_areas=visual_areas, 
+                                            return_cells=True)
+    if va is not None:
+        meta = sdata[(sdata.visual_area==va)
+                    & (sdata.experiment==experiment)].copy()
+    else:
+        meta = sdata[sdata.experiment==experiment].copy()
 
     # Load all the data
     NDATA = aggr.load_responsive_neuraldata(experiment, traceid=traceid,
@@ -816,12 +1159,11 @@ def decoding_analysis(dk, va, experiment,
                                 response_type=response_type, 
                                 responsive_test=responsive_test,
                                 break_correlations=break_correlations,
-                                overlap_thr=overlap_thr)
-    
+                                match_rfs=match_rfs,
+                                overlap_thr=overlap_thr) 
     print("~~~~~~~~~~~~~~~~ RESULTS ID ~~~~~~~~~~~~~~~~~~~~~")
     print(results_id)
     print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
-
     # Classif params
     clf_params={'class_name': class_name,
                 'class_values': class_values,
@@ -839,18 +1181,122 @@ def decoding_analysis(dk, va, experiment,
         # -----------------------------------------------------------------------
         # BY_FOV - for each fov, do_decode
         # -----------------------------------------------------------------------
-        neuraldf = NDATA[(NDATA.visual_area==va) & (NDATA.datakey==dk)].copy()
-        sdf = aggr.get_stimuli(dk, experiment)
-        if int(neuraldf.shape[0]-1)==0:
+        if dk is not None:
+            neuraldf = NDATA[(NDATA.visual_area==va) & (NDATA.datakey==dk)].copy()
+            sdf = aggr.get_stimuli(dk, experiment, match_names=True)
+            if int(neuraldf.shape[0]-1)==0:
+                return None
+            decode_from_fov(dk, experiment, neuraldf, sdf=sdf, 
+                            test_type=test_type, 
+                            results_id=results_id,
+                            n_iterations=n_iterations, 
+                            traceid=traceid,
+                            break_correlations=break_correlations,
+                            n_processes=n_processes, **clf_params)
+        else:
+            for (va, dk), g in meta.groupby(['visual_area', 'datakey']):   
+                neuraldf = NDATA[(NDATA.visual_area==va) & (NDATA.datakey==dk)].copy()
+                sdf = aggr.get_stimuli(dk, experiment, match_names=True)
+                if int(neuraldf.shape[0]-1)==0:
+                    return None
+                decode_from_fov(dk, experiment, neuraldf, sdf=sdf, 
+                                test_type=test_type, 
+                                results_id=results_id,
+                                n_iterations=n_iterations, 
+                                traceid=traceid,
+                                break_correlations=break_correlations,
+                                n_processes=n_processes, **clf_params)
+        print("--- done by_fov ---")
+
+    elif analysis_type=='by_ncells':
+        # -----------------------------------------------------------------------
+        # BY_NCELLS - aggregate cells
+        # -----------------------------------------------------------------------
+        # Assign global ix to all cells
+        gcells = aggr.assign_global_cell_ids(cells0)
+        dkey_lut = NDATA[['visual_area', 'datakey', 'cell']].drop_duplicates()
+        cells0 = pd.concat([gcells[(gcells.visual_area==va) \
+                        & (gcells.datakey==dk) 
+                        & (gcells['cell'].isin(g['cell'].unique()))]\
+                    for (va, dk), g in NDATA.groupby(['visual_area', 'datakey'])])
+
+        # Match cells for RF size
+        if match_rfs:
+            print("~~~ matching RFs ~~~")
+            print(cells0[['visual_area','datakey','cell']]\
+                    .drop_duplicates()['visual_area'].value_counts())
+            rfdf = get_rfdf(cells0, sdata, do_spherical_correction=False)
+            cells_RF = get_cells_with_rfs(cells0, rfdf)
+            cells0 = limit_cells_by_rf(cells_RF, rf_lim=None)
+            print("~~~ post ~~~")
+            print(cells0[['visual_area','datakey', 'cell']]\
+                    .drop_duplicates()['visual_area'].value_counts())
+
+        if drop_repeats:
+            # drop repeats
+            print("~~~ dropping repeats ~~~")
+            print(cells0[['visual_area','datakey', 'cell']]\
+                    .drop_duplicates()['visual_area'].value_counts())
+            cells0 = aggr.unique_cell_df(cells0, criterion='max', colname='cell')
+            print("~~~ post ~~~")
+            print(cells0[['visual_area','datakey', 'cell']]\
+                    .drop_duplicates()['visual_area'].value_counts()) 
+        counts = cells0[['visual_area', 'datakey', 'cell']]\
+                    .drop_duplicates().groupby(['visual_area'])\
+                    .count().reset_index()
+        cell_counts = dict((k, v) for (k, v) \
+                        in zip(counts['visual_area'], counts['cell']))
+        print("FINAL COUNTS:")
+        print(cell_counts)
+        min_ncells_total = min(cell_counts.values())
+
+        if n_cells_sample is not None and int(n_cells_sample)>min_ncells_total:
+            print("ERR: Sample size (%i) must be <= min ncells total (%i)" \
+                    % (n_cells_sample, min_ncells_total))
             return None
-        decode_from_fov(dk, va, experiment, neuraldf, sdf=sdf, 
+           
+        # Set global output dir (since not per-FOV):
+        dst_dir = os.path.join(aggregate_dir, 'decoding', 'py3_by_ncells')
+        curr_results_dir = os.path.join(dst_dir, 'files')
+        if not os.path.exists(curr_results_dir):
+            os.makedirs(curr_results_dir)
+            print("... saving tmp results to:\n  %s" % curr_results_dir)
+
+        # Save inputs
+        inputs_file = os.path.join(curr_results_dir, 'input_cells.pkl')
+        with open(inputs_file, 'wb') as f:
+            pkl.dump(cells0, f, protocol=2) 
+
+        # Stimuli
+        sdf = aggr.get_master_sdf(images_only=False)
+        # Get cells for current visual area
+        GCELLS = cells0[cells0['visual_area']==va].copy()
+        if n_cells_sample is not None: 
+            decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA, sdf=sdf,
                         test_type=test_type, 
                         results_id=results_id,
                         n_iterations=n_iterations, 
-                        traceid=traceid,
                         break_correlations=break_correlations,
-                        n_processes=n_processes, **clf_params)
-        print("--- done by_fov ---")
+                        n_processes=n_processes,
+                        dst_dir=curr_results_dir, **clf_params)
+            print("--- done %i." % n_cells_sample)
+        else:
+            # Loop thru NCELLS
+            min_cells_total = min(cell_counts.values())
+            reasonable_range = [2**i for i in np.arange(0, 10)]
+            incl_range = [i for i in reasonable_range if i<min_cells_total]
+            incl_range.append(min_cells_total)                
+            print("Looping thru range: %s" % str(incl_range))
+            for n_cells_sample in incl_range:
+                decode_by_ncells(n_cells_sample, experiment, 
+                        GCELLS, NDATA, sdf=sdf,
+                        test_type=test_type, 
+                        results_id=results_id,
+                        n_iterations=n_iterations, 
+                        break_correlations=break_correlations,
+                        n_processes=n_processes,
+                        dst_dir=curr_results_dir, **clf_params)
+                print("--- done %i." % n_cells_sample)
 
     return
 
@@ -858,38 +1304,71 @@ def decoding_analysis(dk, va, experiment,
 # --------------------------------------------------------------------
 # Aggregate functions
 # --------------------------------------------------------------------
-def aggregate_iterated_results(experiment, meta, test_type=None,
+def aggregate_iterated_results(experiment, meta, analysis_type='by_fov',
+                      test_type=None,
                       traceid='traces001',
                       trial_epoch='plushalf', responsive_test='nstds', 
                       C_value=1., break_correlations=False, 
-                      overlap_thr=None, 
-                      rootdir='/n/coxfs01/2p-data'):
+                      overlap_thr=None, match_rfs=False,
+                      rootdir='/n/coxfs01/2p-data',
+                      aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     test_str = 'default' if test_type is None else test_type
     iterdf=None
     missing_=[]
     d_list=[]
-    for (va, dk), g in meta.groupby(['visual_area', 'datakey']):
-        results_id = create_results_id(C_value=C_value, 
-                                       visual_area=va,
-                                       trial_epoch=trial_epoch,
-                                       responsive_test=responsive_test,
-                                       break_correlations=break_correlations,
-                                       overlap_thr=overlap_thr)
-        try:
-            session, animalid, fovn = hutils.split_datakey_str(dk)
-            results_dir = glob.glob(os.path.join(rootdir, animalid, session, 
-                              'FOV%i_*' % fovn,
-                              'combined_%s_*' % experiment, 'traces/%s*' % traceid, 
-                              'decoding_test', test_str))[0]
-            results_fpath = os.path.join(results_dir, '%s.pkl' % results_id)
-            assert os.path.exists(results_fpath), 'Not found:\n    %s' % results_fpath
-        except Exception as e:
-            missing_.append((va, dk))
-            #traceback.print_exc()
-            continue
-        with open(results_fpath, 'rb') as f:
-            res = pkl.load(f)
-        d_list.append(res)
+    if analysis_type=='by_fov':
+        for (va, dk), g in meta.groupby(['visual_area', 'datakey']):
+            results_id = create_results_id(C_value=C_value, 
+                                           visual_area=va,
+                                           trial_epoch=trial_epoch,
+                                           responsive_test=responsive_test,
+                                           break_correlations=break_correlations,
+                                            match_rfs=match_rfs,
+                                           overlap_thr=overlap_thr)
+            try:
+                session, animalid, fovn = hutils.split_datakey_str(dk)
+                results_dir = glob.glob(os.path.join(rootdir, animalid, session, 
+                                  'FOV%i_*' % fovn,
+                                  'combined_%s_*' % experiment, 
+                                  'traces/%s*' % traceid, 
+                                  'decoding_test', test_str))[0]
+                results_fpath = os.path.join(results_dir, '%s.pkl' % results_id)
+                assert os.path.exists(results_fpath), \
+                                    'Not found:\n    %s' % results_fpath
+                with open(results_fpath, 'rb') as f:
+                    res = pkl.load(f)
+                d_list.append(res)
+            except Exception as e:
+                missing_.append((va, dk))
+                #traceback.print_exc()
+                continue
+    elif analysis_type=='by_ncells':
+        results_dir = glob.glob(os.path.join(aggregate_dir, 'decoding',\
+                                'py3_by_ncells', 'files'))
+        if len(results_dir)==0:
+            print("No results by_ncells")
+            return None, None
+        results_dir=results_dir[0]
+        for va, g in meta.groupby(['visual_area']):
+            results_id = create_results_id(C_value=C_value, 
+                                           visual_area=va,
+                                           trial_epoch=trial_epoch,
+                                           responsive_test=responsive_test,
+                                           break_correlations=break_correlations,
+                                            match_rfs=match_rfs,
+                                           overlap_thr=overlap_thr)
+            found_fpaths = glob.glob(os.path.join(\
+                                    results_dir, '%s_*.pkl' % results_id))    
+            print("(%s) Found %i paths" % (va, len(found_fpaths)))
+            for fpath in found_fpaths:
+                try:
+                    with open(fpath, 'rb') as f:
+                        res = pkl.load(f)
+                    d_list.append(res)
+                except Exception as e:
+                    missing_.append(fpath)
+                    #traceback.print_exc()
+                    continue
     if len(d_list)>0:
         iterdf = pd.concat(d_list)
     
@@ -907,27 +1386,27 @@ def extract_options(options):
     # Set specific session/run for current animal:
     parser.add_option('-E', '--experiment', action='store', dest='experiment', 
                         default='blobs', help="experiment type [default: blobs]")
-    parser.add_option('-t', '--traceid', action='store', dest='traceid', default='traces001', \
+    parser.add_option('-t', '--traceid', action='store', dest='traceid', 
+                        default='traces001', \
                       help="name of traces ID [default: traces001]")
       
     # data filtering 
     choices_c = ('all', 'ROC', 'nstds', None, 'None')
     default_c = 'nstds'
-    parser.add_option('-R', '--responsive_test', action='store', dest='responsive_test', 
+    parser.add_option('-R', '--responsive-test', action='store', 
+            dest='responsive_test', 
             default=default_c, type='choice', choices=choices_c,
             help="Responsive test, choices: %s. (default: %s" % (choices_c, default_c))
     parser.add_option('-r', '--responsive-thr', action='store', dest='responsive_thr', 
-                        default=10, help="response type [default: 10, nstds]")
+            default=10, help="response type [default: 10, nstds]")
     parser.add_option('-d', '--response-type', action='store', dest='response_type', 
-                        default='dff', help="response type [default: dff]")
-
+            default='dff', help="response type [default: dff]")
 
     choices_e = ('stimulus', 'firsthalf', 'plushalf', 'baseline')
     default_e = 'stimulus'
     parser.add_option('--epoch', action='store', dest='trial_epoch', 
             default=default_e, type='choice', choices=choices_e,
-            help="Trial epoch for input data, choices: %s. (default: %s" % (choices_e, default_e))
-
+            help="Trial epoch, choices: %s. (default: %s" % (choices_e, default_e))
 
     # classifier
     parser.add_option('-a', action='store', dest='class_a', 
@@ -946,7 +1425,7 @@ def extract_options(options):
     parser.add_option('--new', action='store_true', dest='create_new', 
             default=False, help="re-do decode")
     parser.add_option('-C','--cvalue', action='store', dest='C_value', 
-            default=None, help="tune for C (default: None, tunes C)")
+            default=1.0, help="Set None to tune C (default: 1)")
     parser.add_option('--folds', action='store', dest='cv_nfolds', 
             default=5, help="N folds for CV tuning C (default: 5")
 
@@ -958,10 +1437,8 @@ def extract_options(options):
 
     parser.add_option('-V','--visual-area', action='store', dest='visual_area', 
             default=None, help="(set for by_ncells) Must be None to run all serially")
-    parser.add_option('-S','--ncells', action='store', dest='ncells', 
-            default=None, help="Must be None to run all serially")
     parser.add_option('-k','--datakey', action='store', dest='datakey', 
-            default=None, help="(set for single_cells) Must be None to run all serially")
+            default=None, help="(set for single_cells) Must be None to run serially")
 
     parser.add_option('--no-shuffle', action='store_false', dest='do_shuffle', 
             default=True, help="don't do shuffle")
@@ -974,12 +1451,17 @@ def extract_options(options):
 
     parser.add_option('--ntrain', action='store', dest='n_train_configs', 
             default=4, help="N training sizes to use (default: 4, test 1)")
-
-    parser.add_option('--drop-repeats', action='store_true', dest='drop_repeats', 
-            default=False, help="Drop repeats (Note: really only relevant for analysis_type=by_ncells)")
     parser.add_option('--break', action='store_true', dest='break_correlations', 
             default=False, help="Break noise correlations")
  
+    parser.add_option('--incl-repeats', action='store_false', dest='drop_repeats', 
+            default=True, help="BY_NCELLS:  Drop repeats before sampling")
+    parser.add_option('-S', '--ncells', action='store', dest='n_cells_sample', 
+            default=None, help="BY_NCELLS: n cells to sample (None, cycles thru all)")
+    parser.add_option('--rf-size', action='store_true', dest='match_rfs', 
+            default=False, help="BY_NCELLS: Cells with matched RF sizes")
+
+
     (options, args) = parser.parse_args(options)
 
     return options
@@ -1056,12 +1538,7 @@ def main(options):
     # Retino stuf
     retino_mag_thr = 0.01
     retino_pass_criterion='all'
-
-    # Create data ID for labeling figures with data-types
-    #response_str = '%s_%s-thr-%.2f' % (response_type, responsive_test, responsive_thr) 
-    #data_id = '|'.join([traceid, response_str])
-    #print(data_id)
-    
+   
     # do it --------------------------------
     variation_name=None
     variation_values=None
@@ -1072,7 +1549,7 @@ def main(options):
         class_values = [0, 106]
         if test_type is not None: # generalization tests
             variation_name = 'size'
-            variation_values = None
+            variation_values = None # these get filled later
     elif experiment=='gratings':
         class_name = 'ori'
         class_values = None
@@ -1080,56 +1557,35 @@ def main(options):
             # TODO: not implemented 
             variation_name = None
             variation_values=None 
+
     balance_configs=True
     break_correlations = opts.break_correlations
+    n_cells_sample = None if opts.n_cells_sample in ['None', None] \
+                        else int(opts.n_cells_sample)
+    drop_repeats = opts.drop_repeats
+    match_rfs = opts.match_rfs
 
-
-    visual_areas = ['V1', 'Lm', 'Li']
-    if datakey is None:
-        sdata, cells0 = aggr.get_aggregate_info(visual_areas=visual_areas, 
-                                                return_cells=True)
-        if visual_area is not None:
-            meta = sdata[(sdata.visual_area==visual_area)
-                        & (sdata.experiment==experiment)].copy()
-        else:
-            meta = sdata[sdata.experiment==experiment].copy()
-    
-        for (va, dk), g in meta.groupby(['visual_area', 'datakey']):   
-            decoding_analysis(dk, va, experiment,  
-                            analysis_type=analysis_type,
-                            response_type=response_type, traceid=traceid,
-                            trial_epoch=trial_epoch,
-                            responsive_test=responsive_test, 
-                            responsive_thr=responsive_thr,
-                            test_type=test_type, 
-                            break_correlations=break_correlations,
-                            C_value=C_value, test_split=test_split, cv_nfolds=cv_nfolds, 
-                            class_name=class_name, 
-                            class_values=class_values,
-                            variation_name=variation_name, 
-                            variation_values=variation_values,
-                            n_train_configs=n_train_configs, 
-                            balance_configs=balance_configs, do_shuffle=do_shuffle,
-                            n_iterations=n_iterations, n_processes=n_processes,
-                            verbose=verbose) 
-
-    else:
-        decoding_analysis(datakey, visual_area, experiment,  
-                        analysis_type=analysis_type,
-                        response_type=response_type, traceid=traceid,
-                        trial_epoch=trial_epoch,
-                        responsive_test=responsive_test, 
-                        responsive_thr=responsive_thr,
-                        test_type=test_type, 
-                        break_correlations=break_correlations,
-                        C_value=C_value, test_split=test_split, cv_nfolds=cv_nfolds, 
-                        class_name=class_name, class_values=class_values,
-                        variation_name=variation_name, variation_values=variation_values,
-                        n_train_configs=n_train_configs, 
-                        balance_configs=balance_configs, do_shuffle=do_shuffle,
-                        n_iterations=n_iterations, n_processes=n_processes,
-                        verbose=verbose) 
-
+    decoding_analysis(datakey, visual_area, experiment,  
+                    analysis_type=analysis_type,
+                    response_type=response_type, traceid=traceid,
+                    trial_epoch=trial_epoch,
+                    responsive_test=responsive_test, 
+                    responsive_thr=responsive_thr,
+                    test_type=test_type, 
+                    break_correlations=break_correlations,
+                    n_cells_sample=n_cells_sample,
+                    drop_repeats=drop_repeats,
+                    match_rfs=match_rfs,
+                    C_value=C_value, test_split=test_split, cv_nfolds=cv_nfolds, 
+                    class_name=class_name, 
+                    class_values=class_values,
+                    variation_name=variation_name, 
+                    variation_values=variation_values,
+                    n_train_configs=n_train_configs, 
+                    balance_configs=balance_configs, do_shuffle=do_shuffle,
+                    n_iterations=n_iterations, n_processes=n_processes,
+                    verbose=verbose) 
+    return
 
 
 if __name__ == '__main__':
