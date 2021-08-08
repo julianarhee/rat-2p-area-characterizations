@@ -34,7 +34,8 @@ def trial_averaged_responses(zscored, sdf, params=['ori', 'sf', 'size', 'speed']
 
     return tuning_
 
-def calculate_corrs(ndf, return_zscored=False, curr_cells=None, curr_cfgs=None):
+def calculate_corrs(ndf, do_zscore=True, return_zscored=False, 
+                    curr_cells=None, curr_cfgs=None):
     if curr_cells is None: 
         curr_cells = ndf['cell'].unique()
     if curr_cfgs is None:
@@ -43,9 +44,12 @@ def calculate_corrs(ndf, return_zscored=False, curr_cells=None, curr_cfgs=None):
     # Reshape dataframe to ntrials x nrois
     trial_means0 = aggr.stacked_neuraldf_to_unstacked(ndf1)
     cfgs_by_trial = trial_means0['config']
-    # Zscore trials
-    zscored = aggr.zscore_dataframe(trial_means0[curr_cells])
-    zscored['config'] = cfgs_by_trial
+    if do_zscore:
+        # Zscore trials
+        zscored = aggr.zscore_dataframe(trial_means0[curr_cells])
+        zscored['config'] = cfgs_by_trial
+    else:
+        zscored = trial_means0.copy() #ndf.copy()
     # Get signal correlations
     signal_corrs = calculate_signal_corrs(zscored)
     # Get Noise correlations
@@ -127,6 +131,7 @@ def do_pairwise_cc_melt(df_, metric_name='cc', include_diagonal=False):
     cc = melt_square_matrix(df_.corr(), metric_name=metric_name, 
                             include_diagonal=include_diagonal)
     cc = cc.rename(columns={'row': 'cell_1', 'col': 'cell_2'})
+    cc[['cell_1', 'cell_2']] = cc[['cell_1', 'cell_2']].astype(int)
     cc['neuron_pair'] = ['%i_%i' % (c1, c2) for \
                          c1, c2 in cc[['cell_1', 'cell_2']].values]
     return cc
@@ -231,7 +236,8 @@ def bin_column_values(cc_, to_quartile='cortical_distance', use_quartile=True,
 def plot_quartile_dists_FOV(cc_, metric='signal_cc', to_quartile='cortical_distance',
                             bin_colors=None, bin_labels=None,
                             plot_median=True, extrema_only=True, ax=None,
-                            legend=True):
+                            legend=True, cumulative=False, element='bars', fill=True,
+                            lw=1, common_norm=True, common_bins=True):
     if bin_labels is None:
         bin_labels = sorted(cc_['binned_%s' % to_quartile].unique(), \
                             key=hutils.natural_keys)
@@ -250,8 +256,9 @@ def plot_quartile_dists_FOV(cc_, metric='signal_cc', to_quartile='cortical_dista
     if ax is None:
         fig, ax = pl.subplots()
     sns.histplot(data=currd, x=metric, hue='binned_%s' % to_quartile, ax=ax,
-                stat='probability', common_norm=False, common_bins=True,
-                palette=bin_colors, legend=legend)
+                stat='probability', common_norm=common_norm, common_bins=common_bins,
+                palette=bin_colors, legend=legend, cumulative=cumulative, 
+                element=element, fill=fill, line_kws={'lw': lw})
     #g = sns.displot(data=currd, x=metric,
     #            hue='binned_%s' % to_quartile, legend=True, palette=bin_colors)
     

@@ -255,6 +255,16 @@ def aggregate_alignment_info(edata, traceid='traces001'):
 # ###############################################################
 # Data formatting
 # ###############################################################
+def get_zscored_from_ndf(ndf):
+    '''Reshape stacked neural metrics, calculate zscore, add config labels back in'''
+    trial_means0 = stacked_neuraldf_to_unstacked(ndf)
+    rois_ = ndf['cell'].unique()
+    cfgs_by_trial = trial_means0['config']
+    zscored = zscore_dataframe(trial_means0[rois_])
+    zscored['config'] = cfgs_by_trial
+
+    return zscored.sort_index()
+
 def zscore_dataframe(xdf):
     rlist = [r for r in xdf.columns if hutils.isnumber(r)]
     z_xdf = (xdf[rlist]-xdf[rlist].mean()).divide(xdf[rlist].std())
@@ -491,8 +501,8 @@ def add_roi_positions(rfdf, calculate_position=False, traceid='traces001'):
         try:
             fcoords = roiutils.get_roi_coords(animalid, session, 'FOV%i_zoom2p0x' % fovnum,
                                       traceid=traceid, create_new=False)
-            cell_ids = g['cell'].unique()
-            p_ = fcoords['roi_positions'].loc[cell_ids]
+            cell_ids = np.array(g['cell'].values) #unique()
+            p_ = fcoords['roi_positions'].loc[cell_ids].copy()
             for p in pos_params:
                 rfdf.loc[g.index, p] = p_[p].values
             rfdf[pos_params] = rfdf[pos_params].astype(float)
@@ -1068,13 +1078,14 @@ def neuraldf_dict_to_dataframe(NEURALDATA, response_type='response', add_cols=[]
             for datakey, neuraldf in vdict.items():
                 neuraldf['visual_area'] = visual_area
                 neuraldf['datakey'] = datakey
-                neuraldf['trial'] = neuraldf.index.tolist()
-                melted = pd.melt(neuraldf, id_vars=id_vars, var_name='cell', value_name=response_type)
+                neuraldf.loc[neuraldf.index, 'trial'] = neuraldf.index.tolist()
+                melted = pd.melt(neuraldf, id_vars=id_vars, var_name='cell', 
+                                value_name=response_type)
                 ndfs.append(melted)
     else:
         for datakey, neuraldf in NEURALDATA.items():
             neuraldf['datakey'] = datakey
-            neuraldf['trial'] = neuraldf.index.tolist()
+            neuraldf.loc[neuraldf.index, 'trial'] = neuraldf.index.tolist()
             melted = pd.melt(neuraldf, id_vars=id_vars, 
                              var_name='cell', value_name=response_type)
             ndfs.append(melted)
@@ -1159,16 +1170,19 @@ def equal_counts_per_condition(MEANS):
 
     return MEANS
 
-def equal_counts_df(neuraldf, equalize_by='config'): #, randi=None):
+def equal_counts_df(ndf, equalize_by='config'): #, randi=None):
+    neuraldf = ndf.copy()
     curr_counts = neuraldf[equalize_by].value_counts()
     if len(curr_counts.unique())==1:
         return neuraldf #continue
         
     min_ntrials = curr_counts.min()
-    all_cfgs = neuraldf[equalize_by].unique()
+    all_cfgs = ndf[equalize_by].unique()
     drop_trial_col=False
     if 'trial' not in neuraldf.columns:
-        neuraldf['trial'] = neuraldf.index.tolist()
+        neuraldf['trial'] = None
+        trialvals = ndf.index.tolist()
+        neuraldf.loc[ndf.index.tolist(), 'trial'] = trialvals
         drop_trial_col = True
 
     #kept_trials=[]
@@ -1239,7 +1253,7 @@ def get_neuraldf(datakey, experiment, traceid='traces001',
     # output
     session, animalid, fovnum = hutils.split_datakey_str(datakey)
     experiment_name = 'gratings' if (experiment in ['rfs', 'rfs10'] \
-                        and int(session)<20190512) else experiment
+                        and int(session)<20190511) else experiment
     try:
         traceid_dir = glob.glob(os.path.join(rootdir, animalid, session, 
                             'FOV%i_*' % fovnum, 'combined_%s_static' % experiment_name,
@@ -1623,7 +1637,7 @@ def get_responsive_cells(datakey, run=None, traceid='traces001',
     session, animalid, fovnum = hutils.split_datakey_str(datakey)
     fov = 'FOV%i_zoom2p0x' % fovnum
     run_name = 'gratings' if (('rfs' in run or 'rfs10' in run) \
-                            and int(session)<20190512) else run 
+                            and int(session)<20190511) else run 
     roi_list=None; nrois_total=None;
     rname = run if 'combined' in run else 'combined_%s_' % run
     traceid_dir =  glob.glob(os.path.join(rootdir, animalid, session, 

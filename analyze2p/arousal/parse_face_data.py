@@ -160,12 +160,10 @@ def parse_all_missing(experiment, create_new=False,
                                         return_missing=True)
 
     dsets_todo = edata[edata['datakey'].isin(missing_dsets)]
-    print("Missing pupil traces for %i dsets. Parsing pose data for these now." % len(missing_dsets))
+    print("Missing pupil traces for %i dsets. Parsing pose data now." % len(missing_dsets))
 
-    for (animalid, session, fov, datakey), g \
-            in dsets_todo.groupby(['animalid', 'session', 'fov', 'datakey']):
+    for datakey, g in dsets_todo.groupby(['datakey']):
         print("... parsing pose data: %s" % datakey)
-
         if datakey in exclude_for_now:
             print("Need to retransfer (%s), skipping for now" % datakey)
             continue
@@ -228,6 +226,9 @@ def main(options):
     pupil_framerate=20.
     aggregate_metrics=True
 
+
+    print("ITI pre: %.2f, post: %.2f" % (iti_pre, iti_post))
+
     if datakey is None:
         missing = parse_all_missing(experiment,
                             traceid=traceid, 
@@ -259,7 +260,7 @@ def main(options):
 
 
     if aggregate_metrics:
-        aggr_pupilmetrics, aggr_params, missing_dfs = dlc.aggregate_dataframes(
+        aggr_pupilmetrics, aggr_params, missing_dfs = dlcutils.aggregate_dataframes(
                             experiment=experiment, trial_epoch=pupil_epoch,
                             alignment_type=alignment_type, 
                             iti_pre=iti_pre, iti_post=iti_post, 
