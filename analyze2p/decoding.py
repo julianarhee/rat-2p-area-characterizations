@@ -896,9 +896,9 @@ def decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA,
     print("... Starting decoding analysis")
 
     # ------ STIMULUS INFO -----------------------------------------
-    if sdf is None:
-        sdf = aggr.get_master_sdf(images_only=True)
-    sdf['config'] = sdf.index.tolist()
+    #if sdf is None:
+    #    sdf = aggr.get_master_sdf(images_only=True)
+    #sdf['config'] = sdf.index.tolist()
 
     
     # Decode
@@ -969,10 +969,6 @@ def iterate_by_ncells(NDATA, GCELLS, sdf, test_type, n_cells_sample=1,
     common_labels = None #if match_all_configs else train_labels
     with_replacement=False
 
-    # Stimulus info
-    if sdf is None:
-        sdf = aggr.get_master_sdf() #aggr.get_stimuli(dk, experiment, match_names=True)
-
     #### Define MP worker
     results = []
     terminating = mp.Event() 
@@ -995,7 +991,7 @@ def iterate_by_ncells(NDATA, GCELLS, sdf, test_type, n_cells_sample=1,
                 out_q.put(None)
                 raise ValueError("No results for current iter")
             end_t = time.time() - start_t
-            #print("--> Elapsed time: {0:.2f}sec".format(end_t))
+            print("--> --> Elapsed time: {0:.2f}sec".format(end_t))
             i_df['randi_cells'] = randi_cells
             i_.append(i_df)
         curr_iterdf = pd.concat(i_, axis=0)
@@ -1213,7 +1209,7 @@ def decoding_analysis(dk, va, experiment,
         # BY_NCELLS - aggregate cells
         # -----------------------------------------------------------------------
         # Assign global ix to all cells
-        gcells = aggr.assign_global_cell_ids(cells0)
+        gcells = aggr.assign_global_cell_ids(cells0.copy())
         dkey_lut = NDATA[['visual_area', 'datakey', 'cell']].drop_duplicates()
         cells0 = pd.concat([gcells[(gcells.visual_area==va) \
                         & (gcells.datakey==dk) 
@@ -1268,7 +1264,7 @@ def decoding_analysis(dk, va, experiment,
             pkl.dump(cells0, f, protocol=2) 
 
         # Stimuli
-        sdf = aggr.get_master_sdf(images_only=False)
+        sdf = aggr.get_master_sdf(experiment, images_only=False)
         # Get cells for current visual area
         GCELLS = cells0[cells0['visual_area']==va].copy()
         if n_cells_sample is not None: 

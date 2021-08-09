@@ -42,18 +42,18 @@ if [[ ${BREAK} == "True" ]]; then
     echo "breaking corrs..."
     if [[ ${MATCHRF} == "True" ]]; then
         echo "matching RF size!"
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 8 -S $NCELLS --break --rf-size
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS --break --rf-size
     else
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 8 -S $NCELLS --break
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS --break
     fi
 
 else
     echo "Corrs intact..."
     if [[ ${MATCHRF} == "True" ]]; then
         echo "matching RF size!"
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 8 -S $NCELLS --rf-size
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS --rf-size
     else
         echo "No match"
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 8 -S $NCELLS
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS
     fi
 fi

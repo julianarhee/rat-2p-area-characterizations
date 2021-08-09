@@ -791,7 +791,6 @@ def cycle_and_load(rfmeta, assigned_cells, is_neuropil=False,
         if experiment not in ['rfs', 'rfs10']:
             continue
 
-
         session, animalid, fovnum = hutils.split_datakey_str(datakey)
         fov = 'FOV%i_zoom2p0x' % fovnum
         curr_cells = assigned_cells[(assigned_cells.visual_area==visual_area)
@@ -999,7 +998,8 @@ def get_fit_dpaths(dsets, traceid='traces001', fit_desc=None,
 
 
 def aggregate_rfdata(rf_dsets, assigned_cells, traceid='traces001', 
-                        fit_desc='fit-2dgaus_dff-no-cutoff', reliable_only=True, verbose=False):
+                        fit_desc='fit-2dgaus_dff-no-cutoff', 
+                        reliable_only=True, verbose=False):
     # Gets all results for provided datakeys (sdata, for rfs/rfs10)
     # Aggregates results for the datakeys
     # assigned_cells:  cells assigned by visual area
