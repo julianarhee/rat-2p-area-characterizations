@@ -1252,11 +1252,12 @@ def decoding_analysis(dk, va, experiment,
             return None
            
         # Set global output dir (since not per-FOV):
-        dst_dir = os.path.join(aggregate_dir, 'decoding', 'py3_by_ncells')
+        test_str = 'default' if test_type is None else test_type
+        dst_dir = os.path.join(aggregate_dir, 'decoding', 'py3_by_ncells', test_str)
         curr_results_dir = os.path.join(dst_dir, 'files')
         if not os.path.exists(curr_results_dir):
             os.makedirs(curr_results_dir)
-            print("... saving tmp results to:\n  %s" % curr_results_dir)
+        print("... saving tmp results to:\n  %s" % curr_results_dir)
 
         # Save inputs
         inputs_file = os.path.join(curr_results_dir, 'input_cells.pkl')
