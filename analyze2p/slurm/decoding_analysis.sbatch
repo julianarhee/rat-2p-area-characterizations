@@ -6,7 +6,7 @@
 #SBATCH -n 4 # one core
 #SBATCH -N 1 # on one node
 #SBATCH -t 0-02:00 # Running time of 3 hours
-#SBATCH --mem 8192 #70656 # Memory request of 70 GB (set to 98304 if exceed lim)
+#SBATCH --mem 16384 #70656 # Memory request of 70 GB (set to 98304 if exceed lim)
 #SBATCH -o decode_%A_%a.out # Standard output
 #SBATCH -e decode_%A_%a.err # Standard error
 #SBATCH --mail-type=FAIL
@@ -30,6 +30,7 @@ TEST="$6"
 BREAK="$7"
 NCELLS="$8"
 MATCHRF="$9"
+OVERLAP="$10"
 
 # run processing on raw data
 echo "datakey: ${DATAKEY}"
@@ -37,23 +38,25 @@ echo "experiment: ${EXP}"
 echo "ANALYSIS: ${ANALYSIS}"
 echo "TEST: ${TEST}"
 echo "MATCHRF: ${MATCHRF}"
+echo "OVERLAP: ${OVERLAP}"
+
 #
 if [[ ${BREAK} == "True" ]]; then
     echo "breaking corrs..."
     if [[ ${MATCHRF} == "True" ]]; then
         echo "matching RF size!"
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS --break --rf-size
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS -O $OVERLAP --break --rf-size 
     else
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS --break
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS -O $OVERLAP --break
     fi
 
 else
     echo "Corrs intact..."
     if [[ ${MATCHRF} == "True" ]]; then
         echo "matching RF size!"
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS --rf-size
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS -O $OVERLAP --rf-size
     else
         echo "No match"
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS -O $OVERLAP
     fi
 fi

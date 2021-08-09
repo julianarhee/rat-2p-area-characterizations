@@ -93,6 +93,14 @@ def convert_columns_byte_to_str(df):
 # ###############################################################
 # Visual stimulation functions 
 # ###############################################################
+def get_pixels_per_deg():
+    screen = get_screen_dims()
+    pix_per_degW = screen['resolution'][0] / screen['azimuth_deg']
+    pix_per_degH = screen['resolution'][1] / screen['altitude_deg']
+    screen_res = screen['resolution']
+    pix_per_deg = np.mean([pix_per_degW, pix_per_degH])
+
+    return pix_per_deg, screen_res
 
 def get_pixel_size():
     # Use measured pixel size from PSF (20191005, most recent)
@@ -116,6 +124,79 @@ def get_screen_dims():
               'deg_per_pixel': (deg_per_pixel_x, deg_per_pixel_y)}
 
     return screen
+
+# -----------------------------------------------------------------------------
+# Screen:
+# -----------------------------------------------------------------------------
+
+def get_lin_coords(resolution=[1080, 1920], cm_to_deg=True, 
+                   xlim_degrees=(-59.7, 59.7), ylim_degrees=(-33.6, 33.6)):
+    """
+    **From: https://github.com/zhuangjun1981/retinotopic_mapping (Monitor initialiser)
+
+    Parameters
+    ----------
+    resolution : tuple of two positive integers
+        value of the monitor resolution, (pixel number in height, pixel number in width)
+    dis : float
+         distance from eyeball to monitor (in cm)
+    mon_width_cm : float
+        width of monitor (in cm)
+    mon_height_cm : float
+        height of monitor (in cm)
+    C2T_cm : float
+        distance from gaze center to monitor top
+    C2A_cm : float
+        distance from gaze center to anterior edge of the monitor
+    center_coordinates : tuple of two floats
+        (altitude, azimuth), in degrees. the coordinates of the projecting point
+        from the eye ball to the monitor. This allows to place the display monitor
+        in any arbitrary position.
+    visual_field : str from {'right','left'}, optional
+        the eye that is facing the monitor, defaults to 'left'
+    """
+    mon_height_cm = 58.
+    mon_width_cm = 103.
+    # resolution = [1080, 1920]
+    visual_field = 'left'
+    
+    C2T_cm = mon_height_cm/2. #np.sqrt(dis**2 + mon_height_cm**2)
+    C2A_cm = mon_width_cm/2.
+    
+    # distance form projection point of the eye to bottom of the monitor
+    C2B_cm = mon_height_cm - C2T_cm
+    # distance form projection point of the eye to right of the monitor
+    C2P_cm = -C2A_cm #mon_width_cm - C2A_cm
+
+    map_coord_x, map_coord_y = np.meshgrid(range(resolution[1]),
+                                           range(resolution[0]))
+
+    if visual_field == "left":
+        #map_x = np.linspace(C2A_cm, -1.0 * C2P_cm, resolution[1])
+        map_x = np.linspace(C2P_cm, C2A_cm, resolution[1])
+
+    if visual_field == "right":
+        map_x = np.linspace(-1 * C2A_cm, C2P_cm, resolution[1])
+
+    map_y = np.linspace(C2T_cm, -1.0 * C2B_cm, resolution[0])
+    old_map_x, old_map_y = np.meshgrid(map_x, map_y, sparse=False)
+
+    lin_coord_x = old_map_x
+    lin_coord_y = old_map_y
+    
+    
+    if cm_to_deg:
+        xmin_cm = lin_coord_x.min(); xmax_cm = lin_coord_x.max();
+        ymin_cm = lin_coord_y.min(); ymax_cm = lin_coord_y.max();
+        
+        xmin_deg, xmax_deg = xlim_degrees
+        ymin_deg, ymax_deg = ylim_degrees
+        
+        lin_coord_x = convert_range(lin_coord_x, oldmin=xmin_cm, oldmax=xmax_cm, 
+                                           newmin=xmin_deg, newmax=xmax_deg)
+        lin_coord_y = convert_range(lin_coord_y, oldmin=ymin_cm, oldmax=ymax_cm, 
+                                           newmin=ymin_deg, newmax=ymax_deg)
+    return lin_coord_x, lin_coord_y
 
 
 # ###############################################################

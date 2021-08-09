@@ -36,6 +36,8 @@ parser.add_argument('--break', dest='break_corrs', action='store_true', default=
 parser.add_argument('-S', '--sample-sizes', nargs='+', dest='sample_sizes', default=[], help='Use like: -S 1 2 4')
 
 parser.add_argument('--match-rfs', dest='match_rfs', action='store_true', default=False, help='Match RF size')
+parser.add_argument('-O', '--overlap', dest='overlap_thr', action='store', default=None, help='Overlap thr')
+
 
 
 args = parser.parse_args()
@@ -86,6 +88,7 @@ break_corrs = args.break_corrs
 
 sample_sizes = [int(i) for i in args.sample_sizes]
 match_rfs= args.match_rfs
+overlap_thr = None if args.overlap_thr in ['None', None] else float(args.overlap_thr)
 
 # Set up logging
 # ---------------------------------------------------------------
@@ -103,8 +106,12 @@ if visual_area in [None, 'None']:
 else:
     logdir = 'LOG__%s_%s_%s_%s' %  (experiment, analysis_str, str(visual_area), corr_str) 
 
-if match_rfs:
-    logdir = 'matchRF_%s' % logdir
+if match_rfs or overlap_thr is not None:
+    if match_rfs:
+        match_str = 'matchRF'
+    else:
+        match_str = 'noRF' if overlap_thr is None else 'overlap%02d' % (overlap_thr*10)
+    logdir = '%s_%s' % (match_str, logdir)
 
 # ---------------------------------------------------------------
 dsets = load_metadata(experiment, visual_area=visual_area)
@@ -167,11 +174,11 @@ if analysis_type=='by_ncells':
             cmd = "sbatch --job-name={PROCID}.dcode.{MTAG} \
                 -o '{LOGDIR}/{PROCID}.{MTAG}.out' \
                 -e '{LOGDIR}/{PROCID}.{MTAG}.err' \
-                {CMD} {TID} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS} {MATCHRF}".format(
+                {CMD} {TID} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS} {MATCHRF} {OVERLAP}".format(
                     PROCID=piper, MTAG=mtag, LOGDIR=logdir, CMD=cmd_str, 
                     TID=traceid, EXP=experiment, VA=va, DKEY=dk, 
                     ANALYSIS=analysis_type, TEST=test_type, CORRS=break_corrs,
-                    NCELLS=n_cells_sample, MATCHRF=match_rfs)
+                    NCELLS=n_cells_sample, MATCHRF=match_rfs, OVERLAP=overlap_thr)
             #info("Submitting PROCESSPID job with CMD:\n%s" % cmd)
             status, joboutput = subprocess.getstatusoutput(cmd)
             jobnum = joboutput.split(' ')[-1]
@@ -187,11 +194,11 @@ elif analysis_type=='by_fov':
         cmd = "sbatch --job-name={PROCID}.dcode.{MTAG} \
             -o '{LOGDIR}/{PROCID}.{MTAG}.out' \
             -e '{LOGDIR}/{PROCID}.{MTAG}.err' \
-            {CMD} {TID} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS} {MATCHRF}".format(
+            {CMD} {TID} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS} {MATCHRF} {OVERLAP}".format(
                     PROCID=piper, MTAG=mtag, LOGDIR=logdir, CMD=cmd_str, 
                     TID=traceid, EXP=experiment, VA=va, DKEY=dk, 
                     ANALYSIS=analysis_type, TEST=test_type, CORRS=break_corrs,
-                    NCELLS=n_cells_sample, MATCHRF=match_rfs)
+                    NCELLS=n_cells_sample, MATCHRF=match_rfs, OVERLAP=overlap_thr)
         #info("Submitting PROCESSPID job with CMD:\n%s" % cmd)
         status, joboutput = subprocess.getstatusoutput(cmd)
         jobnum = joboutput.split(' ')[-1]

@@ -77,6 +77,10 @@ def load_split_pupil_input(animalid, session, fovnum, curr_id='results_id',
     
     return res
 
+
+# --------------------------------------------------------------------
+# Stimuli
+# --------------------------------------------------------------------
 def reformat_morph_values(sdf, verbose=False):
     '''
     Rounds values for stimulus parameters, checks to make sure true aspect ratio is used.
@@ -247,7 +251,25 @@ def select_stimulus_configs(datakey, experiment, select_stimuli=None):
     return curr_cfgs
 
 
+def get_stimulus_coordinates(dk, experiment):
+    sdf = get_stimuli(dk, experiment, match_names=True)
+    if len(sdf['xpos'].unique())>1 or len(sdf['ypos'].unique())>1:
+        print("*Warning* <%s> More than 1 pos? x: %s, y: %s" \
+                    % (dk, str(sdf['xpos'].unique()), str(sdf['ypos'].unique())))
 
+    xpos = sdf['xpos'].unique()
+    ypos = sdf['ypos'].unique()
+
+    if len(xpos)>1 or len(ypos)>1:
+        print("*Warning* <%s> More than 1 pos? x: %s, y: %s" \
+                    % (dk, str(xpos), str(ypos)))
+
+        return np.array(xpos), np.array(ypos)
+    else:
+        return float(xpos), float(ypos)
+
+    
+# --------------------------------------------------------------------
 def aggregate_alignment_info(edata, traceid='traces001'):
     exp=str(edata['experiment'].unique()) 
     i=0

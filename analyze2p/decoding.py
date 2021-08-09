@@ -51,6 +51,94 @@ pd.options.mode.chained_assignment='warn' #'raise' # 'warn'
 # RF/retino funcs
 # ======================================================================
 import analyze2p.receptive_fields.utils as rfutils
+import analyze2p.objects.sim_utils as su
+
+def get_cells_with_overlap(cells0, sdata, overlap_thr=0.5,
+                response_type='dff', do_spherical_correction=False):
+
+    rfdf = get_rfdf(cells0, sdata, response_type=response_type,
+                    do_spherical_correction=do_spherical_correction)
+    cells_RF = get_cells_with_rfs(cells0, rfdf)
+        
+    cells_pass = calculate_overlaps(cells_RF, overlap_thr=overlap_thr)
+
+    return cells_pass
+
+
+def calculate_overlaps(rfdf, overlap_thr=0.5, experiment='blobs', 
+                        resolution=[1920, 1080]):
+    '''
+    cycle thru all rf datasets, calculate overlaps.
+    returns MIN overlap value for each cell.
+    '''
+    m_=[]
+    for (va, dk), curr_rfs in rfdf.groupby(['visual_area', 'datakey']):
+        try:
+            overlaps_ = su.calculate_overlaps_fov(dk, curr_rfs, 
+                                experiment=experiment, 
+                               resolution=resolution)
+            min_ = overlaps_.groupby('cell')['perc_overlap'].min().reset_index()
+            pass_ = min_[min_['perc_overlap']>=overlap_thr]['cell'].unique()
+            pass_rfs = curr_rfs[curr_rfs['cell'].isin(pass_)].copy()
+        except Exception as e:
+            print("ERROR w/ overlaps: %s, %s" % (va, dk))
+            raise e 
+        #min_['visual_area'] = va
+        #min_['datakey'] = dk
+        m_.append(pass_rfs)
+    min_overlaps = pd.concat(m_, axis=0)
+    return min_overlaps
+
+
+def get_cells_with_matched_rfs(cells0, sdata, rf_lim='percentile',
+                response_type='dff', do_spherical_correction=False):
+    '''
+    Load RF fits for current cells. 
+    Currently, only selects rf-5 for V1/LM, rf-10 for Li. 
+    Return cells with RF sizes within specified range
+
+    Args:
+    rf_lim: (str or tuple/list/array)
+        'maxmin': calculate max and min ranges
+        'percentile':  use whisker extents (1.5 x IQR range above/below)
+        tuple/array:  use specified (lower, upper) bounds 
+    '''
+ 
+    rfdf = get_rfdf(cells0, sdata, response_type=response_type,
+                    do_spherical_correction=do_spherical_correction)
+    cells_RF = get_cells_with_rfs(cells0, rfdf)
+    cells_lim, limits = limit_cells_by_rf(cells_RF, rf_lim=rf_lim)
+
+    return cells_lim
+
+def limit_cells_by_rf(cells_RF, rf_lim='percentile'):
+
+    if rf_lim=='maxmin':
+        rf_upper = cells_RF.groupby('visual_area')['std_avg'].max().min()
+        rf_lower = cells_RF.groupby('visual_area')['std_avg'].min().max()
+    elif rf_lim=='percentile':
+        lims = pd.concat([pd.DataFrame(\
+                    get_quartile_limits(cg, metric='std_avg', whis=1.5),
+                    columns=[va], index=['lower', 'upper'])\
+                    for va, cg in cells_RF.groupby('visual_area')], axis=1)
+        rf_lower, rf_upper = lims.loc['lower'].max(), lims.loc['upper'].min()
+    else:
+        rf_lower, rf_upper= rf_lim  # (6.9, 16.6)
+
+    cells_lim = cells_RF[(cells_RF['std_avg']<=rf_upper) 
+                    & (cells_RF['std_avg']>=rf_lower)].copy()
+
+    return cells_lim, lims
+
+def get_quartile_limits(cells_RF, metric='std_avg', whis=1.5):
+    q1 = cells_RF[metric].quantile(0.25)
+    q3 = cells_RF[metric].quantile(0.75)
+    iqr = q3 - q1
+    limit_lower = q1 - whis*iqr
+    limit_upper = q3 + whis*iqr
+    return limit_lower, limit_upper
+
+
 def get_rfdf(cells0, sdata, response_type='dff', do_spherical_correction=False):
     # Get cells and metadata
     assigned_cells, rf_meta = aggr.select_assigned_cells(cells0, sdata, 
@@ -62,16 +150,16 @@ def get_rfdf(cells0, sdata, response_type='dff', do_spherical_correction=False):
                                 fit_desc=rf_fit_desc,
                                 reliable_only=False)
     # Combined rfs5/rfs10
-    #combined_rfs = rfutils.combine_rfs_single(rfdata) 
-    r_list=[]
-    for (va, dk), rdf in rfdata.groupby(['visual_area', 'datakey']):
-        if va in ['V1', 'Lm']:
-            df_ = rdf[rdf.experiment=='rfs'].copy()
-        else:
-            if 'rfs10' in rdf['experiment'].values:
-                df_ = rdf[rdf.experiment=='rfs10'].copy()
-        r_list.append(df_)
-    rfdf = pd.concat(r_list).reset_index(drop=True)
+    rfdf = rfutils.average_rfs(rfdata, keep_experiment=False) 
+#    r_list=[]
+#    for (va, dk), rdf in rfdata.groupby(['visual_area', 'datakey']):
+#        if va in ['V1', 'Lm']:
+#            df_ = rdf[rdf.experiment=='rfs'].copy()
+#        else:
+#            if 'rfs10' in rdf['experiment'].values:
+#                df_ = rdf[rdf.experiment=='rfs10'].copy()
+#        r_list.append(df_)
+#    rfdf = pd.concat(r_list).reset_index(drop=True)
     return rfdf
 
 def get_cells_with_rfs(CELLS, rfdf):
@@ -92,34 +180,6 @@ def get_cells_with_rfs(CELLS, rfdf):
     cells_RF = pd.concat(c_list, axis=0).reset_index(drop=True)
     return cells_RF
 
-
-def get_quartile_limits(vals, whis=1.5):
-    med = np.median(vals)
-    top = np.percentile(vals, 75)
-    bott = np.percentile(vals, 25)
-    iqr = abs(top-bott)
-    up_ = (iqr)*whis + top
-    lo_ = bott - (iqr)*whis
-    return lo_, up_
-
-def limit_cells_by_rf(cells_RF, rf_lim=None):
-
-    if rf_lim=='maxmin':
-        rf_upper = cells_RF.groupby('visual_area')['std_avg'].max().min()
-        rf_lower = cells_RF.groupby('visual_area')['std_avg'].min().max()
-    elif rf_lim=='percentile':
-        lims = pd.concat([pd.DataFrame(\
-                    get_quartile_limits(cg['std_avg'].values, whis=1.5),
-                    columns=[va], index=['lower', 'upper'])\
-                    for va, cg in cells_RF.groupby('visual_area')], axis=1)
-        rf_lower, rf_upper = lims.loc['lower'].max(), lims.loc['upper'].min()
-    else:
-        rf_upper=16.6
-        rf_lower=6.9
-
-    cells_lim = cells_RF[(cells_RF['std_avg']<=rf_upper) 
-                    & (cells_RF['std_avg']>=rf_lower)].copy()
-    return cells_lim
 
 
 # ======================================================================
@@ -877,6 +937,19 @@ def shuffle_trials(ndf_z):
 # --------------------------------------------------------------------
 # BY_NCELLS
 # --------------------------------------------------------------------
+def get_all_responsive_cells(cells0, NDATA):
+    '''Assigns globa cell index. Return assigned cells
+    that are also responsive (NDATA)'''
+
+    gcells = aggr.assign_global_cell_ids(cells0.copy())
+    dkey_lut = NDATA[['visual_area', 'datakey', 'cell']].drop_duplicates()
+    cells0 = pd.concat([gcells[(gcells.visual_area==va) \
+                    & (gcells.datakey==dk) 
+                    & (gcells['cell'].isin(g['cell'].unique()))]\
+                for (va, dk), g in NDATA.groupby(['visual_area', 'datakey'])])
+
+    return cells0
+
 def decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA, 
                     sdf=None, test_type=None, results_id='results',
                     n_iterations=50, n_processes=2, break_correlations=False,
@@ -981,11 +1054,15 @@ def iterate_by_ncells(NDATA, GCELLS, sdf, test_type, n_cells_sample=1,
             # Get new sample set
             #print("... sampling data, n=%i cells" % n_cells_sample)
             randi_cells = random.randint(1, 10000)
-            neuraldf = sample_neuraldata_for_N_cells(n_cells_sample, NDATA, GCELLS, 
+            try:
+                neuraldf = sample_neuraldata_for_N_cells(n_cells_sample, 
+                                         NDATA, GCELLS, 
                                          with_replacement=with_replacement,
                                          train_configs=common_labels, 
                                          randi=randi_cells)
-            neuraldf = aggr.get_zscored_from_ndf(neuraldf.copy())
+                neuraldf = aggr.get_zscored_from_ndf(neuraldf.copy())
+            except Exception as e:
+                raise e 
             # Decoding -----------------------------------------------------
             start_t = time.time()
             i_df = select_test(ni, test_type, neuraldf, sdf, 
@@ -1051,7 +1128,8 @@ def sample_neuraldata_for_N_cells(n_cells_sample, NDATA, GCELLS,
     assert len(curr_cells)==len(np.unique(curr_cells))
     # Get corresponding neural data of selected datakeys and cells
     curr_dkeys = celldf['datakey'].unique()
-    ndata0 = NDATA[(NDATA.visual_area==va) & (NDATA.datakey.isin(curr_dkeys))].copy()
+    ndata0 = NDATA[(NDATA.visual_area==va) \
+                 & (NDATA.datakey.isin(curr_dkeys))].copy()
     ndata0['cell'] = ndata0['cell'].astype(float)
 
     # Make sure equal num trials per condition for all dsets
@@ -1212,24 +1290,29 @@ def decoding_analysis(dk, va, experiment,
         # BY_NCELLS - aggregate cells
         # -----------------------------------------------------------------------
         # Assign global ix to all cells
-        gcells = aggr.assign_global_cell_ids(cells0.copy())
-        dkey_lut = NDATA[['visual_area', 'datakey', 'cell']].drop_duplicates()
-        cells0 = pd.concat([gcells[(gcells.visual_area==va) \
-                        & (gcells.datakey==dk) 
-                        & (gcells['cell'].isin(g['cell'].unique()))]\
-                    for (va, dk), g in NDATA.groupby(['visual_area', 'datakey'])])
+        cells0 = get_all_responsive_cells(cells0, NDATA)
 
         # Match cells for RF size
         if match_rfs:
             print("~~~ matching RFs ~~~")
             print(cells0[['visual_area','datakey','cell']]\
                     .drop_duplicates()['visual_area'].value_counts())
-            rfdf = get_rfdf(cells0, sdata, do_spherical_correction=False)
-            cells_RF = get_cells_with_rfs(cells0, rfdf)
-            cells0 = limit_cells_by_rf(cells_RF, rf_lim=None)
+            cells0 = get_cells_with_matched_rfs(cells0, sdata, rf_lim=rf_lim,
+                        response_type=response_type, 
+                        do_spherical_correction=do_spherical_correction)
             print("~~~ post ~~~")
             print(cells0[['visual_area','datakey', 'cell']]\
                     .drop_duplicates()['visual_area'].value_counts())
+        elif overlap_thr is not None:
+            print("~~~ getting RFs ~~~")
+            print(cells0[['visual_area','datakey','cell']]\
+                    .drop_duplicates()['visual_area'].value_counts())
+            # do stuff.
+            cells0 = get_cells_with_overlap(cells0, sdata, overlap_thr=overlap_thr)
+            print("~~~ post ~~~")
+            print(cells0[['visual_area','datakey', 'cell']]\
+                    .drop_duplicates()['visual_area'].value_counts())
+
 
         if drop_repeats:
             # drop repeats
@@ -1240,6 +1323,7 @@ def decoding_analysis(dk, va, experiment,
             print("~~~ post ~~~")
             print(cells0[['visual_area','datakey', 'cell']]\
                     .drop_duplicates()['visual_area'].value_counts()) 
+
         counts = cells0[['visual_area', 'datakey', 'cell']]\
                     .drop_duplicates().groupby(['visual_area'])\
                     .count().reset_index()
@@ -1268,7 +1352,10 @@ def decoding_analysis(dk, va, experiment,
             pkl.dump(cells0, f, protocol=2) 
 
         # Stimuli
-        sdf = aggr.get_master_sdf(experiment, images_only=False)
+        sdf = aggr.get_master_sdf(experiment, images_only=True)
+        # NDATA0 = NDATA.copy()
+        NDATA = NDATA[NDATA.config.isin(sdf.index.tolist())].copy() 
+
         # Get cells for current visual area
         GCELLS = cells0[cells0['visual_area']==va].copy()
         if n_cells_sample is not None: 
@@ -1461,6 +1548,8 @@ def extract_options(options):
     parser.add_option('--rf-size', action='store_true', dest='match_rfs', 
             default=False, help="BY_NCELLS: Cells with matched RF sizes")
 
+    parser.add_option('-O', '--overlap', action='store', dest='overlap_thr', 
+            default=None, help="BY_NCELLS: Only include cells overlapping by >= overlap_thr")
 
     (options, args) = parser.parse_args(options)
 
@@ -1564,6 +1653,9 @@ def main(options):
                         else int(opts.n_cells_sample)
     drop_repeats = opts.drop_repeats
     match_rfs = opts.match_rfs
+    overlap_thr = None if opts.overlap_thr in ['None', None] \
+                        else float(opts.overlap_thr)
+    print("OVERLAP: %.2f" % overlap_thr)
 
     decoding_analysis(datakey, visual_area, experiment,  
                     analysis_type=analysis_type,
@@ -1575,7 +1667,7 @@ def main(options):
                     break_correlations=break_correlations,
                     n_cells_sample=n_cells_sample,
                     drop_repeats=drop_repeats,
-                    match_rfs=match_rfs,
+                    overlap_thr=overlap_thr, match_rfs=match_rfs,
                     C_value=C_value, test_split=test_split, cv_nfolds=cv_nfolds, 
                     class_name=class_name, 
                     class_values=class_values,
