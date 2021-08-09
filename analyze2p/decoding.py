@@ -777,13 +777,16 @@ def create_results_id(C_value=None,
 def create_aggregate_id(experiment, C_value=None,
                     trial_epoch='stimulus', 
                     response_type='dff', responsive_test='resp', 
-                    overlap_thr=None): 
+                    match_rfs=False, overlap_thr=None): 
     '''
     test_type: generatlization test name (size_single, size_subset, morph, morph_single)
     trial_epoch: mean val over time period (stimulus, plushalf, baseline) 
     '''
     C_str = 'tuneC' if C_value is None else 'C%.2f' % C_value
-    overlap_str = 'noRF' if overlap_thr is None else 'overlap%.2f' % overlap_thr
+    if match_rfs:
+        overlap_str = 'matchRF'
+    else:
+        overlap_str = 'noRF' if overlap_thr is None else 'overlap%.2f' % overlap_thr
     #test_str='all' if test_type is None else test_type
     response_str = '%s-%s' % (response_type, responsive_test)
     results_id='%s__%s__%s__%s__%s' \
@@ -1341,7 +1344,7 @@ def aggregate_iterated_results(experiment, meta, analysis_type='by_fov',
                 continue
     elif analysis_type=='by_ncells':
         results_dir = glob.glob(os.path.join(aggregate_dir, 'decoding',\
-                                'py3_by_ncells', 'files'))
+                                'py3_by_ncells', test_str, 'files'))
         if len(results_dir)==0:
             print("No results by_ncells")
             return None, None
