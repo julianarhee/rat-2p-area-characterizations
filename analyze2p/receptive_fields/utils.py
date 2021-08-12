@@ -12,7 +12,7 @@ mpl.use('agg')
 import pylab as pl
 
 import seaborn as sns
-import dill as pkl
+import _pickle as pkl
 import scipy.stats as spstats
 import numpy as np
 import pandas as pd
@@ -622,24 +622,28 @@ def load_fit_results(datakey, experiment='rfs', is_neuropil=False,
     session, animalid, fovn = hutils.split_datakey_str(datakey)
     fit_results = None
     fit_params = None
-    try: 
-        if fit_desc is None:
-            assert response_type is not None, "No response_type or fit_desc provided"
-            fit_desc = get_fit_desc(response_type=response_type, 
-                            do_spherical_correction=do_spherical_correction)  
+    if fit_desc is None:
+        fit_desc = get_fit_desc(response_type=response_type, 
+                        do_spherical_correction=do_spherical_correction)  
+    rfdir=None
+    try:  
         # get rf dir
         exp_name = 'gratings' if int(session) < 20190511 else experiment
-        run_name = exp_name.split('_')[1] if 'combined' in exp_name else exp_name
-        rfdir = glob.glob(os.path.join(rootdir, animalid, session,
+        run_name = exp_name.split('_')[1] if 'combined' in exp_name \
+                        else exp_name
+        rfdirs = glob.glob(os.path.join(rootdir, animalid, session,
                         'FOV%i_*' % fovn, 'combined_%s_*' % run_name,
                         'traces/%s*' % traceid, 'receptive_fields', 
-                        '%s' % fit_desc))[0]
+                        '%s' % fit_desc))
+        assert len(rfdirs)==1, "No rf dir"
+        rfdir = rfdirs[0]
         #print(rfdir)
         if is_neuropil:
             rfdir = os.path.join(rfdir, 'neuropil')
     except Exception as e:
         traceback.print_exc()
-       
+
+    #print(rfdir)
     # Load results
     rf_results_fpath = os.path.join(rfdir, 'fit_results.pkl')
     with open(rf_results_fpath, 'rb') as f:
@@ -651,7 +655,8 @@ def load_fit_results(datakey, experiment='rfs', is_neuropil=False,
         fit_params = json.load(f)
     
     if 'is_neuropil' not in fit_params:
-        return None, None
+        print('Rerun: %s, %s' % (datakey, experiment))
+        #return None, None
     
     return fit_results, fit_params
  
@@ -773,11 +778,12 @@ def get_reliable_fits(pass_cis, pass_criterion='all', single=False):
     return reliable_rois
 
  
-def cycle_and_load(rfmeta, assigned_cells, is_neuropil=False,
+def cycle_and_load(rfmeta, cells0, is_neuropil=False,
                     fit_desc=None, traceid='traces001', 
-                    fit_thr=0.5, scale_sigma=True, sigma_scale=2.35, verbose=False, 
-                    response_type='None', reliable_only=True,
-                    rootdir='/n/coxfs01/2p-data'):
+                    fit_thr=0.5, scale_sigma=True, sigma_scale=2.35, 
+                    verbose=False, 
+                    response_type='dff', reliable_only=True,
+                    rootdir='/n/coxfs01/2p-data', return_missing=False):
     '''
     Combines fit_results.pkl(fit from data) and evaluation_results.pkl (evaluated fits via bootstrap)
     and gets fit results only for those cells that are good/robust fits based on bootstrap analysis.
@@ -786,76 +792,54 @@ def cycle_and_load(rfmeta, assigned_cells, is_neuropil=False,
     df_list = []
     no_fits=[]
     no_eval=[]
-    for (visual_area, datakey, experiment), g in \
-                            rfmeta.groupby(['visual_area', 'datakey', 'experiment']):
-        if experiment not in ['rfs', 'rfs10']:
-            continue
 
-        session, animalid, fovnum = hutils.split_datakey_str(datakey)
-        fov = 'FOV%i_zoom2p0x' % fovnum
-        curr_cells = assigned_cells[(assigned_cells.visual_area==visual_area)
-                                  & (assigned_cells.datakey==datakey)]['cell'].unique() 
-        curr_rfname = experiment if int(session)>=20190511 else 'gratings'
-        #### Load fit results from measured
+    for (va, dk, exp), g in rfmeta.groupby(['visual_area', 'datakey', 'experiment']):
+        cells_ = cells0[(cells0.visual_area==va) & (cells0.datakey==dk)]['cell'].unique()
+        if len(cells_)==0:
+            continue
+        session, animalid, fovnum = hutils.split_datakey_str(dk)
+        rfname = exp if int(session)>=20190511 else 'gratings'
+        fit_rois=[]
         try:
-            fit_results, fit_params = load_fit_results(datakey,
-                                            experiment=curr_rfname,
-                                            traceid=traceid, is_neuropil=is_neuropil,
-                                            fit_desc=fit_desc)
-            assert fit_results is not None 
-        except Exception as e:
-            no_fits.append((visual_area, datakey))
-            continue
-
-        if is_neuropil:
-            reliable_only=False
-
-        if reliable_only:
-            try:
-                #### Load eval results 
-                eval_results, eval_params = load_eval_results(datakey,
-                                                experiment=curr_rfname, 
-                                                traceid=traceid, 
-                                                fit_desc=fit_desc)   
-                fit_rois = sorted(eval_results['bootdf']['cell'].unique())
-                assert eval_results is not None, \
-                    '-- no good (%s, %s)), skipping' % (datakey, experiment)
-            except Exception as e: 
-                no_eval.append((visual_area, datakey))
+            fit_results, fit_params = load_fit_results(dk, experiment=rfname,
+                                                       fit_desc=fit_desc)
+            if fit_results is None:
+                no_fits.append((va, dk))
                 continue
-        else:
-            fit_rois = sorted(list(fit_results.keys()))
-
-        if len(fit_rois)==0:
-            continue
+        except Exception as e:
+            raise e
 
         scale_sigma = fit_params['scale_sigma']
         sigma_scale = fit_params['sigma_scale']
         rfit_df = rfits_to_df(fit_results, fit_params=fit_params,
                         scale_sigma=scale_sigma, 
-                        sigma_scale=sigma_scale,
-                        roi_list=fit_rois)
-
-        #### Identify cells with measured params within 95% CI of bootstrap distN
-        pass_rois = rfit_df[rfit_df['r2']>fit_thr].index.tolist()
-        if verbose:
-            print("[%s] %s: %i of %i fit rois pass for all params" \
-                        % (visual_area, datakey, len(pass_rois), len(fit_rois)))
-
-        param_list = [param for param in rfit_df.columns if param != 'r2']
-        reliable_rois=[]
-        if reliable_only:
-            # check if all params within 95% CI
-            reliable_rois = get_reliable_fits(eval_results['pass_cis'],
-                                                     pass_criterion='all')
-            if verbose:
-                print("...... : %i of %i fit rois passed as reliiable" \
-                        % (len(reliable_rois), len(pass_rois)))
+                        sigma_scale=sigma_scale)
+        fit_rois = rfit_df[rfit_df['r2']>fit_thr].index.tolist()
+        if len(fit_rois)==0:
+            continue
+        if is_neuropil:
+            reliable_only=False
 
         #### Create dataframe with params only for good fit cells
-        keep_rois = reliable_rois if reliable_only else pass_rois
-        if curr_cells is not None:
-            keep_rois = [r for r in keep_rois if r in curr_cells]
+        reliable_rois=[]
+        if reliable_only:      
+            try: #### Load eval results 
+                eval_results, eval_params = load_eval_results(datakey,
+                                                experiment=rfname, 
+                                                traceid=traceid, 
+                                                fit_desc=fit_desc)   
+                if eval_results is None:
+                    no_eval.append((va, dk))
+                    continue
+                # check if all params within 95% CI
+                reliable_rois = get_reliable_fits(eval_results['pass_cis'],
+                                                         pass_criterion='all')
+            except Exception as e: 
+                raise e
+
+        #keep_rois = reliable_rois if reliable_only else fit_rois
+        keep_rois = np.intersect1d(cells_, reliable_rois) if reliable_only\
+                    else np.intersect1d(cells_, fit_rois)
 
         passdf = rfit_df.loc[keep_rois].copy()
         # "un-scale" size, if flagged
@@ -866,12 +850,9 @@ def cycle_and_load(rfmeta, assigned_cells, is_neuropil=False,
             passdf['sigma_y'] = sigma_y
 
         passdf['cell'] = keep_rois
-        passdf['datakey'] = datakey
-        passdf['animalid'] = animalid
-        passdf['session'] = session
-        passdf['fovnum'] = fovnum
-        passdf['visual_area'] = visual_area
-        passdf['experiment'] = experiment
+        passdf['datakey'] = dk
+        passdf['visual_area'] = va
+        passdf['experiment'] = exp
         df_list.append(passdf)
 
 
@@ -879,7 +860,10 @@ def cycle_and_load(rfmeta, assigned_cells, is_neuropil=False,
         rfdf = pd.concat(df_list, axis=0).reset_index(drop=True)    
         rfdf = update_rf_metrics(rfdf, scale_sigma=scale_sigma)
 
-    return rfdf
+    if return_missing:
+        return rfdf, no_fits, no_eval
+    else:
+        return rfdf
 
 
 def update_rf_metrics(rfdf, scale_sigma=True):
@@ -999,18 +983,25 @@ def get_fit_dpaths(dsets, traceid='traces001', fit_desc=None,
 
 def aggregate_rfdata(rf_dsets, assigned_cells, traceid='traces001', 
                         fit_desc='fit-2dgaus_dff-no-cutoff', 
-                        reliable_only=True, verbose=False):
+                        reliable_only=True, verbose=False, 
+                        return_missing=False):
     # Gets all results for provided datakeys (sdata, for rfs/rfs10)
     # Aggregates results for the datakeys
     # assigned_cells:  cells assigned by visual area
 
     # Only try to load rfdata if we can find fit + evaluation results
-    rfmeta, no_fits = get_fit_dpaths(rf_dsets, traceid=traceid, fit_desc=fit_desc)
-    rfdf = cycle_and_load(rfmeta, assigned_cells, reliable_only=reliable_only,
-                            fit_desc=fit_desc, traceid=traceid, verbose=verbose)
+    rfmeta, no_fits = get_fit_dpaths(rf_dsets, traceid=traceid, 
+                                    fit_desc=fit_desc)
+    rfdf, no_fit, no_eval = cycle_and_load(rfmeta, assigned_cells, 
+                            reliable_only=reliable_only,
+                            fit_desc=fit_desc, traceid=traceid, 
+                            verbose=verbose, return_missing=True)
     rfdf = rfdf.reset_index(drop=True)
 
-    return rfdf
+    if return_missing:
+        return rfdf, no_fit, no_eval
+    else:
+        return rfdf
 
 def add_rf_positions(rfdf, calculate_position=False, traceid='traces001'):
     '''

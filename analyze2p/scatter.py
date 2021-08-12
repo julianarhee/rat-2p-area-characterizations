@@ -176,7 +176,8 @@ def cycle_and_load_maps(dk_list, experiment='rfs', traceid='traces001',
 # --------------------------------------------------------------------
 def get_best_retinorun(datakey):
     all_retinos = retutils.get_average_mag_across_pixels(datakey)     
-    retinorun = all_retinos.loc[all_retinos[1].idxmax()][0] 
+    retinorun = all_retinos.iloc[all_retinos[1].idxmax()][0]
+    #retinorun = all_retinos.loc[all_retinos[1].idxmax()][0] 
     return retinorun
 
 def load_movingbar_results(dk, retinorun, traceid='traces001',

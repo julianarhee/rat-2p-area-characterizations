@@ -120,7 +120,8 @@ def get_stimuli(datakey, experiment, match_names=False,
     if verbose:
         print("... getting stimulus info for <%s>: %s" % (experiment, experiment_name))
     try:
-        dset_path = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovn,
+        dset_path = glob.glob(os.path.join(rootdir, animalid, session, 
+                            'FOV%i_*' % fovn,
                             'combined_%s_static' % experiment_name, \
                             'traces/traces*', 'data_arrays', 'labels.npz'))[0]
         dset = np.load(dset_path, allow_pickle=True)
@@ -909,28 +910,46 @@ def traces_to_trials(traces, labels, epoch='stimulus', metric='mean', n_on=None)
 
 
 
-def get_cells_by_area(sdata, excluded_datasets=[], return_missing=False, verbose=False,
-                    rootdir='/n/coxfs01/2p-data'):
+def get_cells_by_area(sdata, create_new=False, excluded_datasets=[], 
+                    return_missing=False, verbose=False,
+                    rootdir='/n/coxfs01/2p-data',
+                    aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     '''
     Use retionrun to ID area boundaries. If more than 1 retino, combine.
     '''
     #from . import roi_utils as rutils
+    cells_fpath = os.path.join(aggregate_dir, 'assigned_cells.pkl')
+    if os.path.exists(cells_fpath) and create_new is False:
+        try:
+            with open(cells_fpath, 'rb') as f:
+                results = pkl.load(f, encoding='latin1')
+            cells = results['cells']
+            missing_segmentations = results['missing']
+        except Exception as e:
+            create_new=True
 
     excluded_datasets = ['20190602_JC080_fov1', '20190605_JC090_fov1',
                          '20191003_JC111_fov1', 
-                         '20191104_JC117_fov1', '20191104_JC117_fov2', #'20191105_JC117_fov1',
+                         '20191104_JC117_fov1', '20191104_JC117_fov2', 
+                         #'20191105_JC117_fov1',
                          '20191108_JC113_fov1', '20191004_JC110_fov3',
                          '20191008_JC091_fov'] 
-    missing_segmentation=[]
-    d_ = []
-    for (animalid, session, fov, datakey), g in sdata.groupby(['animalid', 'session', 'fov', 'datakey']):
-        if datakey in excluded_datasets:
-            continue
-        retinoruns = [os.path.split(r)[-1] for r in glob.glob(os.path.join(rootdir, animalid, session, fov, 'retino*'))]
-        roi_assignments=dict()
-        for retinorun in retinoruns:
+    if create_new:
+        print("Assigning cells")
+        missing_segmentation=[]
+        d_ = []
+        for (animalid, session, fov, datakey), g \
+                in sdata.groupby(['animalid', 'session', 'fov', 'datakey']):
+            if datakey in excluded_datasets:
+                continue
+            roi_assignments=dict()
             try:
-                rois_ = roiutils.load_roi_assignments(animalid, session, fov, retinorun=retinorun)
+                # Get best retino
+                all_retinos = retutils.get_average_mag_across_pixels(datakey)     
+                retinorun = all_retinos.iloc[all_retinos[1].idxmax()][0]
+                #retinorun = all_retinos.loc[all_retinos[1].idxmax()][0] 
+                rois_ = roiutils.load_roi_assignments(animalid, session, \
+                                                    fov, retinorun=retinorun)
                 for varea, rlist in rois_.items():
                     if varea not in roi_assignments.keys():
                         roi_assignments[varea] = []
@@ -939,21 +958,26 @@ def get_cells_by_area(sdata, excluded_datasets=[], return_missing=False, verbose
                 if verbose:
                     print("... skipping %s (%s)" % (datakey, retinorun))
                 missing_segmentation.append((datakey, retinorun))
-                continue
- 
-        for varea, rlist in roi_assignments.items():
-            if hutils.isnumber(varea):
-                continue
-             
-            tmpd = pd.DataFrame({'cell': list(set(rlist))})
-            metainfo = {'visual_area': varea, 'animalid': animalid, 'session': session,
-                        'fov': fov, 'fovnum': g['fovnum'].values[0], 'datakey': g['datakey'].values[0]}
-            tmpd = hutils.add_meta_to_df(tmpd, metainfo)
-            d_.append(tmpd)
+                continue 
+            for varea, rlist in roi_assignments.items():
+                if hutils.isnumber(varea):
+                    continue  
+                tmpd = pd.DataFrame({'cell': list(set(rlist))})
+                session, animalid, fovn = hutils.split_datakey_str(datakey)
+                metainfo = {'visual_area': varea, 
+                            'animalid': animalid, 'session': session,
+                            'fov': fov, 'fovnum': fovn, 
+                            'datakey': datakey}
+                tmpd = hutils.add_meta_to_df(tmpd, metainfo)
+                d_.append(tmpd)
+        cells = pd.concat(d_, axis=0).reset_index(drop=True)
+        cells = cells[~cells['datakey'].isin(excluded_datasets)]
+       
+        # Save
+        results = {'cells': cells, 'missing': missing_segmentation}
+        with open(cells_fpath, 'wb') as f:
+            pkl.dump(results, f, protocol=2)
 
-    cells = pd.concat(d_, axis=0).reset_index(drop=True)
-    cells = cells[~cells['datakey'].isin(excluded_datasets)]
-    
     #print("Missing %i datasets for segmentation:" % len(missing_segmentation)) 
     if verbose: 
         print("Segmentation, missing:")
@@ -967,21 +991,25 @@ def get_cells_by_area(sdata, excluded_datasets=[], return_missing=False, verbose
         return cells
 
 def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
-                        visual_areas=['V1', 'Lm', 'Li'], 
-                        return_cells=False, create_new=False,
-                        aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                visual_areas=['V1', 'Lm', 'Li'], 
+                return_cells=False, create_new=False,
+                return_missing=False,
+                aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
 
     sdata_fpath = os.path.join(aggregate_dir, 'dataset_info_assigned.pkl')
     if create_new is False:
         print(sdata_fpath)
         sdata=None
         try:
-            assert os.path.exists(sdata_fpath), "Path does not exist: %s" % sdata_fpath
+            assert os.path.exists(sdata_fpath), \
+                        "Path does not exist: %s" % sdata_fpath
             with open(sdata_fpath, 'rb') as f:
                 sdata = pkl.load(f, encoding='latin1')
-            assert sdata is not None and isinstance(sdata, pd.DataFrame), "Bad metadata loading, creating new"
+            assert sdata is not None and isinstance(sdata, pd.DataFrame), \
+                                        "Bad metadata loading, creating new"
             if return_cells:
-                cells, missing_seg = get_cells_by_area(sdata, return_missing=True)
+                cells, missing_seg = get_cells_by_area(sdata, create_new=False,
+                                                    return_missing=True)
                 cells = cells[cells.visual_area.isin(visual_areas)]
             all_sdata = sdata.copy()
 
@@ -994,32 +1022,40 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
         unassigned_fp = os.path.join(aggregate_dir, 'dataset_info.pkl') 
         with open(unassigned_fp, 'rb') as f:
             sdata = pkl.load(f, encoding='latin1')
-        cells, missing_seg = get_cells_by_area(sdata, return_missing=True)
+        cells, missing_seg = get_cells_by_area(sdata, create_new=create_new,
+                                            return_missing=True)
         cells = cells[cells.visual_area.isin(visual_areas)]
 
         d_=[]
-        all_dkeys = cells[['visual_area', 'datakey', 'fov']].drop_duplicates().reset_index(drop=True)
-        for (visual_area, datakey, fov), g in all_dkeys.groupby(['visual_area', 'datakey','fov']):
-            if visual_area not in visual_areas:
-                print("... skipping %s" % visual_area)
+        all_ = cells[['visual_area', 'datakey', 'fov']]\
+                        .drop_duplicates().reset_index(drop=True)
+        for (va, dk, fov), g in all_.groupby(['visual_area', 'datakey','fov']):
+            if va not in visual_areas:
+                print("... skipping %s" % va)
                 continue
-            found_exps = sdata[(sdata['datakey']==datakey) & (sdata['fov']==fov)]['experiment'].values
+            found_exps = sdata[(sdata['datakey']==dk)]['experiment'].values
             tmpd = pd.DataFrame({'experiment': found_exps})
-            tmpd['visual_area'] = visual_area
-            tmpd['datakey'] = datakey
+            tmpd['visual_area'] = va 
+            tmpd['datakey'] = dk
             tmpd['fov'] = fov
             d_.append(tmpd)
         all_sdata = pd.concat(d_, axis=0).reset_index(drop=True)
         all_sdata = hutils.split_datakey(all_sdata)
-        all_sdata['fovnum'] = [int(f.split('_')[0][3:]) for f in all_sdata['fov']]
-
+        all_sdata['fovnum'] = [int(f.split('_')[0][3:]) \
+                                    for f in all_sdata['fov']]
         with open(sdata_fpath, 'wb') as f:
             pkl.dump(all_sdata, f, protocol=2)
-
+    
     if return_cells:
-        return all_sdata, cells
+            if return_missing:
+                return all_sdata, cells, missing_seg
+            else:
+                return all_sdata
     else:
-        return all_sdata
+        if return_missing:
+            return all_sdata, missing_seg
+        else:
+            return all_sdata
 
 
 
