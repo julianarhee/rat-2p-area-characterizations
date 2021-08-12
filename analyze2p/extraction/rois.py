@@ -7,7 +7,7 @@ import json
 import imutils
 import h5py
 import tifffile as tf
-import dill as pkl
+import _pickle as pkl
 import numpy as np
 import pandas as pd
 
@@ -20,11 +20,14 @@ import analyze2p.utils as hutils
 # Loading
 def load_roi_assignments(animalid, session, fov, retinorun='retino_run1', 
                             rootdir='/n/coxfs01/2p-data'):
-    
+   
+    roi_assignments=None
     results_fpath = os.path.join(rootdir, animalid, session, fov, retinorun, 
-                              'retino_analysis', 'segmentation', 'roi_assignments.json')
+                              'retino_analysis', 'segmentation', 
+                              'roi_assignments.json')
     
-    assert os.path.exists(results_fpath), "Assignment results not found: %s" % results_fpath
+    assert os.path.exists(results_fpath), \
+            "Assignment results not found: %s" % results_fpath
     with open(results_fpath, 'r') as f:
         roi_assignments = json.load(f)
    
@@ -127,7 +130,7 @@ def load_roi_positions(datakey, roiid=None, traceid='traces001',
     try:
         # print("... loading roi coords")
         with open(fovinfo_fpath, 'rb') as f:
-            fovinfo = pkl.load(f, encoding='latin1')
+            fovinfo = pkl.load(f) #, encoding='latin1')
         assert 'roi_positions' in fovinfo.keys(), "Bad file: %s" % fovinfo_fpath
         posdf = fovinfo['roi_positions'].copy()
 

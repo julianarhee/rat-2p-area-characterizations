@@ -35,102 +35,102 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import multiprocessing as mp
 import copy
 
-def regplot(
-    x=None, y=None,
-    data=None,ci=95, fit_regr=True,
-    lowess=False, x_partial=None, y_partial=None,
-    order=1, robust=False, dropna=True, label=None, color=None,
-    scatter_kws=None, line_kws=None, ax=None, truncate=False):
-
-    plotter = sns.regression._RegressionPlotter(x, y, data, ci=ci,
-                                 order=order, robust=robust,
-                                 x_partial=x_partial, y_partial=y_partial,
-                                 dropna=dropna, color=color, label=label, truncate=truncate)
-    if ax is None:
-        ax = plt.gca()
-    # Calculate the residual from a linear regression
-    #_, yhat, _ = plotter.fit_regression(grid=plotter.x)
-    #plotter.y = plotter.y - yhat
-    print(len(plotter.x))
-
-    # Set the regression option on the plotter
-    if lowess:
-        plotter.lowess = True
-    else:
-        plotter.fit_reg = False
-    # Draw the scatterplot
-    scatter_kws = {} if scatter_kws is None else scatter_kws.copy()
-    line_kws = {} if line_kws is None else line_kws.copy()
-    plotter.plot(ax, scatter_kws, line_kws)
-    # unfortunately the regression results aren't stored, so we rerun
-    grid, yhat, err_bands = plotter.fit_regression(ax) #, grid=plotter.x)
-    # also unfortunately, this doesn't return the parameters, so we infer them
-    slope = (yhat[-1] - yhat[0]) / (grid[-1] - grid[0])
-    intercept = yhat[0] - slope * grid[0]
-    if fit_regr:
-        plotter.lineplot(ax, line_kws)
-    
-    return slope, intercept, err_bands, plotter
-
-
-def fit_with_deviants(boot_, cis_, rfs_, xname='ml_proj', yname='x0', ax=None,
-                      scatter_kws=None, line_kws=None, deviant_color='magenta',
-                      lw=0.25, marker='o', fontsize=6):
-    rois_=rfs_['cell'].unique()
-    x_bins = sorted(rfs_[xname].values)
-    sort_rois_by_x = np.array(rfs_[xname].argsort().values)
-    # Get mean and upper/lower CI bounds of bootstrapped distn for each cell
-    bootc = cis_[['%s_lower' % yname, '%s_upper' % yname]].copy()
-    boot_meds = np.array([g[yname].mean() for k, g in boot_.groupby(['cell'])])
-    boot_medians_df = pd.DataFrame(boot_meds,index=rois_)
-    # Get YERR for plotting, (2, N), row1=lower errors, row2=upper errors
-    lo = boot_meds - cis_['%s_lower' % yname].values.astype(float),
-    hi = cis_['%s_upper' % yname].values.astype(float) - boot_meds
-    boot_errs = np.vstack([lo, hi])
-    booterrs_df = pd.DataFrame(boot_errs, columns=rois_)
-    # Fit regression
-    slope, intercept, err_bands, plotter = regplot(x=xname, y=yname, 
-                                                data=rfs_, ax=ax, 
-                                                color='k', fit_regr=True,
-                                        scatter_kws=scatter_kws,line_kws=line_kws)
-    eq_str = 'y=%.2fx + %.2f' % (slope, intercept)
-    print(eq_str)
-    #Refit line to get correct xbins
-    grid, yhat, err_bands = plotter.fit_regression(ax, grid=x_bins)
-    # 2b. Get CIs from linear fit (fit w/ reliable rois only)
-    # grid, yhat, err_bands = plotter.fit_regression(grid=plotter.x)
-    e1 = err_bands[0, :] # err_bands[0, np.argsort(xvals)] <- sort by xpos to plot
-    e2 = err_bands[1, :] #err_bands[1, np.argsort(xvals)]
-    regr_cis = pd.DataFrame({'regr_lower': e1, 'regr_upper': e2},
-                           index=rois_[sort_rois_by_x])
-
-    # Calculate deviants
-    deviants = []
-    for ri, (roi, g) in enumerate(rfs_.reset_index(drop=True).groupby(['cell'])):
-        (bootL, bootU) = bootc[['%s_lower' % yname, '%s_upper'% yname]].loc[roi]
-        (regrL, regrU) = regr_cis[['regr_lower', 'regr_upper']].loc[roi]
-        pass_boot = (bootL <= float(g[yname]) <= bootU)
-        pass_regr = ( (regrL > bootU) or (regrU < bootL) )
-        if pass_regr and pass_boot:
-            deviants.append(roi)
-    #plot deviants
-    yerrs = booterrs_df[deviants].values
-    ax.scatter(rfs_[xname][deviants], rfs_[yname][deviants], 
-               label='deviant', marker=marker,
-               s=scatter_kws['s'], facecolors=deviant_color, 
-               edgecolors=deviant_color, alpha=1.0)
-    #     if plot_boot_med:
-    #         ax.scatter(xv, boot_meds[dev_ixs], c=deviant_color, marker='_', alpha=1.0)
-    ax.errorbar(rfs_[xname][deviants], boot_medians_df.loc[deviants].values, yerr=yerrs,
-                    fmt='none', color=deviant_color, alpha=1, lw=lw)
-    #ax.set_title(eq_str, loc='left', fontsize=fontsize)
-    # # Old way (unprojected)
-    # sns.regplot(x='ml_pos', y=yname, data=rfs_.reset_index(drop=True), ax=ax,
-    #             scatter=False, color='c')
-    # ax.scatter(x='ml_pos', y=yname, data=rfs_.reset_index(drop=True), s=2, color='c')
-    
-    return ax
-
+#def regplot(
+#    x=None, y=None,
+#    data=None,ci=95, fit_regr=True,
+#    lowess=False, x_partial=None, y_partial=None,
+#    order=1, robust=False, dropna=True, label=None, color=None,
+#    scatter_kws=None, line_kws=None, ax=None, truncate=False):
+#
+#    plotter = sns.regression._RegressionPlotter(x, y, data, ci=ci,
+#                                 order=order, robust=robust,
+#                                 x_partial=x_partial, y_partial=y_partial,
+#                                 dropna=dropna, color=color, label=label, truncate=truncate)
+#    if ax is None:
+#        ax = pl.gca()
+#    # Calculate the residual from a linear regression
+#    #_, yhat, _ = plotter.fit_regression(grid=plotter.x)
+#    #plotter.y = plotter.y - yhat
+#    print(len(plotter.x))
+#
+#    # Set the regression option on the plotter
+#    if lowess:
+#        plotter.lowess = True
+#    else:
+#        plotter.fit_reg = False
+#    # Draw the scatterplot
+#    scatter_kws = {} if scatter_kws is None else scatter_kws.copy()
+#    line_kws = {} if line_kws is None else line_kws.copy()
+#    plotter.plot(ax, scatter_kws, line_kws)
+#    # unfortunately the regression results aren't stored, so we rerun
+#    grid, yhat, err_bands = plotter.fit_regression(ax) #, grid=plotter.x)
+#    # also unfortunately, this doesn't return the parameters, so we infer them
+#    slope = (yhat[-1] - yhat[0]) / (grid[-1] - grid[0])
+#    intercept = yhat[0] - slope * grid[0]
+#    if fit_regr:
+#        plotter.lineplot(ax, line_kws)
+#    
+#    return slope, intercept, err_bands, plotter
+#
+#
+#def fit_with_deviants(boot_, cis_, rfs_, xname='ml_proj', yname='x0', ax=None,
+#                      scatter_kws=None, line_kws=None, deviant_color='magenta',
+#                      lw=0.25, marker='o', fontsize=6):
+#    rois_=rfs_['cell'].unique()
+#    x_bins = sorted(rfs_[xname].values)
+#    sort_rois_by_x = np.array(rfs_[xname].argsort().values)
+#    # Get mean and upper/lower CI bounds of bootstrapped distn for each cell
+#    bootc = cis_[['%s_lower' % yname, '%s_upper' % yname]].copy()
+#    boot_meds = np.array([g[yname].mean() for k, g in boot_.groupby(['cell'])])
+#    boot_medians_df = pd.DataFrame(boot_meds,index=rois_)
+#    # Get YERR for plotting, (2, N), row1=lower errors, row2=upper errors
+#    lo = boot_meds - cis_['%s_lower' % yname].values.astype(float),
+#    hi = cis_['%s_upper' % yname].values.astype(float) - boot_meds
+#    boot_errs = np.vstack([lo, hi])
+#    booterrs_df = pd.DataFrame(boot_errs, columns=rois_)
+#    # Fit regression
+#    slope, intercept, err_bands, plotter = regplot(x=xname, y=yname, 
+#                                                data=rfs_, ax=ax, 
+#                                                color='k', fit_regr=True,
+#                                        scatter_kws=scatter_kws,line_kws=line_kws)
+#    eq_str = 'y=%.2fx + %.2f' % (slope, intercept)
+#    print(eq_str)
+#    #Refit line to get correct xbins
+#    grid, yhat, err_bands = plotter.fit_regression(ax, grid=x_bins)
+#    # 2b. Get CIs from linear fit (fit w/ reliable rois only)
+#    # grid, yhat, err_bands = plotter.fit_regression(grid=plotter.x)
+#    e1 = err_bands[0, :] # err_bands[0, np.argsort(xvals)] <- sort by xpos to plot
+#    e2 = err_bands[1, :] #err_bands[1, np.argsort(xvals)]
+#    regr_cis = pd.DataFrame({'regr_lower': e1, 'regr_upper': e2},
+#                           index=rois_[sort_rois_by_x])
+#
+#    # Calculate deviants
+#    deviants = []
+#    for ri, (roi, g) in enumerate(rfs_.reset_index(drop=True).groupby(['cell'])):
+#        (bootL, bootU) = bootc[['%s_lower' % yname, '%s_upper'% yname]].loc[roi]
+#        (regrL, regrU) = regr_cis[['regr_lower', 'regr_upper']].loc[roi]
+#        pass_boot = (bootL <= float(g[yname]) <= bootU)
+#        pass_regr = ( (regrL > bootU) or (regrU < bootL) )
+#        if pass_regr and pass_boot:
+#            deviants.append(roi)
+#    #plot deviants
+#    yerrs = booterrs_df[deviants].values
+#    ax.scatter(rfs_[xname][deviants], rfs_[yname][deviants], 
+#               label='deviant', marker=marker,
+#               s=scatter_kws['s'], facecolors=deviant_color, 
+#               edgecolors=deviant_color, alpha=1.0)
+#    #     if plot_boot_med:
+#    #         ax.scatter(xv, boot_meds[dev_ixs], c=deviant_color, marker='_', alpha=1.0)
+#    ax.errorbar(rfs_[xname][deviants], boot_medians_df.loc[deviants].values, yerr=yerrs,
+#                    fmt='none', color=deviant_color, alpha=1, lw=lw)
+#    #ax.set_title(eq_str, loc='left', fontsize=fontsize)
+#    # # Old way (unprojected)
+#    # sns.regplot(x='ml_pos', y=yname, data=rfs_.reset_index(drop=True), ax=ax,
+#    #             scatter=False, color='c')
+#    # ax.scatter(x='ml_pos', y=yname, data=rfs_.reset_index(drop=True), s=2, color='c')
+#    
+#    return ax, deviants
+#
 
 
 # plotting
@@ -676,22 +676,26 @@ def load_eval_results(datakey, experiment='rfs', rfdir=None,
     eval_results=None; eval_params=None;            
     try: 
         if rfdir is None:
-            run_name = experiment.split('_')[1] if 'combined' in experiment else experiment
+            run_name = experiment.split('_')[1] if 'combined' \
+                            in experiment else experiment
             if fit_desc is None:
                 fit_desc = get_fit_desc(response_type=response_type,
-                                        do_spherical_correction=do_spherical_correction)
-                rfdir = glob.glob(os.path.join(rootdir, animalid, session, 
-                        'FOV%i_*' % fovn, '*%s_*' % run_name, 'traces/%s*' % traceid, 
+                                do_spherical_correction=do_spherical_correction)
+            rfdir = glob.glob(os.path.join(rootdir, animalid, session, 
+                        'FOV%i_*' % fovn, 'combined_%s_*' % run_name, 
+                        'traces/%s*' % traceid, 
                         'receptive_fields', '%s*' % fit_desc))[0]
         evaldir = os.path.join(rfdir, 'evaluation')
         assert os.path.exists(evaldir), \
                         "No evaluation exists\n(%s)\n. Aborting" % evaldir
     except IndexError as e:
-        traceback.print_exc()
+        #traceback.print_exc()
         return None, None
     except AssertionError as e:
-        traceback.print_exc()
+        #traceback.print_exc()
         return None, None
+    except Exception as e:
+        raise e
 
     # Load results
     rf_eval_fpath = os.path.join(evaldir, 'evaluation_results.pkl')
@@ -714,7 +718,7 @@ def load_matching_fit_results(animalid, session, fov, traceid='traces001',
     fit_results=None
     fit_params=None
     try:
-        fit_results, fit_params = fitrf.load_fit_results(animalid, session,
+        fit_results, fit_params = load_fit_results(animalid, session,
                                         fov, traceid=traceid,
                                         experiment=experiment,
                                         response_type=response_type,

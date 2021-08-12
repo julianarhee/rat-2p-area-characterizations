@@ -624,6 +624,19 @@ def label_group_bar_table(ax, df, offset=0.2, lw=1):
         add_line(ax, pos*scale , xpos)
         xpos -= offset
 
+def abline(slope, intercept, ax=None, color='purple', ls='-', lw=1,
+           label=True, label_prefix=''):
+    """Plot a line from slope and intercept"""
+    if ax is None:
+        fig, ax = pl.subplots()
+    #axes = plt.gca()
+    #x_vals = np.array(axes.get_xlim())
+    x_vals = np.array(ax.get_xlim())
+    y_vals = intercept + slope * x_vals
+    label_str = '(%s) y=%.2fx+%.2f' % (label_prefix, slope, intercept) if label else None
+    ax.plot(x_vals, y_vals, '--', label=label_str, color=color, ls=ls, lw=lw)
+    ax.legend()
+    return ax
 
 # Visualizing fov
 def adjust_image_contrast(img, clip_limit=2.0, tile_size=10):#(10,10)):

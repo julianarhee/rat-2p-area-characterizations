@@ -911,20 +911,23 @@ def traces_to_trials(traces, labels, epoch='stimulus', metric='mean', n_on=None)
 
 
 def get_cells_by_area(sdata, create_new=False, excluded_datasets=[], 
-                    return_missing=False, verbose=False,
-                    rootdir='/n/coxfs01/2p-data',
-                    aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                return_missing=False, verbose=False,
+                rootdir='/n/coxfs01/2p-data',
+                aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     '''
     Use retionrun to ID area boundaries. If more than 1 retino, combine.
     '''
     #from . import roi_utils as rutils
+    cells=None
+    missing_segmentation=[]
+    # Check existing
     cells_fpath = os.path.join(aggregate_dir, 'assigned_cells.pkl')
     if os.path.exists(cells_fpath) and create_new is False:
         try:
             with open(cells_fpath, 'rb') as f:
                 results = pkl.load(f, encoding='latin1')
             cells = results['cells']
-            missing_segmentations = results['missing']
+            missing_segmentation = results['missing']
         except Exception as e:
             create_new=True
 
@@ -950,6 +953,9 @@ def get_cells_by_area(sdata, create_new=False, excluded_datasets=[],
                 #retinorun = all_retinos.loc[all_retinos[1].idxmax()][0] 
                 rois_ = roiutils.load_roi_assignments(animalid, session, \
                                                     fov, retinorun=retinorun)
+                if rois_ is None:
+                    missing_segmentation.append((datakey, retinorun))
+                    continue
                 for varea, rlist in rois_.items():
                     if varea not in roi_assignments.keys():
                         roi_assignments[varea] = []
@@ -1012,7 +1018,6 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
                                                     return_missing=True)
                 cells = cells[cells.visual_area.isin(visual_areas)]
             all_sdata = sdata.copy()
-
         except Exception as e:
             traceback.print_exc()
             create_new=True
@@ -1047,10 +1052,10 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
             pkl.dump(all_sdata, f, protocol=2)
     
     if return_cells:
-            if return_missing:
-                return all_sdata, cells, missing_seg
-            else:
-                return all_sdata
+        if return_missing:
+            return all_sdata, cells, missing_seg
+        else:
+            return all_sdata, cells
     else:
         if return_missing:
             return all_sdata, missing_seg
@@ -1102,11 +1107,14 @@ def get_aggregate_retinodata(traceid='traces001',
     Returns df with phase and magnitude (columns) for 
     AZ/EL conditions for ALL cells.
     '''
-    sdata, cells0 = get_aggregate_info(visual_areas=visual_areas, return_cells=True)
+    sdata, cells0 = get_aggregate_info(visual_areas=visual_areas, 
+                                        return_cells=True)
     meta = sdata[sdata.experiment=='retino'].copy() 
     # Only get cells for current experiment
-    all_dkeys = [(va, dk) for (va, dk), g in meta.groupby(['visual_area', 'datakey'])]
-    CELLS = pd.concat([g for (va, dk), g in cells0.groupby(['visual_area', 'datakey'])\
+    all_dkeys = [(va, dk) for (va, dk), g \
+                    in meta.groupby(['visual_area', 'datakey'])]
+    CELLS = pd.concat([g for (va, dk), g \
+                    in cells0.groupby(['visual_area', 'datakey'])\
                     if (va, dk) in all_dkeys])
 
     retinodata=None
@@ -1182,7 +1190,8 @@ def get_aggregate_data(experiment, traceid='traces001',
         values = MEANS (i.e., dict of dfs) for each visual area
         Only inclues cells that are assigned to the specified area.
     '''
-    sdata, cells0 = get_aggregate_info(visual_areas=visual_areas, return_cells=True)
+    sdata, cells0 = get_aggregate_info(visual_areas=visual_areas, 
+                                        return_cells=True)
 #    if 'rfs' in experiment:
 #        experiment_list = ['rfs', 'rfs10']
 #    else:
@@ -1192,8 +1201,10 @@ def get_aggregate_data(experiment, traceid='traces001',
     meta = sdata[sdata.experiment==experiment].copy()
  
     # Only get cells for current experiment
-    all_dkeys = [(va, dk) for (va, dk), g in meta.groupby(['visual_area', 'datakey'])]
-    CELLS = pd.concat([g for (va, dk), g in cells0.groupby(['visual_area', 'datakey'])\
+    all_dkeys = [(va, dk) for (va, dk), g \
+                    in meta.groupby(['visual_area', 'datakey'])]
+    CELLS = pd.concat([g for (va, dk), g \
+                    in cells0.groupby(['visual_area', 'datakey'])\
                     if (va, dk) in all_dkeys])
 
     visual_areas = CELLS['visual_area'].unique()

@@ -27,4 +27,5 @@ dependencies:
 - cycler=0.10
 - cmasher=1.6
 - pip=21.0
-- allensdk=2.11.2
+  #- allensdk=2.11
+ 

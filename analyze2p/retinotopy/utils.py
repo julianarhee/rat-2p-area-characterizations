@@ -258,21 +258,22 @@ def plot_phase_and_delay_maps(absolute_az, absolute_el, delay_az, delay_el,
     pplot.colorbar(im2b)
 
     cbar1_orientation='horizontal'
-    cbar1_axes = [0.35, 0.85, 0.1, 0.1]
-    cbar2_orientation='vertical'
-    cbar2_axes = [0.75, 0.85, 0.1, 0.1]
+    cbar1_axes = [0.35, 0.85, 0.12, 0.12]
 
     cbaxes = fig.add_axes(cbar1_axes) 
     cb = pl.colorbar(im1, cax = cbaxes, orientation=cbar1_orientation)  
     cb.ax.axis('off')
     cb.outline.set_visible(False)
 
-
+    cbar2_orientation='vertical'
+    cbar2_axes = [0.75, 0.85, 0.12, 0.12]
     cbaxes = fig.add_axes(cbar2_axes) 
     cb = pl.colorbar(im2, cax = cbaxes, orientation=cbar2_orientation)
     #cb.ax.set_ylim([cb.norm(-np.pi*top_cutoff), cb.norm(np.pi*top_cutoff)])
-    cb.ax.axhline(y=cb.norm(vmin*elev_cutoff), color='w', lw=1)
-    cb.ax.axhline(y=cb.norm(vmax*elev_cutoff), color='w', lw=1)
+    #cb.ax.axhline(y=cb.norm(vmin*elev_cutoff), color='w', lw=1)
+    #cb.ax.axhline(y=cb.norm(vmax*elev_cutoff), color='w', lw=1)
+    cb.ax.axhline(y=vmin*elev_cutoff, color='k', lw=2, ls=':')
+    cb.ax.axhline(y=vmax*elev_cutoff, color='k', lw=2, ls=':') 
     cb.ax.axis('off')
     cb.outline.set_visible(False)
     pl.subplots_adjust(top=0.8, hspace=0.5, wspace=0.5)

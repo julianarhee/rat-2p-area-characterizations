@@ -13,6 +13,25 @@ import _pickle as pkl
 # --------------------------------------------------------------------
 # Data loading
 # --------------------------------------------------------------------
+
+def get_traceid_dir(datakey, experiment, traceid='traces001',
+                    rootdir='/n/coxfs01/2p-data'):
+    session, animalid, fovnum = hutils.split_datakey_str(datakey)
+    experiment_name = 'gratings' if (experiment in ['rfs', 'rfs10'] \
+                        and int(session)<20190511) else experiment
+    try:
+        traceid_dir = glob.glob(os.path.join(rootdir, animalid, session, 
+                            'FOV%i_*' % fovnum, 
+                            'combined_%s_static' % experiment_name,
+                            'traces', '%s*' % traceid))[0]
+    except Exception as e:
+        print(e)
+        print("%s: no traceid (%s/%s)!" \
+                % (datakey, experiment, experiment_name))
+        return None
+
+    return traceid_dir
+
 def get_data_fpath(datakey, experiment_name='rfs10', traceid='traces001', 
                     trace_type='corrected',
                     rootdir='/n/coxfs01/2p-data'):
