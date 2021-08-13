@@ -572,9 +572,10 @@ def trials_to_dataframes(processed_fpaths, conditions_fpath):
     excluded_tifs = []
     for cond, tif_list in trials_by_cond.items():
         for tifnum in tif_list:
-            processed_tif = [f for f in processed_fpaths if 'File%03d' % tifnum in f]
+            processed_tif = [f for f in processed_fpaths \
+                                if 'File%03d' % tifnum in f]
             if len(processed_tif) == 0:
-                print("---(%s) No analysis found for file: %s" \
+                print("Warning (%s) No analysis found for file: %s" \
                             % (conditions_fpath, tifnum))
                 excluded_tifs.append(tifnum)
         trials_by_cond[cond] = [t for t in tif_list if t not in excluded_tifs]
@@ -723,7 +724,8 @@ def get_retino_fft(datakey, curr_cells=None, traceid='traces001',
     # Load fft results
     fft_results = load_fft_results(datakey, roiid=roiid,
                                     retinorun=retinorun, traceid=traceid, 
-                                    create_new=create_new, use_pixels=use_pixels)
+                                    create_new=create_new, 
+                                    use_pixels=use_pixels)
     if fft_results is None:
         return None
 
@@ -737,7 +739,8 @@ def get_retino_fft(datakey, curr_cells=None, traceid='traces001',
                 "Incorrect N conditions (%s)" % str(magratios_soma.columns)
         # Get maps
         df_ = get_final_maps(magratios_soma, phases_soma, 
-                        trials_by_cond=None, mag_thr=mag_thr, delay_thr=delay_thr)
+                        trials_by_cond=None, mag_thr=mag_thr, 
+                        delay_thr=delay_thr)
         # Select cells
         if df_ is not None:
             if curr_cells is None:
@@ -794,7 +797,9 @@ def do_fft_analysis(avg_traces, sorted_idxs, stim_freq_idx):
 # -----------------------------------------------------------------------------
 # preprocessing ---------------
 def load_roi_traces(datakey, run='retino_run1', analysisid='analysis002',
-                trace_type='corrected', detrend_after_average=True, verbose=False,
+                trace_type='corrected', 
+                detrend_after_average=True, temporal_ds=None,
+                verbose=False,
                 rootdir='/n/coxfs01/2p-data'):
     session, animalid, fovn = hutils.split_datakey_str(datakey)
     if verbose:
@@ -815,7 +820,8 @@ def load_roi_traces(datakey, run='retino_run1', analysisid='analysis002',
         print("... loading traces from: %s" % analysis_dir)
     retino_dpath = os.path.join(analysis_dir, 'traces', 'extracted_traces.h5')
     scaninfo = get_protocol_info(datakey, run=run)
-    temporal_ds = RIDS[analysisid]['PARAMS']['downsample_factor']
+    if temporal_ds is None:
+        temporal_ds = RIDS[analysisid]['PARAMS']['downsample_factor']
     traces = load_roi_traces_from_file(retino_dpath, scaninfo, trace_type=trace_type,
                                     temporal_ds=temporal_ds, 
                                     detrend_after_average=detrend_after_average)

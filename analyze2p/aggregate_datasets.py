@@ -931,7 +931,10 @@ def get_cells_by_area(sdata, create_new=False, excluded_datasets=[],
         except Exception as e:
             create_new=True
 
-    excluded_datasets = ['20190602_JC080_fov1', '20190605_JC090_fov1',
+    excluded_datasets = ['20190321_JC073_fov1',
+                         '20190314_JC070_fov2',
+                         '20190602_JC080_fov1', 
+                         '20190605_JC090_fov1',
                          '20191003_JC111_fov1', 
                          '20191104_JC117_fov1', '20191104_JC117_fov2', 
                          #'20191105_JC117_fov1',
@@ -939,7 +942,6 @@ def get_cells_by_area(sdata, create_new=False, excluded_datasets=[],
                          '20191008_JC091_fov'] 
     if create_new:
         print("Assigning cells")
-        missing_segmentation=[]
         d_ = []
         for (animalid, session, fov, datakey), g \
                 in sdata.groupby(['animalid', 'session', 'fov', 'datakey']):
@@ -951,18 +953,16 @@ def get_cells_by_area(sdata, create_new=False, excluded_datasets=[],
                 all_retinos = retutils.get_average_mag_across_pixels(datakey)     
                 retinorun = all_retinos.iloc[all_retinos[1].idxmax()][0]
                 #retinorun = all_retinos.loc[all_retinos[1].idxmax()][0] 
-                rois_ = roiutils.load_roi_assignments(animalid, session, \
+                roi_assignments = roiutils.load_roi_assignments(animalid, 
+                                                    session, \
                                                     fov, retinorun=retinorun)
-                if rois_ is None:
+                if roi_assignments is None:
                     missing_segmentation.append((datakey, retinorun))
                     continue
-                for varea, rlist in rois_.items():
-                    if varea not in roi_assignments.keys():
-                        roi_assignments[varea] = []
-                    roi_assignments[varea].extend(rlist)
             except Exception as e:
                 if verbose:
-                    print("... skipping %s (%s)" % (datakey, retinorun))
+                    print("... no seg. %s (%s)" % (datakey, retinorun))
+                    print(e)
                 missing_segmentation.append((datakey, retinorun))
                 continue 
             for varea, rlist in roi_assignments.items():
@@ -975,6 +975,8 @@ def get_cells_by_area(sdata, create_new=False, excluded_datasets=[],
                             'fov': fov, 'fovnum': fovn, 
                             'datakey': datakey}
                 tmpd = hutils.add_meta_to_df(tmpd, metainfo)
+                if verbose:
+                    print('    %s (%s): got %i cells' % (dk, varea, len(tmpd)))
                 d_.append(tmpd)
         cells = pd.concat(d_, axis=0).reset_index(drop=True)
         cells = cells[~cells['datakey'].isin(excluded_datasets)]
