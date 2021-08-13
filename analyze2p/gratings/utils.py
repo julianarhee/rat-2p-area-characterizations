@@ -8,7 +8,7 @@ import glob
 import json
 import copy
 import traceback
-import dill as pkl
+import _pickle as pkl
 import numpy as np
 import pandas as pd
 import scipy.stats as spstats
@@ -53,7 +53,8 @@ def get_fit_dir(datakey, traceid='traces001', fit_desc=None, verbose=False,
             print(e)
             tdir = glob.glob(os.path.join(rootdir, animalid, session, 
                             'FOV%i_*' % fovnum,
-                            'combined_gratings_static', 'traces', '%s*' % traceid,
+                            'combined_gratings_static', 
+                            'traces', '%s*' % traceid,
                             'tuning'))[0]
             edirs = os.listdir(tdir)
             print("--- found dirs: ---")
@@ -105,7 +106,7 @@ def load_tuning_results(datakey, run_name='gratings', traceid='traces001',
     '''Load results from bootstrap analysis (fitresults.pkl, fitparams.json)'''
     bootresults=None; fitparams=None;
     try: 
-        ori_dir = get_ori_dir(datakey, traceid=traceid, fit_desc=fit_desc,
+        ori_dir = get_fit_dir(datakey, traceid=traceid, fit_desc=fit_desc,
                                 verbose=verbose)
         assert ori_dir is not None, "... [%s] No ori_dir" % datakey
         results_fpath = os.path.join(ori_dir, 'fitresults.pkl')
