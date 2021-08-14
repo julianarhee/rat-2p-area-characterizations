@@ -1,7 +1,7 @@
 name: rat2p
 channels:
-- conda-forge
 - defaults
+- conda-forge
 dependencies:
 - h5py=2.10
 - ipython=7.21
@@ -27,5 +27,6 @@ dependencies:
 - cycler=0.10
 - cmasher=1.6
 - pip=21.0
+- scikit-image=0.16.2
   #- allensdk=2.11
  
