@@ -457,6 +457,54 @@ def annotate_multicomp_by_area(ax, statsdf, p_thr=0.05,
         ax.text(ctrx, y1+(offset/8.), star_str, fontsize=fontsize)
     
 
+# --------------------------------------------------------------------
+# CUSTOM LEGENDS
+# --------------------------------------------------------------------
+def create_tiny_dff_legend(ref_ax, xlim_marker, ylim_marker, loc=(0, -0.5),
+                          xlabel='X s', ylabel='X dF/F', fontsize=6):
+    '''
+    Create standard tiny L-legend for traces
+    ref_ax: 
+        axis instance that everything is relative to
+    xlim_marker: (float)
+        plot from 0 to xlim_marker (e.g., nframes_on)
+    ylim_marker: (float)
+        plot from 0 to ylim_marker (e.g., 0.2 dF/F)
+    loc: (tuple)
+        Left, Bottom coords for legend axes
+    xlabel/ylabel: (str)
+        Label for x- y- legend
+
+    '''
+    from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
+    leg_ax = inset_axes(ref_ax, "100%", "100%", 
+                     bbox_to_anchor=(loc[0], loc[1], 1, 1), 
+                     bbox_transform=ref_ax.transAxes, borderpad=0)
+    leg_ax.set_xlim(ref_ax.get_xlim())
+    leg_ax.set_ylim(ref_ax.get_ylim())
+    leg_ax.set_xticks([0, xlim_marker])
+    leg_ax.set_xticklabels(['', xlabel], fontsize=fontsize)
+    leg_ax.set_yticks([0, ylim_marker])
+    leg_ax.set_yticklabels(['', ylabel], rotation=90, fontsize=fontsize)
+    leg_ax.tick_params(which='both', axis='both', size=0)
+    leg_ax.set_facecolor('none')
+    sns.despine(ax=leg_ax, trim=True)
+
+
+def set_yaxis_for_traces(ax, stim_on_frame, nframes_on, 
+                        ylim_marker=0.1, ylim=0.5):
+    '''
+    Turn off spines/ticks, only plot stim on line and set ytick limits
+    '''
+    ax.set_xticks([stim_on_frame, stim_on_frame+nframes_on])
+    ax.tick_params(which='both', axis='both', size=0)
+    ax.set_xticklabels([])
+    ax.set_yticks([0.0, ylim_marker])
+    ax.set_ylim([0.0, ylim])
+
+
+
 # Drawing funcs
 from matplotlib.offsetbox import OffsetImage,AnnotationBbox
 from matplotlib.patches import Ellipse, Rectangle, Polygon
@@ -467,7 +515,8 @@ def get_icon(name, icon_type='ori'):
     im = pl.imread(src)
     return im
 
-def offset_image(coord, ax, name=None, pad=0, xybox=(0, 0), xycoords=('data'), yloc=None, zoom=1.0):
+def offset_image(coord, ax, name=None, pad=0, xybox=(0, 0), 
+                    xycoords=('data'), yloc=None, zoom=1.0):
     img = get_icon(name)
     im = OffsetImage(img, zoom=zoom)
     im.image.axes = ax
@@ -476,7 +525,8 @@ def offset_image(coord, ax, name=None, pad=0, xybox=(0, 0), xycoords=('data'), y
         yloc=ax.get_ylim()[-1]
     ab = AnnotationBbox(im, (coord, yloc), xybox=xybox, frameon=False,
                         xycoords=xycoords,
-                        boxcoords="offset points", pad=pad, annotation_clip=False)
+                        boxcoords="offset points", pad=pad, 
+                        annotation_clip=False)
     ax.add_artist(ab)
     
     return yloc
@@ -596,6 +646,8 @@ def custom_legend_markers(colors=['m', 'c'], labels=['label1', 'label2'], marker
             leg_h.append(Line2D([0], [0], marker=marker, color=col, label=label))
     
     return leg_h
+
+
 
 def darken_cmap(colormap='spectral', alpha=0.9, 
         cmapdir = '/n/coxfs01/julianarhee/colormaps'):
