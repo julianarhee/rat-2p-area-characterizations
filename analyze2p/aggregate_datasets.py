@@ -85,23 +85,30 @@ def reformat_morph_values(sdf, verbose=False):
     '''
     Rounds values for stimulus parameters, checks to make sure true aspect ratio is used.
     '''
+
+
+    sdf = sdf.sort_index()
     aspect_ratio=1.75
     control_ixs = sdf[sdf['morphlevel']==-1].index.tolist()
     if len(control_ixs)==0: # Old dataset
         if 17.5 in sdf['size'].values:
-            sizevals = np.array([round(s/aspect_ratio,0) for s in sdf['size'].values])
+            sizevals = sdf['size'].divide(aspect_ratio).astype(float).round(0)
+            #np.array([round(s/aspect_ratio,0) for s in sdf['size'].values])
             sdf['size'] = sizevals
     else:  
-        sizevals = np.array([round(s, 1) for s in sdf['size'].unique() if s not in ['None', None] and not np.isnan(s)])
-        sdf.loc[sdf.morphlevel==-1, 'size'] = pd.Series(sizevals, index=control_ixs)
-        sdf['size'] = [round(s, 1) for s in sdf['size'].values]
+        sizevals = np.array([round(s, 1) for s in sdf['size'].unique() \
+                            if s not in ['None', None] and not np.isnan(s)])
+        sdf.loc[control_ixs, 'size'] = pd.Series(sizevals, index=control_ixs).astype(float)
+        sdf['size'] = sdf['size'].astype(float).round(decimals=1)
+        #[round(s, 1) for s in sdf['size'].values]
+
     xpos = [x for x in sdf['xpos'].unique() if x is not None]
     ypos =  [x for x in sdf['ypos'].unique() if x is not None]
     #assert len(xpos)==1 and len(ypos)==1, "More than 1 pos? x: %s, y: %s" % (str(xpos), str(ypos))
     if verbose and (len(xpos)>1 or len(ypos)>1):
         print("warning: More than 1 pos? x: %s, y: %s" % (str(xpos), str(ypos)))
-    sdf.loc[sdf.morphlevel==-1, 'xpos'] = [xpos[0] for _ in np.arange(0, len(control_ixs))]
-    sdf.loc[sdf.morphlevel==-1, 'ypos'] = [ypos[0] for _ in np.arange(0, len(control_ixs))]
+    sdf.loc[control_ixs, 'xpos'] = xpos[0]
+    sdf.loc[control_ixs, 'ypos'] = ypos[0]
 
     return sdf
 
