@@ -238,14 +238,12 @@ def calculate_overlap(poly1, poly2, r1='poly1', r2='poly2'):
     overlap_area = poly1.intersection(poly2).area
     perc_overlap = overlap_area/area_of_smaller
 
-
     odf = pd.DataFrame({'poly1':r1,
                         'poly2': r2,
                         'area_overlap': area_overlap, #overlap_area,
                         'perc_overlap': perc_overlap}, index=[0])
     
     return odf
-
 
 def get_proportion_overlap(poly_tuple1, poly_tuple2):
     r1, poly1 = poly_tuple1
@@ -1785,7 +1783,7 @@ def fit_rfs(rfmaps_arr, fit_params, #row_vals=[], col_vals=[], fitparams=None,
     xx, yy = np.meshgrid(xi, yi)
         
     with open(rf_results_fpath, 'wb') as f:
-        pkl.dump(fit_results, f, protocol=pkl.HIGHEST_PROTOCOL)
+        pkl.dump(fit_results, f, protocol=2)
 
     return fit_results, fit_params
 

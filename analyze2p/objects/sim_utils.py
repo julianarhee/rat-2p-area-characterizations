@@ -55,9 +55,10 @@ def get_image_luminances(sdf, im_arrays, pix_per_deg=16.05, resolution=[1080, 19
             mean_lum=float(sg['color'].values)
         else:
             imarr = im_arrays[imname]
-            iscr, iex = draw_stimulus_to_screen(imarr, size_deg=sz, 
+            iscr  = draw_stimulus_to_screen(imarr, size_deg=sz, 
                                         stim_pos=(stim_xpos, stim_ypos),
-                                        pix_per_deg=pix_per_deg, resolution=resolution)
+                                        pix_per_deg=pix_per_deg, 
+                                        resolution=resolution)
             mean_lum = iscr.mean()/255.
         lum_.append(pd.DataFrame({'config': sg.index, 'name': imname, 
                                     'size': sz, 'morphlevel': mp, 'lum': mean_lum}, index=[i]))
@@ -65,14 +66,24 @@ def get_image_luminances(sdf, im_arrays, pix_per_deg=16.05, resolution=[1080, 19
     
     return lumdf
 
+def stimsize_poly(sz, xpos=0, ypos=0):
+    from shapely.geometry import box
 
-def stim_to_screen(stim, stim_xpos, stim_ypos,  size_deg, 
-                   pix_per_deg=16.05, resolution=[1920, 1080]):
-    stim_screen, stim_extent = draw_stimulus_to_screen(stim, 
-                                        size_deg=size_deg, 
-                                        stim_pos=(stim_xpos, stim_ypos),
-                            pix_per_deg=pix_per_deg, resolution=resolution[::-1])
-    return stim_screen
+    ry_min = ypos - sz/2.
+    rx_min = xpos - sz/2.
+    ry_max = ypos + sz/2.
+    rx_max = xpos + sz/2.
+    s_blobs = box(rx_min, ry_min, rx_max, ry_max)
+    
+    return s_blobs
+
+#def stim_to_screen(stim, stim_xpos, stim_ypos,  size_deg, 
+#                   pix_per_deg=16.05, resolution=[1920, 1080]):
+#    stim_screen, stim_extent = draw_stimulus_to_screen(stim, 
+#                                        size_deg=size_deg, 
+#                                        stim_pos=(stim_xpos, stim_ypos),
+#                            pix_per_deg=pix_per_deg, resolution=resolution[::-1])
+#    return stim_screen
 
 def draw_stimulus_to_screen(stimulus_im, size_deg=30., stim_pos=(0, 0),
                             pix_per_deg=16.05, resolution=[1080, 1920]):
@@ -89,7 +100,7 @@ def draw_stimulus_to_screen(stimulus_im, size_deg=30., stim_pos=(0, 0),
     stim_screen = place_stimulus_on_screen(stimulus_im, stim_extent, 
                                              resolution=resolution)
     
-    return stim_screen, stim_extent
+    return stim_screen #, stim_extent
 
 def resize_image_to_coords(im, size_deg=30, pix_per_deg=16.05, aspect_scale=1.747):
     '''
@@ -106,31 +117,69 @@ def resize_image_to_coords(im, size_deg=30, pix_per_deg=16.05, aspect_scale=1.74
     return imr
 
 
-def place_stimulus_on_screen(im, extent, resolution=[1080, 1920]):
+def place_stimulus_on_screen(im, stim_extent, resolution=[1080, 1920]):
     '''
     Place re-sized image (resize_image_to_coors()) onto the screen at specified res.
     extent: (xmin, xmax, ymin, ymax)
     ''' 
     lin_x, lin_y = hutils.get_lin_coords(resolution=resolution)
     
-    xx, yy = np.where(abs(lin_x-extent[0])==abs(lin_x-extent[0]).min())
-    xmin=int(np.unique(yy))
+#    xx, yy = np.where(abs(lin_x-extent[0])==abs(lin_x-extent[0]).min())
+#    xmin=int(np.unique(yy))
+#
+#    xx, yy = np.where(abs(lin_x-extent[1])==abs(lin_x-extent[1]).min())
+#    xmax=int(np.unique(yy))
+#
+#    xx, yy = np.where(abs(lin_y-extent[2])==abs(lin_y-extent[2]).min())
+#    ymin = resolution[0] - int(np.unique(xx))
+#
+#    xx, yy = np.where(abs(lin_y-extent[3])==abs(lin_y-extent[3]).min())
+#    ymax = resolution[0] - int(np.unique(xx))
 
-    xx, yy = np.where(abs(lin_x-extent[1])==abs(lin_x-extent[1]).min())
-    xmax=int(np.unique(yy))
+#    nw = xmax - xmin
+#    nh = ymax - ymin
+#    im_r2 = cv2.resize(im, (nw, nh))
+#
 
-    xx, yy = np.where(abs(lin_y-extent[2])==abs(lin_y-extent[2]).min())
-    ymin = resolution[0] - int(np.unique(xx))
-
-    xx, yy = np.where(abs(lin_y-extent[3])==abs(lin_y-extent[3]).min())
-    ymax = resolution[0] - int(np.unique(xx))
-
-    nw = xmax - xmin
-    nh = ymax - ymin
+    az_values = lin_x[0,:]
+    linx_min, linx_max = min(az_values), max(az_values)
+    xdim_pix = hutils.convert_range([stim_extent[0], stim_extent[1]], 
+                         oldmin=linx_min, oldmax=linx_max, 
+                         newmin=0, newmax=resolution[1]) #liny_min)
+    el_values = lin_y[:, 0][::-1] # flip so starts with neg in array
+    liny_min, liny_max = min(el_values), max(el_values)
+    ydim_pix = hutils.convert_range([stim_extent[2], stim_extent[3]], 
+                         oldmin=liny_min, oldmax=liny_max, 
+                         newmin=0, newmax=resolution[0]) #liny_min)
+    xmin, xmax = (int(round(i)) for i in xdim_pix)
+    ymin, ymax = (int(round(i)) for i in ydim_pix)
+    nw = int(xmax-xmin)
+    nh = int(ymax-ymin)
     im_r2 = cv2.resize(im, (nw, nh))
 
     sim_screen = np.zeros(lin_x.shape)
-    sim_screen[ymin:ymax, xmin:xmax] = np.flipud(im_r2)
+    # Check x-dimension
+    im0 = im_r2.copy()
+    if xmax>sim_screen.shape[1]: # too far on right side
+        trim = xmax - sim_screen.shape[1] # how much beyond are we
+        im0 = im_r2[:, 0:(nw-trim)] # trim image 
+        xmax = sim_screen.shape[1]
+    if xmin<0: # Too far on left side
+        trim = abs(xmin)
+        im0 = im_r2[:, trim:]
+        xmin = 0
+    # Check vertical dimension
+    im1 = im0.copy()
+    if ymax>sim_screen.shape[0]: # too far on top
+        trim = ymax - sim_screen.shape[0]
+        im1 = im0[trim:, :]
+        ymax = sim_screen.shape[0]
+    if ymin<0: # too far on bottom
+        trim = abs(ymin)
+        im1 = im0[0:(nh-trim), :]
+        ymin = 0
+
+    sim_screen[ymin:ymax, xmin:xmax] = np.flipud(im1)
 
     return sim_screen
 
@@ -413,7 +462,7 @@ def rf_mask_to_screen(x0, y0, fwhm_x, fwhm_y, theta, resolution=[1080, 1920]):
 
 
 def get_stimulus_polys(dk, experiment='blobs', create_new=False,
-                    return_onscreen=False,
+                    return_onscreen=False, verbose=False,
                     rootdir='/n/coxfs01/2p-data'):
     ''' 
     Loads or creates shapely Polygons for all images on screen.
@@ -459,19 +508,23 @@ def get_stimulus_polys(dk, experiment='blobs', create_new=False,
         for (mp, sz, xp, yp) in \
                     stimdf[['morphlevel', 'size', 'xpos', 'ypos']].values:
             im = images['M%i' % mp].copy()
-            onscreen = stim_to_screen(im, xp, yp, sz, 
-                                        resolution=screen_res)
+            onscreen  = draw_stimulus_to_screen(im, size_deg=sz, 
+                                        stim_pos=(xp, yp),
+                                        pix_per_deg=pix_per_deg, 
+                                        resolution=screen_res[::-1]) #[1080, 1920]
             blob_poly = image_to_poly(onscreen.astype(np.uint8))
 
             stim_screen[(mp, sz)] = onscreen
             p_list.append(pd.DataFrame({'poly': blob_poly, 
-                                            'morphlevel': mp, 'size': sz,
-                                            'xpos': xp, 'ypos': yp}))
+                                        'stimulus': '%i_%i_%i_%i' %(mp, sz, xp, yp),
+                                        'morphlevel': mp, 'size': sz,
+                                        'xpos': xp, 'ypos': yp}))
         stim_polys = pd.concat(p_list, axis=0).reset_index(drop=True)
         # Save
         with open(poly_fpath, 'wb') as f:
             pkl.dump(stim_polys, f, protocol=2)
-   
+        if verbose:
+            print("    saved: %s" % poly_fpath) 
     if return_onscreen:
         return stim_polys, stim_screen
     else: 
@@ -503,6 +556,24 @@ def get_rf_polys(curr_rfs, check_invalid=False, resolution=[1920, 1080]):
     else:
         return rfpolys
 
+def calculate_rf_overlap(rfpoly, stimpoly, roi_id='roi', stim_id='stim'):
+    #roi_id, rfpoly = rfpoly_tuple
+    #stim_id, stimpoly = stimpoly_tuple
+
+    area_of_smaller = min([rfpoly.area, stimpoly.area])
+    overlap_area = rfpoly.intersection(stimpoly).area
+    rf_overlap = overlap_area/rfpoly.area #area_of_smaller
+    rel_overlap = overlap_area/area_of_smaller
+
+    odf = pd.DataFrame({'cell': roi_id,
+                        'stimulus': stim_id,
+                        'area_overlap': overlap_area,
+                        'rf_overlap': rf_overlap,
+                        'relative_overlap': rel_overlap}, index=[0])
+    
+    return odf
+
+
 
 def cell_overlap_with_stimuli(rid, rf_poly, stim_polys):
     import analyze2p.receptive_fields.utils as rfutils
@@ -513,9 +584,10 @@ def cell_overlap_with_stimuli(rid, rf_poly, stim_polys):
     returns overlaps as pd.DataFrame (use perc_overlap)
     '''
     o_list=[]
-    for cfg, cval in stim_polys.groupby(['morphlevel', 'size', 'xpos', 'ypos']):
-        o = rfutils.calculate_overlap(rf_poly, cval['poly'].iloc[0],
-                                      r1=rid, r2=str(cfg))
+    for (mp, sz, xp, yp), cval in stim_polys.groupby(['morphlevel', 'size', 'xpos', 'ypos']):
+        stim_key = '%i_%i_%i_%i' % (mp, sz, xp, yp)
+        o = calculate_rf_overlap(rf_poly, cval['poly'].iloc[0],
+                                 roi_id=rid, stim_id=stim_key)
         o_list.append(o)
     df_ = pd.concat(o_list, axis=0).reset_index(drop=True)
     df_ = df_.rename(columns={'poly1': 'cell', 'poly2': 'stimulus'})
@@ -526,8 +598,13 @@ def calculate_overlaps_fov(dk, curr_rfs, check_invalid=False,
                     experiment='blobs', resolution=[1920, 1080]):
 
     stim_polys = get_stimulus_polys(dk, experiment)
-    rf_polys, check_rfs = get_rf_polys(curr_rfs, check_invalid=True, 
+    rf_polys=None; check_rfs=None;
+    if 'poly' not in curr_rfs.columns or ('poly' in curr_rfs.columns and None in curr_rfs['poly'].values): #is None:
+        print('    getting rf polys')
+        rf_polys, check_rfs = get_rf_polys(curr_rfs, check_invalid=True, 
                             resolution=resolution)
+    else:
+        rf_polys = curr_rfs[['cell', 'poly']].copy()
     overlaps = pd.concat([cell_overlap_with_stimuli(ri, rf_poly, stim_polys)\
                 for ri, rf_poly in rf_polys[['cell', 'poly']].values])
 
