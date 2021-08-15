@@ -29,7 +29,7 @@ parser.add_argument('-k', '--datakeys', nargs='*', dest='included_datakeys', act
 
 parser.add_argument('-X', '--analysis', dest='analysis_type', action='store', default='by_fov', help='Analysis type, default: %s (opts: by_fov)')
 
-parser.add_argument('-T', '--test', dest='test_type', action='store', default=None, help='Test type, default: %s (opts: default, size_single, size_subset)')
+parser.add_argument('-T', '--test', dest='test_type', action='store', default=None, help='Test type, default: %s (opts: default, size_single, size_subset, morph)')
 
 parser.add_argument('--break', dest='break_corrs', action='store_true', default=False, help='Break noise correlations')
 
