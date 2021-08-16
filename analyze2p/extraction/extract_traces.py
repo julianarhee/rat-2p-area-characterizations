@@ -5,7 +5,7 @@ Created on Fri Mar 08 16:27:30 2020
 
 @author: julianarhee
 """
-
+#%%
 import os
 import glob
 import json
@@ -21,27 +21,27 @@ import numpy as np
 import pylab as pl
 
 import analyze2p.utils as hutils
-import analyze2p.extraction.realign_epochs as realign
-import analyze2p.extraction.remake_neuropil_masks as rmasks
+import analyze2p.extraction.align_trials as aln
+import analyze2p.extraction.neuropil_masks as msk
 #from pipeline.python.retinotopy import do_retinotopy_analysis as retino
 #from pipeline.python.retinotopy import fit_2d_rfs as fitrf
 #from pipeline.python.classifications import bootstrap_roc as roc
 
 
+#%%
 def extract_options(options):
     parser = optparse.OptionParser()
 
     # PATH opts:
     parser.add_option('-D', '--root', action='store', dest='rootdir', default='/n/coxfs01/2p-data', 
                       help='root project dir containing all animalids [default: /n/coxfs01/2pdata]')
-    parser.add_option('-i', '--animalid', action='store', dest='animalid', default='', 
-                      help='Animal ID')
-    parser.add_option('-S', '--session', action='store', dest='session', default='', 
-                      help='Session (format: YYYYMMDD)')
-    
-    # Set specific session/run for current animal:
-    parser.add_option('-A', '--fov', action='store', dest='fov', default='FOV1_zoom2p0x', 
-                      help="fov name (default: FOV1_zoom2p0x)")
+    parser.add_option('-i', '--datakey', action='store', dest='datakey', 
+                      default='', help='YYYYMMDD_JCxx_fovi')
+#    parser.add_option('-S', '--session', action='store', dest='session', default='', 
+#                      help='Session (format: YYYYMMDD)')    
+#    # Set specific session/run for current animal:
+#    parser.add_option('-A', '--fov', action='store', dest='fov', default='FOV1_zoom2p0x', 
+#                      help="fov name (default: FOV1_zoom2p0x)")
     parser.add_option('-E', '--experiment', action='store', dest='experiment', default='', 
                       help="experiment name (e.g,. gratings, rfs, rfs10, or blobs)") #: FOV1_zoom2p0x)")
     
@@ -72,13 +72,14 @@ def extract_options(options):
 
     parser.add_option('--align', action='store_true', dest='align_trials', default=False, 
                       help="set flag to align trial epochs")
-    parser.add_option('--retino', action='store_true', dest='do_retino', default=False, 
-                      help="set flag to do retino analysis on runs")
-    parser.add_option('--rfs', action='store_true', dest='fit_rfs', default=False, 
-                      help="set flag to fit RFs")
-    parser.add_option('--roc', action='store_true', dest='roc_test', default=False, 
-                      help="set flag to do ROC test")
 
+#    parser.add_option('--retino', action='store_true', dest='do_retino', default=False, 
+#                      help="set flag to do retino analysis on runs")
+#    parser.add_option('--rfs', action='store_true', dest='fit_rfs', default=False, 
+#                      help="set flag to fit RFs")
+#    parser.add_option('--roc', action='store_true', dest='roc_test', default=False, 
+#                      help="set flag to do ROC test")
+#
     parser.add_option('-n', '--nproc', action='store_true', dest='n_processes', default=1,
                       help="N processes (default: 1)")
 
@@ -100,14 +101,19 @@ def extract_options(options):
     return options
 
 
+#%%
+
+options = ['-i', '20190522_JC084_fov1', '-t', 'traces001']
+
+#%%
 def redo_manual_extraction(options):
 
     opts = extract_options(options)
-
-    animalid = opts.animalid
-    session = opts.session
+    datakey = opts.datakey 
+    #animalid = opts.animalid
+    #session = opts.session
     traceid = opts.traceid   
-    fov = opts.fov
+    #fov = opts.fov
     rootdir = opts.rootdir
 
     np_niterations = int(opts.np_niterations)
@@ -129,21 +135,21 @@ def redo_manual_extraction(options):
 
     if create_masks: 
         print("1. Creating neuropil masks")
-        rmasks.create_masks_for_all_runs(animalid, session, fov, traceid=traceid, 
+        msk.create_masks_for_all_runs(datakey, traceid=traceid, 
                                np_niterations=np_niterations, gap_niterations=gap_niterations, 
                                 rootdir=rootdir, plot_masks=plot_masks)
 
     if apply_masks:
         print("2. Applying neuropil masks")
-        rmasks.apply_masks_for_all_runs(animalid, session, fov, traceid=traceid, 
+        msk.apply_masks_for_all_runs(datakey, traceid=traceid, 
                                 rootdir=rootdir, np_correction_factor=np_correction_factor)
         
     # Get event-basd runs to extract
+    session, animalid, fov = hutils.split_datakey_str(datakey) 
     session_dir = os.path.join(rootdir, animalid, session)
     nonretino_rundirs = [r for r in sorted(glob.glob(os.path.join(session_dir, fov, '*_run*')), \
                             key=hutils.natural_keys)\
                              if 'retino' not in r and 'compare' not in r]
-
     experiment_types = np.unique([os.path.split(r)[-1].split('_')[0] for r in nonretino_rundirs])
    
     if align_trials: 
@@ -151,11 +157,12 @@ def redo_manual_extraction(options):
             if 'blobs' in experiment:
                 continue
             print("3. Parsing trials - %s" % experiment) 
-            realign.parse_trial_epochs(animalid, session, fov, experiment, traceid, 
-                                        iti_pre=iti_pre, iti_post=iti_post)
-            
+            aln.parse_trial_epochs(datakey, experiment, traceid, 
+                                        iti_pre=iti_pre, iti_post=iti_post) 
             print("4. Aligning traces to trials - %s" % experiment)
-            realign.aggregate_experiment_runs(animalid, session, fov, experiment, traceid=traceid)
+            aln.aggregate_experiment_runs(datakey, experiment, traceid=traceid)
+            aln.remake_dataframes(datakey, experiment, traceid, rootdir=rootdir)
+
 
     # if do_retino:
     #     # Get retino runs and extract

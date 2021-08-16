@@ -67,6 +67,7 @@ def remake_neuropil_annulus(maskdict_path,
     if not os.path.exists(mask_figdir):
         os.makedirs(mask_figdir)
     print(mask_figdir)
+    
     MASKS = h5py.File(maskdict_path, 'a')
     filenames = sorted(MASKS.keys(), key=hutils.natural_keys)
     try:
@@ -196,7 +197,8 @@ def apply_masks_for_all_runs(datakey, experiment=None, fov_type='zoom2p0x',
     return filetraces_dir
 
     
-def create_masks_for_run(run_dir, traceid='traces001', np_niterations=24, gap_niterations=4, rootdir='/n/coxfs01/2p-data', plot_masks=True):
+def create_masks_for_run(run_dir, traceid='traces001', 
+                np_niterations=20, gap_niterations=4, rootdir='/n/coxfs01/2p-data', plot_masks=True):
 
     # Get trace extraction info
     if 'retino' in run_dir:

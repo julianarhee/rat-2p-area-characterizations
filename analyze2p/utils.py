@@ -12,7 +12,7 @@ import hashlib
 import shutil
 import numpy as np
 import cv2
-from functools import add
+#from functools import add
 
 # ###############################################################
 # Gejeral
@@ -303,9 +303,9 @@ def get_empirical_ci(stat, ci=0.95):
 
 
 # Test function for module  
-def _test():
-    assert add('1', '1') == 2
-
-if __name__ == '__main__':
-    _test()
-
+#def _test():
+#    assert np.add('1', '1') == 2
+#
+#if __name__ == '__main__':
+#    _test()
+#

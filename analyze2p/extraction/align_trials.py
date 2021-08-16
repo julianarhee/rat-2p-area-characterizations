@@ -25,11 +25,8 @@ from functools import reduce
 import analyze2p.utils as hutils
 import analyze2p.extraction.traces as traceutils
 import analyze2p.extraction.paradigm as putils
-import analyze2p.extraction.remake_neuropil_masks as mk
 
 #from pipeline.python.paradigm.plot_responses import make_clean_psths
-
-
 
 def extract_options(options):
     parser = optparse.OptionParser()
@@ -69,45 +66,29 @@ def extract_options(options):
     parser.add_option('--resp-thr', action='store', dest='responsive_thr',
                           default=10, help='Responsive test or plotting rois [default: 10]')
 
-
-    # Neuropil mask params
-    parser.add_option('-N', '--np-outer', action='store', dest='np_niterations', default=24, 
-                      help="Num cv dilate iterations for outer annulus (default: 24, ~50um for zoom2p0x)")
-    parser.add_option('-g', '--np-inner', action='store', dest='gap_niterations', default=4, 
-                      help="Num cv dilate iterations for inner annulus (default: 4, gap ~8um for zoom2p0x)")
-    parser.add_option('--np-factor', action='store', dest='np_correction_factor', default=0.7, 
-                      help="Neuropil correction factor (default: 0.7)")
-    parser.add_option('--plot-masks', action='store_true', dest='plot_masks', default=False, 
-                      help="set flag to plot soma and NP masks")
-    parser.add_option('--masks', action='store_true', dest='do_masks', default=False,
-                      help='set flag to remake neuropil masks')
-
-    parser.add_option('--apply-only', action='store_true', dest='apply_masks_only', default=False, 
-                      help="set flag to just APPLY soma and NP masks")
-
-
     (options, args) = parser.parse_args(options)
 
     return options
 
 
-
-def aggregate_experiment_runs(animalid, session, fov, experiment, 
+def aggregate_experiment_runs(datakey, experiment, 
                         traceid='traces001', rootdir='/n/coxfs01/2p-data'):
-   
-    fovdir = os.path.join(rootdir, animalid, session, fov)
+  
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
+    fovdir = glob.glob(os.path.join(rootdir, animalid, session, 
+                                    'FOV%i_*' % fovn))[0]
     if int(session) < 20190511 and experiment=='rfs':
         print("This is actually a RFs, but was previously called 'gratings'")
         experiment = 'gratings'
-
     rawfns = sorted(glob.glob(os.path.join(fovdir, '*%s_*' % experiment, \
                         'traces/%s*' % traceid, 'files', '*.hdf5')), \
                         key=hutils.natural_keys)
     print("[%s]: Found %i raw file arrays." % (experiment, len(rawfns))) 
     #%
-    runpaths = sorted(glob.glob(os.path.join(rootdir, animalid, session, fov, \
+    runpaths = sorted(glob.glob(os.path.join(fovdir,
                         '*%s_*' % experiment,
-                        'traces/%s*' % traceid, 'files')), key=hutils.natural_keys)
+                        'traces/%s*' % traceid, 'files')), \
+                            key=hutils.natural_keys)
     assert len(runpaths) > 0, "No extracted traces for run %s (%s)" \
                         % (experiment, traceid) 
     # Get .tif file list with corresponding aux file (i.e., run) index:
@@ -116,9 +97,9 @@ def aggregate_experiment_runs(animalid, session, fov, experiment,
               for file_ix, fn in enumerate(sorted(glob.glob(os.path.join(rpath, '*.hdf5')), key=hutils.natural_keys))] 
     
     # Check if this run has any excluded tifs
-    rundirs = sorted([d for d in glob.glob(os.path.join(rootdir, animalid, \
-                session, fov, '%s_*' % experiment))\
-              if 'combined' not in d and os.path.isdir(d)], key=hutils.natural_keys)
+    rundirs = sorted([d for d in glob.glob(os.path.join(fovdir, 
+                    '%s_*' % experiment)) if 'combined' not in d \
+                    and os.path.isdir(d)], key=hutils.natural_keys)
 #%%
     # #########################################################################
     #% Cycle through all tifs, detrend, then get aligned frames
@@ -150,13 +131,11 @@ def aggregate_experiment_runs(animalid, session, fov, experiment,
                 print("... skipping...")
                 continue
             
-            basedir = os.path.split(os.path.split(fpath)[0])[0]
-            
             # Set output dir
+            basedir = os.path.split(os.path.split(fpath)[0])[0] 
             data_array_dir = os.path.join(basedir, 'data_arrays')
             if not os.path.exists(data_array_dir):
-                os.makedirs(data_array_dir)
-                    
+                os.makedirs(data_array_dir)          
             #% # Get SCAN IMAGE info for run:
             run_name = os.path.split(rundir)[-1]
             si = get_frame_info(rundir)
@@ -179,8 +158,7 @@ def aggregate_experiment_runs(animalid, session, fov, experiment,
             elif 'fps' in stim_params:
                 stimtype = 'movie'
             else:
-                stimtype = 'image'
-       
+                stimtype = 'image' 
             # Get all trials contained in current .tif file:
             tmp_trials_in_block = sorted([t for t, mdict in mwinfo.items() \
                                     if mdict['block_idx']==file_ix], \
@@ -197,11 +175,11 @@ def aggregate_experiment_runs(animalid, session, fov, experiment,
             frame_ixs = np.array(frames_to_select[0].values) 
             # Assign frames to trials 
             trial_frames_to_vols, relative_tsecs = frames_to_trials(
-                                                        parsed_frames_fpath, 
-                                                        trials_in_block, 
-                                                        file_ix, si, 
-                                                        frame_shift=frame_shift, 
-                                                        frame_ixs=frame_ixs) 
+                                                    parsed_frames_fpath, 
+                                                    trials_in_block, 
+                                                    file_ix, si, 
+                                                    frame_shift=frame_shift, 
+                                                    frame_ixs=frame_ixs) 
         #%
             # Get stimulus info for each trial:        
             excluded_params = [k for k in mwinfo[trials_in_block[0]]['stimuli'].keys() if k not in stim_params]
@@ -397,8 +375,7 @@ def aggregate_experiment_runs(animalid, session, fov, experiment,
                                     'traces', combined_traceids, 'data_arrays')
     if not os.path.exists(combined_dir):
         os.makedirs(combined_dir)
-        
-    
+         
     labels_fpath = os.path.join(combined_dir, 'labels.npz')
     print("Saving labels data...", labels_fpath)
     np.savez(labels_fpath, 
@@ -429,15 +406,16 @@ def aggregate_experiment_runs(animalid, session, fov, experiment,
         del xdata_df
  
 # --------------------------------------------------------------------
-
 def load_parsed_trials(parsed_trials_path):
     with open(parsed_trials_path, 'r') as f:
         trialdict = json.load(f)
     return trialdict
 
 def get_frame_info(run_dir):
+    '''
+    Get acquisition info for all tifs in specified run_dir (1 block).
+    '''
     si_info = {}
-
     run = os.path.split(run_dir)[-1]
     runinfo_path = os.path.join(run_dir, '%s.json' % run)
     with open(runinfo_path, 'r') as fr:
@@ -445,10 +423,10 @@ def get_frame_info(run_dir):
     nfiles = runinfo['ntiffs']
     file_names = sorted(['File%03d' % int(f+1) for f in range(nfiles)], 
                         key=hutils.natural_keys)
-
-    # Get frame_idxs -- these are FRAME indices in the current .tif file, i.e.,
-    # removed flyback frames and discard frames at the top and bottom of the
-    # volume should not be included in the indices...
+    # Get frame_idxs
+    # These are FRAME indices in the current .tif file, i.e.,
+    # removed flyback frames and discard frames at the top and 
+    # bottom of the volume should not be included in the indices...
     frame_idxs = runinfo['frame_idxs']
     if len(frame_idxs) > 0:
         print("Found %i frames from flyback correction." % len(frame_idxs))
@@ -465,22 +443,20 @@ def get_frame_info(run_dir):
     nchannels = runinfo['nchannels']
     nslices_full = int(round(runinfo['frame_rate']/runinfo['volume_rate']))
     nframes_per_file = nslices_full * nvolumes
-
-    # =============================================================================
+    
     # Get VOLUME indices to assign frame numbers to volumes:
-    # =============================================================================
     vol_idxs_file = np.empty((nvolumes*nslices_full,))
     vcounter = 0
     for v in range(nvolumes):
         vol_idxs_file[vcounter:vcounter+nslices_full] = np.ones((nslices_full,))*v
         vcounter += nslices_full
     vol_idxs_file = [int(v) for v in vol_idxs_file]
-
     vol_idxs = []
     vol_idxs.extend(np.array(vol_idxs_file)+nvolumes*tiffnum \
                     for tiffnum in range(nfiles))
     vol_idxs = np.array(sorted(np.concatenate(vol_idxs).ravel()))
 
+    # Aggregate info
     si_info['nslices_full'] = nslices_full
     si_info['nframes_per_file'] = nframes_per_file
     si_info['vol_idxs'] = vol_idxs
@@ -559,13 +535,13 @@ def get_run_summary(xdata_df, labels_df, stimconfigs, si, verbose=False):
 def frames_to_trials(parsed_frames_fpath, trials_in_block, file_ix, si, 
                 frame_shift=0, frame_ixs=None):
     '''Load parsed_frames.hdf5 and align frames to trials'''
-
+    
     all_frames_tsecs = np.array(si['frames_tsec'])
     nslices_full = len(all_frames_tsecs) / si['nvolumes']
     if si['nchannels']==2:
         all_frames_tsecs = np.array(all_frames_tsecs[0::2])
     print("N tsecs:", len(all_frames_tsecs))
-
+    
     # Get volume indices to assign frame numbers to volumes:
     vol_ixs_tif = np.empty((si['nvolumes']*nslices_full,))
     vcounter = 0
@@ -580,15 +556,13 @@ def frames_to_trials(parsed_frames_fpath, trials_in_block, file_ix, si,
     try:
         parsed_frames = h5py.File(parsed_frames_fpath, 'r') 
         trial_list = sorted(parsed_frames.keys(), key=hutils.natural_keys)
-        print("There are %i total trials across all .tif files." % len(trial_list))
-        
-        # Check if frame indices are indexed relative to full run (all .tif files)
-        # or relative to within-tif frames (i.e., a "block")
+        print("There are %i total trials across all .tif files." % len(trial_list))     
+        # Check if frame indices are indexed relative to full run 
+        # (all .tif files) or relative to within-tif (i.e., a "block")
         block_indexed = True
         if all([all(parsed_frames[t]['frames_in_run'][:] == parsed_frames[t]['frames_in_file'][:]) for t in trial_list]):
             block_indexed = False
-            print("Frame indices are NOT block indexed")
-            
+            print("Frame indices are NOT block indexed") 
         # Assumes all trials have same structure
         min_frame_interval = 1 #list(set(np.diff(frames_to_select['Slice01'].values)))  # 1 if not slices
         nframes_pre = int(round(parsed_frames['trial00001']['frames_in_run'].attrs['baseline_dur_sec'] * si['volumerate']))
@@ -598,7 +572,8 @@ def frames_to_trials(parsed_frames_fpath, trials_in_block, file_ix, si,
     
         # Get ALL frames corresponding to trial epochs:
         # -----------------------------------------------------
-        # Get all frame indices for trial epochs (if there are overlapping frame indices, there will be repeats)    
+        # Get all frame indices for trial epochs 
+        # (if there are overlapping frame indices, there will be repeats)    
         all_frames_in_trials = np.hstack([np.array(parsed_frames[t]['frames_in_file']) \
                                    for t in trials_in_block])
         print("... N frames to align:", len(all_frames_in_trials))
@@ -606,8 +581,10 @@ def frames_to_trials(parsed_frames_fpath, trials_in_block, file_ix, si,
         stim_onset_idxs = np.array([parsed_frames[t]['frames_in_file'].attrs['stim_on_idx'] \
                                     for t in trials_in_block])
     
-        # Since we are cycling thru FILES readjust frame indices to match within-file, rather than across-files.
-        # block_frame_offset set in extract_paradigm_events (MW parsing) - supposedly set this up to deal with skipped tifs?
+        # Since we are cycling thru FILES readjust frame indices 
+        # to match within-file, rather than across-files.
+        # block_frame_offset set in extract_paradigm_events (MW parsing) 
+        # - supposedly set this up to deal with skipped tifs?
         # -------------------------------------------------------
         if block_indexed is False:
             all_frames_in_trials = all_frames_in_trials - len(all_frames_tsecs)*file_ix - frame_shift  
@@ -630,7 +607,6 @@ def frames_to_trials(parsed_frames_fpath, trials_in_block, file_ix, si,
             if varying_stim_dur is False:
                 trial_vol_ixs = trial_vol_ixs[0:nframes_per_trial]
             trial_frames_to_vols[t] = np.array(trial_vol_ixs)
-
     except Exception as e:
         traceback.print_exc()
     finally:
@@ -662,8 +638,7 @@ def frames_to_trials(parsed_frames_fpath, trials_in_block, file_ix, si,
     try: 
         tsec_mat = np.reshape(trial_tstamps, (len(trials_in_block), nframes_per_trial))
         # Subtract stim_on tstamp from each frame of each trial (relative tstamp)
-        tsec_mat -= np.tile(all_frames_tsecs[stim_onset_idxs].T, (tsec_mat.shape[1], 1)).T
-        
+        tsec_mat -= np.tile(all_frames_tsecs[stim_onset_idxs].T, (tsec_mat.shape[1], 1)).T        
     except Exception as e:
         traceback.print_exc()
 
@@ -678,9 +653,6 @@ def frames_to_trials(parsed_frames_fpath, trials_in_block, file_ix, si,
 
 # 
  
- 
-
-
 
 #%% ALIGN.
 def get_alignment_specs(paradigm_dir, si_info, iti_pre=1.0, iti_post=None, \
@@ -794,7 +766,11 @@ def get_alignment_specs(paradigm_dir, si_info, iti_pre=1.0, iti_post=None, \
 
 
 def assign_frames_to_trials(si_info, trial_info, paradigm_dir, create_new=False):
-
+    '''
+    Given scan/acquisition info (si_info) + desired alignment (trial_info)
+    assign frames to trial epochs.
+    Creates parsed_frames.hdf5 in paradigm_dir.
+    '''
     run = os.path.split(os.path.split(paradigm_dir)[0])[-1]
     # First check if parsed frame file already exists:
     found_paths = sorted(glob.glob(os.path.join(paradigm_dir, \
@@ -923,9 +899,19 @@ def assign_frames_to_trials(si_info, trial_info, paradigm_dir, create_new=False)
     return parsed_frames_filepath
 
 
-def parse_trial_epochs(animalid, session, fov, experiment, traceid, 
-                        iti_pre=1.0, iti_post=1.0, rootdir='/n/coxfs01/2p-data'):
-    fovdir = os.path.join(rootdir, animalid, session, fov)
+def parse_trial_epochs(datakey, experiment, traceid, 
+                        iti_pre=1.0, iti_post=1.0, 
+                        rootdir='/n/coxfs01/2p-data'):
+    '''
+    For each block or run of EXPERIMENT, parse frames to trials.
+    Load desired alignment specs. Assign frames to trial epochs. 
+    
+    Creates parse_frames.h5py
+    Creates/updates event_alignment.json and extraction_params.json
+    '''
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
+    fovdir = glob.glob(os.path.join(rootdir, animalid, 
+                                    session, 'FOV%i_*' % fovn))[0]
     rundirs = [os.path.split(p)[0] for p in glob.glob(os.path.join(fovdir, \
                                     '%s_run*' % experiment, 'paradigm'))]
     for rundir in rundirs:
@@ -955,14 +941,19 @@ def parse_trial_epochs(animalid, session, fov, experiment, traceid,
             json.dump(eparams, f, sort_keys=True, indent=4)       
 
         # Get parsed frame indices
-        parsed_frames_filepath = assign_frames_to_trials(si_info, trial_info, paradigm_dir, create_new=True)
+        parsed_frames_filepath = assign_frames_to_trials(
+                                        si_info, 
+                                        trial_info, paradigm_dir, 
+                                        create_new=True)
 
     print("Done!")
   
     return
  
-def remake_dataframes(animalid, session, fov, experiment, traceid, rootdir='/n/coxfs01/2p-data'):
-    soma_fpath = glob.glob(os.path.join(rootdir, animalid, session, fov, 
+def remake_dataframes(datakey, experiment, traceid, rootdir='/n/coxfs01/2p-data'):
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
+    soma_fpath = glob.glob(os.path.join(rootdir, animalid, session, 
+                        'FOV%i_*' % fovn, 
                         'combined_%s_*' % experiment, 'traces', '%s*' % traceid,
                         'data_arrays', 'np_subtracted.npz'))[0]
 
@@ -977,45 +968,25 @@ def remake_dataframes(animalid, session, fov, experiment, traceid, rootdir='/n/c
 
 def main(options):
     opts = extract_options(options)
-    animalid = opts.animalid
-    session = opts.session
-    fov = opts.fov
+
     experiment = opts.experiment
     traceid = opts.traceid
     iti_pre = float(opts.iti_pre)
     iti_post = float(opts.iti_post)
     rootdir = opts.rootdir
     plot_psth = opts.plot_psth    
-
-    do_masks = opts.do_masks 
-    np_niterations = int(opts.np_niterations)
-    gap_niterations = int(opts.gap_niterations)
-    np_correction_factor = float(opts.np_correction_factor)
-    plot_masks = opts.plot_masks
-    apply_masks_only = opts.apply_masks_only
-   
+  
     datakey = opts.datakey
-    
-    if do_masks:
-        print("0. PRE-step: Remaking masks")
-        mk.make_masks(datakey, traceid=traceid, \
-                        np_niterations=np_niterations, 
-                        gap_niterations=gap_niterations,
-                        np_correction_factor=np_correction_factor, 
-                        rootdir=rootdir, plot_masks=plot_masks, 
-                        apply_masks_only=apply_masks_only)
-        print("done!")
- 
+
     print("1. Parsing") 
-    parse_trial_epochs(animalid, session, fov, experiment, traceid, 
+    parse_trial_epochs(datakey, experiment, traceid, 
                         iti_pre=iti_pre, iti_post=iti_post)
 
     print("2. Aligning - %s" % experiment)
-    aggregate_experiment_runs(animalid, session, fov, experiment, traceid=traceid)
+    aggregate_experiment_runs(datakey, experiment, traceid=traceid)
+    remake_dataframes(datakey, experiment, traceid, rootdir=rootdir)
     print("Aligned traces!") 
-    #align_traces(animalid, session, fov, experiment, traceid, rootdir=rootdir)
-    remake_dataframes(animalid, session, fov, experiment, traceid, rootdir=rootdir)
-    
+   
     if plot_psth:
         print("3. Plotting")
         row_str = opts.rows
@@ -1026,7 +997,8 @@ def main(options):
         responsive_test=opts.responsive_test
         responsive_thr=opts.responsive_thr
 
-        plot_opts = ['-i', animalid, '-S', session, '-A', fov, '-t', traceid, '-R', 'combined_%s_static' % experiment, 
+        plot_opts = ['-i', datakey, '-t', traceid, 
+                     '-R', 'combined_%s_static' % experiment, 
                      '--shade', '-r', row_str, '-c', col_str, '-H', hue_str, '-d', response_type, '-f', file_type,
                     '--responsive', '--test', responsive_test, '--thr', responsive_thr]
         #make_clean_psths(plot_opts) 
