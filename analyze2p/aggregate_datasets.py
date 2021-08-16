@@ -81,37 +81,37 @@ def load_split_pupil_input(animalid, session, fovnum, curr_id='results_id',
 # --------------------------------------------------------------------
 # Stimuli
 # --------------------------------------------------------------------
-def reformat_morph_values(sdf, verbose=False):
-    '''
-    Rounds values for stimulus parameters, checks to make sure true aspect ratio is used.
-    '''
-
-
-    sdf = sdf.sort_index()
-    aspect_ratio=1.75
-    control_ixs = sdf[sdf['morphlevel']==-1].index.tolist()
-    if len(control_ixs)==0: # Old dataset
-        if 17.5 in sdf['size'].values:
-            sizevals = sdf['size'].divide(aspect_ratio).astype(float).round(0)
-            #np.array([round(s/aspect_ratio,0) for s in sdf['size'].values])
-            sdf['size'] = sizevals
-    else:  
-        sizevals = np.array([round(s, 1) for s in sdf['size'].unique() \
-                            if s not in ['None', None] and not np.isnan(s)])
-        sdf.loc[control_ixs, 'size'] = pd.Series(sizevals, index=control_ixs).astype(float)
-        sdf['size'] = sdf['size'].astype(float).round(decimals=1)
-        #[round(s, 1) for s in sdf['size'].values]
-
-    xpos = [x for x in sdf['xpos'].unique() if x is not None]
-    ypos =  [x for x in sdf['ypos'].unique() if x is not None]
-    #assert len(xpos)==1 and len(ypos)==1, "More than 1 pos? x: %s, y: %s" % (str(xpos), str(ypos))
-    if verbose and (len(xpos)>1 or len(ypos)>1):
-        print("warning: More than 1 pos? x: %s, y: %s" % (str(xpos), str(ypos)))
-    sdf.loc[control_ixs, 'xpos'] = xpos[0]
-    sdf.loc[control_ixs, 'ypos'] = ypos[0]
-
-    return sdf
-
+#def reformat_morph_values(sdf, verbose=False):
+#    '''
+#    Rounds values for stimulus parameters, checks to make sure true aspect ratio is used.
+#    '''
+#
+#
+#    sdf = sdf.sort_index()
+#    aspect_ratio=1.75
+#    control_ixs = sdf[sdf['morphlevel']==-1].index.tolist()
+#    if len(control_ixs)==0: # Old dataset
+#        if 17.5 in sdf['size'].values:
+#            sizevals = sdf['size'].divide(aspect_ratio).astype(float).round(0)
+#            #np.array([round(s/aspect_ratio,0) for s in sdf['size'].values])
+#            sdf['size'] = sizevals
+#    else:  
+#        sizevals = np.array([round(s, 1) for s in sdf['size'].unique() \
+#                            if s not in ['None', None] and not np.isnan(s)])
+#        sdf.loc[control_ixs, 'size'] = pd.Series(sizevals, index=control_ixs).astype(float)
+#        sdf['size'] = sdf['size'].astype(float).round(decimals=1)
+#        #[round(s, 1) for s in sdf['size'].values]
+#
+#    xpos = [x for x in sdf['xpos'].unique() if x is not None]
+#    ypos =  [x for x in sdf['ypos'].unique() if x is not None]
+#    #assert len(xpos)==1 and len(ypos)==1, "More than 1 pos? x: %s, y: %s" % (str(xpos), str(ypos))
+#    if verbose and (len(xpos)>1 or len(ypos)>1):
+#        print("warning: More than 1 pos? x: %s, y: %s" % (str(xpos), str(ypos)))
+#    sdf.loc[control_ixs, 'xpos'] = xpos[0]
+#    sdf.loc[control_ixs, 'ypos'] = ypos[0]
+#
+#    return sdf
+#
 
 def get_stimuli(datakey, experiment, match_names=False,
                     rootdir='/n/coxfs01/2p-data', verbose=False):
@@ -134,7 +134,7 @@ def get_stimuli(datakey, experiment, match_names=False,
         dset = np.load(dset_path, allow_pickle=True)
         sdf = pd.DataFrame(dset['sconfigs'][()]).T
         if 'blobs' in experiment:
-            sdf = reformat_morph_values(sdf)
+            sdf = traceutils.reformat_morph_values(sdf)
         if match_names:
             sdf = match_config_names(sdf.copy())
 
@@ -162,18 +162,18 @@ def check_sdfs_gratings(dkey_list, experiment='gratings',
         sdf = get_stimuli(dk, experiment, match_names=False)
         if 'aspect' in sdf.columns:
             sdf = sdf.drop(columns=['aspect'])
-        if experiment=='gratings' and (not return_incorrect):
-            n_sfs = len(sdf['sf'].unique())
-            n_speeds= len(sdf['speed'].unique())
-            n_sizes = len(sdf['size'].unique())
-            if not(n_sfs==2 and n_speeds==2 and n_sizes==2):
+        if not return_incorrect:
+            param_combos = list(itertools.product(
+                                sdf['sf'].unique(), 
+                                sdf['size'].unique(), 
+                                sdf['speed'].unique()))
+            nonori_params = sdf[['sf', 'size', 'speed']].drop_duplicates()
+            if len(param_combos)!=8 or len(nonori_params)!=len(param_combos):
                 print('    skipping: %s' % dk)
                 continue
                 # and sdf.shape[0]!=64:
-        if experiment=='blobs' and sdf.shape[0]<45:
-            continue
         sdf['datakey'] = dk
-        #print(dk, sdf.shape)
+        print(dk, sdf.shape)
         s_.append(sdf)
     SDF = pd.concat(s_, axis=0)
 
@@ -1544,149 +1544,149 @@ def get_neuraldf(datakey, experiment, traceid='traces001',
 
     return mean_responses
 
-def process_and_save_traces(trace_type='dff',
-                            animalid=None, session=None, fov=None, 
-                            experiment=None, traceid='traces001',
-                            soma_fpath=None,
-                            rootdir='/n/coxfs01/2p-data'):
-    '''Process raw traces (SOMA ONLY), and calculate dff'''
+#def process_and_save_traces(trace_type='dff',
+#                            animalid=None, session=None, fov=None, 
+#                            experiment=None, traceid='traces001',
+#                            soma_fpath=None,
+#                            rootdir='/n/coxfs01/2p-data'):
+#    '''Process raw traces (SOMA ONLY), and calculate dff'''
+#
+#    print("... processing + saving data arrays (%s)." % trace_type)
+#    assert (animalid is None and soma_fpath is not None) or (soma_fpath is None and animalid is not None), "Must specify either dataset params (animalid, session, etc.) OR soma_fpath to data arrays."
+#
+#    if soma_fpath is None:
+#        # Load default data_array path
+#        search_str = '' if 'combined' in experiment else '_'
+#        soma_fpath = glob.glob(os.path.join(rootdir, animalid, session, fov,
+#                                '*%s%s*' % (experiment, search_str), 
+#                                'traces', '%s*' % traceid, 
+#                                'data_arrays', 'np_subtracted.npz'))[0]
+#    dset = np.load(soma_fpath, allow_pickle=True)
+#    
+#    # Stimulus / condition info
+#    labels = pd.DataFrame(data=dset['labels_data'], 
+#                          columns=dset['labels_columns'])
+#    sdf = pd.DataFrame(dset['sconfigs'][()]).T
+#    if 'blobs' in soma_fpath: #self.experiment_type:
+#        sdf = reformat_morph_values(sdf)
+#    run_info = dset['run_info'][()]
+#
+#    xdata_df = pd.DataFrame(dset['data'][:]) # neuropil-subtracted & detrended
+#    F0 = pd.DataFrame(dset['f0'][:]).mean().mean() # detrended offset
+#    
+#    #% Add baseline offset back into raw traces:
+#    neuropil_fpath = soma_fpath.replace('np_subtracted', 'neuropil')
+#    npdata = np.load(neuropil_fpath, allow_pickle=True)
+#    neuropil_f0 = np.nanmean(np.nanmean(pd.DataFrame(npdata['f0'][:])))
+#    neuropil_df = pd.DataFrame(npdata['data'][:]) 
+#    add_np_offsets = list(np.nanmean(neuropil_df, axis=0)) 
+#    print("    adding NP offset (NP f0 offset: %.2f)" % neuropil_f0)
+#
+#    # # Also add raw 
+#    raw_fpath = soma_fpath.replace('np_subtracted', 'raw')
+#    rawdata = np.load(raw_fpath, allow_pickle=True)
+#    raw_f0 = np.nanmean(np.nanmean(pd.DataFrame(rawdata['f0'][:])))
+#    raw_df = pd.DataFrame(rawdata['data'][:])
+#    print("    adding raw offset (raw f0 offset: %.2f)" % raw_f0)
+#
+#    raw_traces = xdata_df + add_np_offsets + raw_f0 
+#    #+ neuropil_f0 + raw_f0 # list(np.nanmean(raw_df, axis=0)) #.T + F0
+#     
+#    # SAVE
+#    data_dir = os.path.split(soma_fpath)[0]
+#    data_fpath = os.path.join(data_dir, 'corrected.npz')
+#    print("... Saving corrected data (%s)" %  os.path.split(data_fpath)[-1])
+#    np.savez(data_fpath, data=raw_traces.values)
+#  
+#    # Process dff/df/etc.
+#    stim_on_frame = labels['stim_on_frame'].unique()[0]
+#    tmp_df = []
+#    tmp_dff = []
+#    for k, g in labels.groupby(['trial']):
+#        tmat = raw_traces.loc[g.index]
+#        bas_mean = np.nanmean(tmat[0:stim_on_frame], axis=0)
+#        
+#        #if trace_type == 'dff':
+#        tmat_dff = (tmat - bas_mean) / bas_mean
+#        tmp_dff.append(tmat_dff)
+#
+#        #elif trace_type == 'df':
+#        tmat_df = (tmat - bas_mean)
+#        tmp_df.append(tmat_df)
+#
+#    dff_traces = pd.concat(tmp_dff, axis=0) 
+#    data_fpath = os.path.join(data_dir, 'dff.npz')
+#    print("... Saving dff data (%s)" %  os.path.split(data_fpath)[-1])
+#    np.savez(data_fpath, data=dff_traces.values)
+#
+#    df_traces = pd.concat(tmp_df, axis=0) 
+#    data_fpath = os.path.join(data_dir, 'df.npz')
+#    print("... Saving df data (%s)" %  os.path.split(data_fpath)[-1])
+#    np.savez(data_fpath, data=df_traces.values)
+#
+#    if trace_type=='dff':
+#        return dff_traces, labels, sdf, run_info
+#    elif trace_type == 'df':
+#        return df_traces, labels, sdf, run_info
+#    else:
+#        return raw_traces, labels, sdf, run_info
+#
 
-    print("... processing + saving data arrays (%s)." % trace_type)
-    assert (animalid is None and soma_fpath is not None) or (soma_fpath is None and animalid is not None), "Must specify either dataset params (animalid, session, etc.) OR soma_fpath to data arrays."
-
-    if soma_fpath is None:
-        # Load default data_array path
-        search_str = '' if 'combined' in experiment else '_'
-        soma_fpath = glob.glob(os.path.join(rootdir, animalid, session, fov,
-                                '*%s%s*' % (experiment, search_str), 
-                                'traces', '%s*' % traceid, 
-                                'data_arrays', 'np_subtracted.npz'))[0]
-    dset = np.load(soma_fpath, allow_pickle=True)
-    
-    # Stimulus / condition info
-    labels = pd.DataFrame(data=dset['labels_data'], 
-                          columns=dset['labels_columns'])
-    sdf = pd.DataFrame(dset['sconfigs'][()]).T
-    if 'blobs' in soma_fpath: #self.experiment_type:
-        sdf = reformat_morph_values(sdf)
-    run_info = dset['run_info'][()]
-
-    xdata_df = pd.DataFrame(dset['data'][:]) # neuropil-subtracted & detrended
-    F0 = pd.DataFrame(dset['f0'][:]).mean().mean() # detrended offset
-    
-    #% Add baseline offset back into raw traces:
-    neuropil_fpath = soma_fpath.replace('np_subtracted', 'neuropil')
-    npdata = np.load(neuropil_fpath, allow_pickle=True)
-    neuropil_f0 = np.nanmean(np.nanmean(pd.DataFrame(npdata['f0'][:])))
-    neuropil_df = pd.DataFrame(npdata['data'][:]) 
-    add_np_offsets = list(np.nanmean(neuropil_df, axis=0)) 
-    print("    adding NP offset (NP f0 offset: %.2f)" % neuropil_f0)
-
-    # # Also add raw 
-    raw_fpath = soma_fpath.replace('np_subtracted', 'raw')
-    rawdata = np.load(raw_fpath, allow_pickle=True)
-    raw_f0 = np.nanmean(np.nanmean(pd.DataFrame(rawdata['f0'][:])))
-    raw_df = pd.DataFrame(rawdata['data'][:])
-    print("    adding raw offset (raw f0 offset: %.2f)" % raw_f0)
-
-    raw_traces = xdata_df + add_np_offsets + raw_f0 
-    #+ neuropil_f0 + raw_f0 # list(np.nanmean(raw_df, axis=0)) #.T + F0
-     
-    # SAVE
-    data_dir = os.path.split(soma_fpath)[0]
-    data_fpath = os.path.join(data_dir, 'corrected.npz')
-    print("... Saving corrected data (%s)" %  os.path.split(data_fpath)[-1])
-    np.savez(data_fpath, data=raw_traces.values)
-  
-    # Process dff/df/etc.
-    stim_on_frame = labels['stim_on_frame'].unique()[0]
-    tmp_df = []
-    tmp_dff = []
-    for k, g in labels.groupby(['trial']):
-        tmat = raw_traces.loc[g.index]
-        bas_mean = np.nanmean(tmat[0:stim_on_frame], axis=0)
-        
-        #if trace_type == 'dff':
-        tmat_dff = (tmat - bas_mean) / bas_mean
-        tmp_dff.append(tmat_dff)
-
-        #elif trace_type == 'df':
-        tmat_df = (tmat - bas_mean)
-        tmp_df.append(tmat_df)
-
-    dff_traces = pd.concat(tmp_dff, axis=0) 
-    data_fpath = os.path.join(data_dir, 'dff.npz')
-    print("... Saving dff data (%s)" %  os.path.split(data_fpath)[-1])
-    np.savez(data_fpath, data=dff_traces.values)
-
-    df_traces = pd.concat(tmp_df, axis=0) 
-    data_fpath = os.path.join(data_dir, 'df.npz')
-    print("... Saving df data (%s)" %  os.path.split(data_fpath)[-1])
-    np.savez(data_fpath, data=df_traces.values)
-
-    if trace_type=='dff':
-        return dff_traces, labels, sdf, run_info
-    elif trace_type == 'df':
-        return df_traces, labels, sdf, run_info
-    else:
-        return raw_traces, labels, sdf, run_info
-
-
-def load_dataset(soma_fpath, trace_type='dff', is_neuropil=False,
-                add_offset=True, make_equal=False, create_new=False):
-    '''
-    Loads all the roi traces and labels.
-    If want to load corrected NP traces, set flag is_neuropil.
-    To load raw NP traces, set trace_type='neuropil' and is_neuropil=False.
-
-    '''
-    traces=None
-    labels=None
-    sdf=None
-    run_info=None
-    try:
-        data_fpath = soma_fpath.replace('np_subtracted', trace_type)
-        if not os.path.exists(data_fpath) or create_new is True:
-            # Process data and save
-            traces, labels, sdf, run_info = process_and_save_traces(
-                                                    trace_type=trace_type,
-                                                    soma_fpath=soma_fpath
-            )
-        else:
-            if is_neuropil:
-                np_fpath = data_fpath.replace(trace_type, 'neuropil')
-                traces = traceutils.load_corrected_neuropil_traces(np_fpath)
-            else:
-                #print("... loading saved data array (%s)." % trace_type)
-                traces_dset = np.load(data_fpath, allow_pickle=True)
-                traces = pd.DataFrame(traces_dset['data'][:]) 
-
-            # Stimulus / condition info
-            labels_fpath = data_fpath.replace(\
-                            '%s.npz' % trace_type, 'labels.npz')
-            labels_dset = np.load(labels_fpath, allow_pickle=True, 
-                            encoding='latin1') 
-            labels = pd.DataFrame(data=labels_dset['labels_data'], 
-                                  columns=labels_dset['labels_columns'])
-            labels = hutils.convert_columns_byte_to_str(labels)
-            sdf = pd.DataFrame(labels_dset['sconfigs'][()]).T.sort_index()
-            if 'blobs' in data_fpath: 
-                sdf = reformat_morph_values(sdf)
-            # Format condition info:
-            if 'image' in sdf['stimtype']:
-                aspect_ratio = sdf['aspect'].unique()[0]
-                sdf['size'] = [round(sz/aspect_ratio, 1) for sz in sdf['size']]
-            # Get run info 
-            run_info = labels_dset['run_info'][()]
-        if make_equal:
-            print("... making equal")
-            traces, labels = check_counts_per_condition(traces, labels)      
-    except Exception as e:
-        traceback.print_exc()
-        print("ERROR LOADING DATA")
-
-    return traces, labels, sdf, run_info
-
+#def load_dataset(soma_fpath, trace_type='dff', is_neuropil=False,
+#                add_offset=True, make_equal=False, create_new=False):
+#    '''
+#    Loads all the roi traces and labels.
+#    If want to load corrected NP traces, set flag is_neuropil.
+#    To load raw NP traces, set trace_type='neuropil' and is_neuropil=False.
+#
+#    '''
+#    traces=None
+#    labels=None
+#    sdf=None
+#    run_info=None
+#    try:
+#        data_fpath = soma_fpath.replace('np_subtracted', trace_type)
+#        if not os.path.exists(data_fpath) or create_new is True:
+#            # Process data and save
+#            traces, labels, sdf, run_info = process_and_save_traces(
+#                                                    trace_type=trace_type,
+#                                                    soma_fpath=soma_fpath
+#            )
+#        else:
+#            if is_neuropil:
+#                np_fpath = data_fpath.replace(trace_type, 'neuropil')
+#                traces = traceutils.load_corrected_neuropil_traces(np_fpath)
+#            else:
+#                #print("... loading saved data array (%s)." % trace_type)
+#                traces_dset = np.load(data_fpath, allow_pickle=True)
+#                traces = pd.DataFrame(traces_dset['data'][:]) 
+#
+#            # Stimulus / condition info
+#            labels_fpath = data_fpath.replace(\
+#                            '%s.npz' % trace_type, 'labels.npz')
+#            labels_dset = np.load(labels_fpath, allow_pickle=True, 
+#                            encoding='latin1') 
+#            labels = pd.DataFrame(data=labels_dset['labels_data'], 
+#                                  columns=labels_dset['labels_columns'])
+#            labels = hutils.convert_columns_byte_to_str(labels)
+#            sdf = pd.DataFrame(labels_dset['sconfigs'][()]).T.sort_index()
+#            if 'blobs' in data_fpath: 
+#                sdf = reformat_morph_values(sdf)
+#            # Format condition info:
+#            if 'image' in sdf['stimtype']:
+#                aspect_ratio = sdf['aspect'].unique()[0]
+#                sdf['size'] = [round(sz/aspect_ratio, 1) for sz in sdf['size']]
+#            # Get run info 
+#            run_info = labels_dset['run_info'][()]
+#        if make_equal:
+#            print("... making equal")
+#            traces, labels = check_counts_per_condition(traces, labels)      
+#    except Exception as e:
+#        traceback.print_exc()
+#        print("ERROR LOADING DATA")
+#
+#    return traces, labels, sdf, run_info
+#
 
 def load_run_info(animalid, session, fov, run, traceid='traces001',
                   rootdir='/n/coxfs01/2p-ddata'):
@@ -1703,7 +1703,7 @@ def load_run_info(animalid, session, fov, run, traceid='traces001',
 
     sdf = pd.DataFrame(labels_dset['sconfigs'][()]).T
     if 'blobs' in labels_fpath: #self.experiment_type:
-        sdf = reformat_morph_values(sdf)
+        sdf = traceutils.reformat_morph_values(sdf)
     run_info = labels_dset['run_info'][()]
 
     return run_info, sdf
@@ -1727,7 +1727,7 @@ def load_traces(datakey, experiment, traceid='traces001',
                                     'data_arrays', 'np_subtracted.npz'))[0]
  
     # Load experiment neural data
-    traces, labels, sdf, run_info = load_dataset(soma_fpath, trace_type=response_type,create_new=False)
+    traces, labels, sdf, run_info = traceutils.load_dataset(soma_fpath, trace_type=response_type,create_new=False)
 
     # Get responsive cells
     if responsive_test is not None:
@@ -1975,7 +1975,7 @@ def calculate_nframes_above_nstds(animalid, session, fov, run=None,
         # Load data
         soma_fpath = glob.glob(os.path.join(traceid_dir, 
                                     'data_arrays', 'np_subtracted.npz'))[0]
-        traces, labels, sdf, run_info = load_dataset(soma_fpath, 
+        traces, labels, sdf, run_info = traceutils.load_dataset(soma_fpath, 
                                             trace_type='corrected', 
                                             add_offset=True, 
                                             make_equal=False) 

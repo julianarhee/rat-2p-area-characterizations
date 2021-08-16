@@ -10,10 +10,9 @@ import scipy.stats as spstats
 import analyze2p.utils as hutils
 import _pickle as pkl
 
-# --------------------------------------------------------------------
+# ---------------------------------------------------------------------
 # Data loading
-# --------------------------------------------------------------------
-
+# ---------------------------------------------------------------------
 def get_traceid_dir(datakey, experiment, traceid='traces001',
                     rootdir='/n/coxfs01/2p-data'):
     session, animalid, fovnum = hutils.split_datakey_str(datakey)
@@ -96,11 +95,262 @@ def get_trial_alignment(datakey, curr_exp, traceid='traces001',
 
     return infodict
 
+
+def load_RID(session_dir, roi_id):
+
+    roi_dir = os.path.join(session_dir, 'ROIs')
+    roidict_path = glob.glob(os.path.join(roi_dir, 'rids_*.json'))[0]
+    with open(roidict_path, 'r') as f:
+        roidict = json.load(f)
+    RID = roidict[roi_id]
+
+    return RID
+
+def load_AID(run_dir, traceid):
+    run = os.path.split(run_dir)[-1]
+    trace_dir = os.path.join(run_dir, 'retino_analysis')
+    tracedict_path = os.path.join(trace_dir, 'analysisids_%s.json' % run)
+    with open(tracedict_path, 'r') as f:
+        tracedict = json.load(f)
+
+    if 'traces' in traceid:
+        fovdir = os.path.split(run_dir)[0]
+        tmp_tdictpath = glob.glob(os.path.join(fovdir, '*run*', 'traces', 'traceids*.json'))[0]
+        with open(tmp_tdictpath, 'r') as f:
+            tmptids = json.load(f)
+        roi_id = tmptids[traceid]['PARAMS']['roi_id']
+        analysis_id = [t for t, v in tracedict.items() if v['PARAMS']['roi_type']=='manual2D_circle' and v['PARAMS']['roi_id'] == roi_id][0]
+        print("Corresponding ANALYSIS ID (for %s with %s) is: %s" % (traceid, roi_id, analysis_id))
+
+    else:
+        analysis_id = traceid 
+    TID = tracedict[analysis_id]
+    pp.pprint(TID)
+    return TID
+
+def load_TID(run_dir, trace_id, auto=False):
+    run = os.path.split(run_dir)[-1]
+    trace_dir = os.path.join(run_dir, 'traces')
+    tmp_tid_dir = os.path.join(trace_dir, 'tmp_tids')
+    tracedict_path = os.path.join(trace_dir, 'traceids_%s.json' % run)
+    try:
+        print("Loading params for TRACE SET, id %s" % trace_id)
+        with open(tracedict_path, 'r') as f:
+            tracedict = json.load(f)
+        TID = tracedict[trace_id]
+        pp.pprint(TID)
+    except Exception as e:
+        print("No TRACE SET entry exists for specified id: %s" % trace_id)
+        print("TRACE DIR:", tracedict_path)
+        try:
+            print("Checking tmp trace-id dir...")
+            if auto is False:
+                while True:
+                    tmpfns = [t for t in os.listdir(tmp_tid_dir) \
+                                    if t.endswith('json')]
+                    for tidx, tidfn in enumerate(tmpfns):
+                        print tidx, tidfn
+                    userchoice = raw_input("Select IDX of found tmp trace-id to view: ")
+                    with open(os.path.join(tmp_tid_dir, tmpfns[int(userchoice)]), 'r') as f:
+                        tmpTID = json.load(f)
+                    print("Showing tid: %s, %s" % (tmpTID['trace_id'], tmpTID['trace_hash']))
+                    pp.pprint(tmpTID)
+                    userconfirm = raw_input('Press <Y> to use this trace ID, or <q> to abort: ')
+                    if userconfirm == 'Y':
+                        TID = tmpTID
+                        break
+                    elif userconfirm == 'q':
+                        break
+        except Exception as e:
+            traceback.print_exc()
+            print("--------------------------------------------------------------")
+            print("No tmp trace-ids found either... ABORTING with error:")
+            print(e)
+            print("--------------------------------------------------------------")
+
+    return TID
+
+#
  
-# 
-# --------------------------------------------------------------------
+# ---------------------------------------------------------------------
 # Data processing
-# --------------------------------------------------------------------
+# ---------------------------------------------------------------------
+def reformat_morph_values(sdf, verbose=False):
+    '''
+    Rounds values for stimulus parameters, checks to make sure true aspect ratio is used.
+    '''
+
+
+    sdf = sdf.sort_index()
+    aspect_ratio=1.75
+    control_ixs = sdf[sdf['morphlevel']==-1].index.tolist()
+    if len(control_ixs)==0: # Old dataset
+        if 17.5 in sdf['size'].values:
+            sizevals = sdf['size'].divide(aspect_ratio).astype(float).round(0)
+            #np.array([round(s/aspect_ratio,0) for s in sdf['size'].values])
+            sdf['size'] = sizevals
+    else:  
+        sizevals = np.array([round(s, 1) for s in sdf['size'].unique() \
+                            if s not in ['None', None] and not np.isnan(s)])
+        sdf.loc[control_ixs, 'size'] = pd.Series(sizevals, index=control_ixs).astype(float)
+        sdf['size'] = sdf['size'].astype(float).round(decimals=1)
+        #[round(s, 1) for s in sdf['size'].values]
+
+    xpos = [x for x in sdf['xpos'].unique() if x is not None]
+    ypos =  [x for x in sdf['ypos'].unique() if x is not None]
+    #assert len(xpos)==1 and len(ypos)==1, "More than 1 pos? x: %s, y: %s" % (str(xpos), str(ypos))
+    if verbose and (len(xpos)>1 or len(ypos)>1):
+        print("warning: More than 1 pos? x: %s, y: %s" % (str(xpos), str(ypos)))
+    sdf.loc[control_ixs, 'xpos'] = xpos[0]
+    sdf.loc[control_ixs, 'ypos'] = ypos[0]
+
+    return sdf
+
+
+def process_and_save_traces(trace_type='dff',
+                            animalid=None, session=None, fov=None, 
+                            experiment=None, traceid='traces001',
+                            soma_fpath=None,
+                            rootdir='/n/coxfs01/2p-data'):
+    '''Process raw traces (SOMA ONLY), and calculate dff'''
+
+    print("... processing + saving data arrays (%s)." % trace_type)
+    assert (animalid is None and soma_fpath is not None) or (soma_fpath is None and animalid is not None), "Must specify either dataset params (animalid, session, etc.) OR soma_fpath to data arrays."
+
+    if soma_fpath is None:
+        # Load default data_array path
+        search_str = '' if 'combined' in experiment else '_'
+        soma_fpath = glob.glob(os.path.join(rootdir, animalid, session, fov,
+                                '*%s%s*' % (experiment, search_str), 
+                                'traces', '%s*' % traceid, 
+                                'data_arrays', 'np_subtracted.npz'))[0]
+    dset = np.load(soma_fpath, allow_pickle=True)
+    
+    # Stimulus / condition info
+    labels = pd.DataFrame(data=dset['labels_data'], 
+                          columns=dset['labels_columns'])
+    sdf = pd.DataFrame(dset['sconfigs'][()]).T
+    if 'blobs' in soma_fpath: #self.experiment_type:
+        sdf = reformat_morph_values(sdf)
+    run_info = dset['run_info'][()]
+
+    xdata_df = pd.DataFrame(dset['data'][:]) # neuropil-subtracted & detrended
+    F0 = pd.DataFrame(dset['f0'][:]).mean().mean() # detrended offset
+    
+    #% Add baseline offset back into raw traces:
+    neuropil_fpath = soma_fpath.replace('np_subtracted', 'neuropil')
+    npdata = np.load(neuropil_fpath, allow_pickle=True)
+    neuropil_f0 = np.nanmean(np.nanmean(pd.DataFrame(npdata['f0'][:])))
+    neuropil_df = pd.DataFrame(npdata['data'][:]) 
+    add_np_offsets = list(np.nanmean(neuropil_df, axis=0)) 
+    print("    adding NP offset (NP f0 offset: %.2f)" % neuropil_f0)
+
+    # # Also add raw 
+    raw_fpath = soma_fpath.replace('np_subtracted', 'raw')
+    rawdata = np.load(raw_fpath, allow_pickle=True)
+    raw_f0 = np.nanmean(np.nanmean(pd.DataFrame(rawdata['f0'][:])))
+    raw_df = pd.DataFrame(rawdata['data'][:])
+    print("    adding raw offset (raw f0 offset: %.2f)" % raw_f0)
+
+    raw_traces = xdata_df + add_np_offsets + raw_f0 
+    #+ neuropil_f0 + raw_f0 # list(np.nanmean(raw_df, axis=0)) #.T + F0
+
+    # SAVE
+    data_dir = os.path.split(soma_fpath)[0]
+    data_fpath = os.path.join(data_dir, 'corrected.npz')
+    print("... Saving corrected data (%s)" %  os.path.split(data_fpath)[-1])
+    np.savez(data_fpath, data=raw_traces.values)
+  
+    # Process dff/df/etc.
+    stim_on_frame = labels['stim_on_frame'].unique()[0]
+    tmp_df = []
+    tmp_dff = []
+    for k, g in labels.groupby(['trial']):
+        tmat = raw_traces.loc[g.index]
+        bas_mean = np.nanmean(tmat[0:stim_on_frame], axis=0)
+        
+        #if trace_type == 'dff':
+        tmat_dff = (tmat - bas_mean) / bas_mean
+        tmp_dff.append(tmat_dff)
+
+        #elif trace_type == 'df':
+        tmat_df = (tmat - bas_mean)
+        tmp_df.append(tmat_df)
+
+    dff_traces = pd.concat(tmp_dff, axis=0) 
+    data_fpath = os.path.join(data_dir, 'dff.npz')
+    print("... Saving dff data (%s)" %  os.path.split(data_fpath)[-1])
+    np.savez(data_fpath, data=dff_traces.values)
+
+    df_traces = pd.concat(tmp_df, axis=0) 
+    data_fpath = os.path.join(data_dir, 'df.npz')
+    print("... Saving df data (%s)" %  os.path.split(data_fpath)[-1])
+    np.savez(data_fpath, data=df_traces.values)
+
+    if trace_type=='dff':
+        return dff_traces, labels, sdf, run_info
+    elif trace_type == 'df':
+        return df_traces, labels, sdf, run_info
+    else:
+        return raw_traces, labels, sdf, run_info
+
+
+def load_dataset(soma_fpath, trace_type='dff', is_neuropil=False,
+                add_offset=True, make_equal=False, create_new=False):
+    '''
+    Loads all the roi traces and labels.
+    If want to load corrected NP traces, set flag is_neuropil.
+    To load raw NP traces, set trace_type='neuropil' and is_neuropil=False.
+
+    '''
+    traces=None
+    labels=None
+    sdf=None
+    run_info=None
+    try:
+        data_fpath = soma_fpath.replace('np_subtracted', trace_type)
+        if not os.path.exists(data_fpath) or create_new is True:
+            # Process data and save
+            traces, labels, sdf, run_info = process_and_save_traces(
+                                                    trace_type=trace_type,
+                                                    soma_fpath=soma_fpath
+            )
+        else:
+            if is_neuropil:
+                np_fpath = data_fpath.replace(trace_type, 'neuropil')
+                traces = traceutils.load_corrected_neuropil_traces(np_fpath)
+            else:
+                #print("... loading saved data array (%s)." % trace_type)
+                traces_dset = np.load(data_fpath, allow_pickle=True)
+                traces = pd.DataFrame(traces_dset['data'][:]) 
+
+            # Stimulus / condition info
+            labels_fpath = data_fpath.replace(\
+                            '%s.npz' % trace_type, 'labels.npz')
+            labels_dset = np.load(labels_fpath, allow_pickle=True, 
+                            encoding='latin1') 
+            labels = pd.DataFrame(data=labels_dset['labels_data'], 
+                                  columns=labels_dset['labels_columns'])
+            labels = hutils.convert_columns_byte_to_str(labels)
+            sdf = pd.DataFrame(labels_dset['sconfigs'][()]).T.sort_index()
+            if 'blobs' in data_fpath: 
+                sdf = reformat_morph_values(sdf)
+            # Format condition info:
+            if 'image' in sdf['stimtype']:
+                aspect_ratio = sdf['aspect'].unique()[0]
+                sdf['size'] = [round(sz/aspect_ratio, 1) for sz in sdf['size']]
+            # Get run info 
+            run_info = labels_dset['run_info'][()]
+        if make_equal:
+            print("... making equal")
+            traces, labels = check_counts_per_condition(traces, labels)      
+    except Exception as e:
+        traceback.print_exc()
+        print("ERROR LOADING DATA")
+
+    return traces, labels, sdf, run_info
+
+
 def load_corrected_neuropil_traces(neuropil_fpath):
     npdata = np.load(neuropil_fpath, allow_pickle=True)
     #print(npdata.keys())
@@ -110,7 +360,160 @@ def load_corrected_neuropil_traces(neuropil_fpath):
     add_np_offsets = list(np.nanmean(neuropil_df, axis=0))
     xdata_np = neuropil_df + add_np_offsets + neuropil_f0
     return xdata_np
+ 
+# 
+# --------------------------------------------------------------------
+# Data processing
+# --------------------------------------------------------------------
+def get_rolling_baseline(Xdf, window_size, quantile=0.08):
+        
+    #window_size_sec = (nframes_trial/framerate) * 2 # decay_constant * 40
+    #decay_frames = window_size_sec * framerate # decay_constant in frames
+    #window_size = int(round(decay_frames))
+    #quantile = 0.08
+    window_size = int(round(window_size))
+    Fsmooth = Xdf.apply(rolling_quantile, args=(window_size, quantile))
+    offset = Fsmooth.mean().mean()
+    print("drift offset:", offset)
+    Xdata = (Xdf - Fsmooth) #+ offset
+    #Xdata = np.array(Xdata_tmp)
+    
+    return Xdata, Fsmooth
 
+
+# Use cnvlib.smoothing functions to deal get mirrored edges on rolling quantile:
+def rolling_quantile(x, width, quantile):
+    """Rolling quantile (0--1) with mirrored edges."""
+    x, wing, signal = check_inputs(x, width)
+    rolled = signal.rolling(2 * wing + 1, 2, center=True).quantile(quantile)
+    return np.asfarray(rolled[wing:-wing])
+
+
+def check_inputs(x, width, as_series=True):
+    """Transform width into a half-window size.
+
+    `width` is either a fraction of the length of `x` or an integer size of the
+    whole window. The output half-window size is truncated to the length of `x`
+    if needed.
+    """
+    x = np.asfarray(x)
+    wing = _width2wing(width, x)
+    signal = _pad_array(x, wing)
+    if as_series:
+        signal = pd.Series(signal)
+    return x, wing, signal
+
+
+def _width2wing(width, x, min_wing=3):
+    """Convert a fractional or absolute width to integer half-width ("wing").
+    """
+    if 0 < width < 1:
+        wing = int(math.ceil(len(x) * width * 0.5))
+    elif width >= 2 and int(width) == width:
+        wing = int(width // 2)
+    else:
+        raise ValueError("width must be either a fraction between 0 and 1 "
+                         "or an integer greater than 1 (got %s)" % width)
+    wing = max(wing, min_wing)
+    wing = min(wing, len(x) - 1)
+    assert wing >= 1, "Wing must be at least 1 (got %s)" % wing
+    return wing
+
+
+def _pad_array(x, wing):
+    """Pad the edges of the input array with mirror copies."""
+    return np.concatenate((x[wing-1::-1],
+                           x,
+                           x[:-wing-1:-1]))
+
+
+def append_neuropil_subtraction(maskdict_path, cfactor, filetraces_dir, create_new=False, rootdir=''):
+
+    #signal_channel_idx = int(TID['PARAMS']['signal_channel']) - 1 # 0-indexing into tiffs
+
+    MASKS = h5py.File(maskdict_path, 'r')
+
+    filetraces_fpaths = sorted([os.path.join(filetraces_dir, t) for t in os.listdir(filetraces_dir) if t.endswith('hdf5')], key=natural_keys)
+
+    #
+    print "Appending subtrated NP traces to %i files." % len(filetraces_fpaths)
+    for tfpath in filetraces_fpaths:
+        #tfpath = trace_file_paths[0]
+        traces_currfile = h5py.File(tfpath, 'r+')
+        #print "FILETRACES attrs:"
+        #print traces_currfile.attrs.keys()
+        fidx = int(os.path.split(tfpath)[-1].split('_')[0][4:]) - 1
+        curr_file = "File%03d" % int(fidx+1)
+        print "CFACTOR -- Appending neurpil corrected traces: %s" % curr_file
+        try:
+            for curr_slice in traces_currfile.keys():
+
+                tracemat = np.array(traces_currfile[curr_slice]['traces']['raw'])
+
+                # First check that neuropil traces don't already exist:
+                if 'neuropil' in traces_currfile[curr_slice]['traces'].keys() and create_new is False:
+                    np_tracemat = np.array(traces_currfile[curr_slice]['traces']['neuropil'])
+                    overwrite_neuropil = False
+                else:
+                    overwrite_neuropil = True
+
+                if 'np_subtracted' in traces_currfile[curr_slice]['traces'].keys() and create_new is False:
+                    np_correctedmat = np.array(traces_currfile[curr_slice]['traces']['np_subtracted'])
+                    if np.mean(np_correctedmat) == 0:
+                        overwrite_correctedmat = True
+                    else:
+                        overwrite_correctedmat = False
+
+                if overwrite_neuropil is True:
+                    overwrite_correctedmat = True # always overwrite tracemat if new neuropil
+
+                    # Load tiff:
+                    tiffpath = traces_currfile.attrs['source_file']
+                    print "Calculating neuropil from src: %s" % tiffpath
+
+                    if rootdir not in tiffpath:
+                        session_dir = os.path.split(os.path.split(filetraces_dir.split('/traces')[0])[0])[0]
+                        info = get_info_from_tiff_dir(os.path.split(tiffpath)[0], session_dir)
+                        tiffpath = replace_root(tiffpath, rootdir, info['animalid'], info['session'])
+
+                    tiff = tf.imread(tiffpath)
+                    T, d1, d2 = tiff.shape
+                    d = d1*d2
+                    orig_mat_shape = traces_currfile[curr_slice]['traces']['raw'].shape
+                    nchannels = T/orig_mat_shape[0]
+                    signal_channel_idx = int(traces_currfile.attrs['signal_channel']) - 1
+
+                    tiffR = np.reshape(tiff, (T, d), order='C'); del tiff
+                    tiffslice = tiffR[signal_channel_idx::nchannels,:]
+                    print "SLICE shape is:", tiffslice.shape
+
+                    np_maskarray = MASKS[curr_file][curr_slice]['np_maskarray'][:]
+                    np_tracemat = tiffslice.dot(np_maskarray)
+
+                if overwrite_correctedmat is True:
+                    np_correctedmat = tracemat - (cfactor * np_tracemat)
+
+                if 'neuropil' not in traces_currfile[curr_slice]['traces'].keys():
+                    np_traces = traces_currfile.create_dataset('/'.join([curr_slice, 'traces', 'neuropil']), np_tracemat.shape, np_tracemat.dtype)
+                else:
+                    np_traces = traces_currfile[curr_slice]['traces']['neuropil']
+                np_traces[...] = np_tracemat
+                if 'np_subtracted' not in traces_currfile[curr_slice]['traces'].keys():
+                    np_corrected = traces_currfile.create_dataset('/'.join([curr_slice, 'traces', 'np_subtracted']), np_correctedmat.shape, np_correctedmat.dtype)
+                else:
+                    np_corrected = traces_currfile[curr_slice]['traces']['np_subtracted']
+                np_corrected[...] = np_correctedmat
+                np_corrected.attrs['correction_factor'] = cfactor
+        except Exception as e:
+            print "** ERROR appending NP-subtracted traces: %s" % traces_currfile
+            print traceback.print_exc()
+        finally:
+            traces_currfile.close()
+
+    return filetraces_dir
+
+
+ 
 
 # --------------------------------------------------------------------
 # Data grouping and calculations

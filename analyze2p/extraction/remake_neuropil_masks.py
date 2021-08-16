@@ -24,6 +24,9 @@ import pylab as pl
 from pipeline.python.traces import get_traces as gtraces
 from pipeline.python.utils import natural_keys, label_figure
 
+import analyze2p.extraction.traces as traceutils
+import analyze2p.extraction.rois as roiutils
+
 def create_neuropil_masks(masks, niterations=20, gap_iterations=4, verbose=False):
 
     if verbose:
@@ -91,7 +94,7 @@ def remake_neuropil_annulus(maskdict_path, np_niterations=24, gap_niterations=4,
 
             # Make NP mask
             np_masks = create_neuropil_masks(msks_r, niterations=np_niterations, gap_iterations=gap_niterations)
-            npil_arr = gtraces.masks_to_normed_array(np_masks)
+            npil_arr = roiutils.masks_to_normed_array(np_masks)
 
             # Save to file
             npil = filegrp['%s/np_maskarray' % curr_slice]
@@ -175,9 +178,9 @@ def apply_masks_for_all_runs(animalid, session, fov, experiment=None,
         try:
             # Get trace extraction info
             if 'retino' in run_dir:
-                TID = gtraces.load_AID(run_dir, traceid)
+                TID = traceutils.load_AID(run_dir, traceid)
             else:
-                TID = gtraces.load_TID(run_dir, traceid, auto=True)
+                TID = traceutils.load_TID(run_dir, traceid, auto=True)
             
             # Set mask path
             maskdict_path = os.path.join(TID['DST'], 'MASKS.hdf5')
@@ -201,12 +204,12 @@ def create_masks_for_run(run_dir, traceid='traces001', np_niterations=24, gap_ni
     # Get trace extraction info
     if 'retino' in run_dir:
         print("...getting RETINO ID info...")
-        TID = gtraces.load_AID(run_dir, traceid)
+        TID = traceutils.load_AID(run_dir, traceid)
     else:
-        TID = gtraces.load_TID(run_dir, traceid, auto=True)
+        TID = traceutils.load_TID(run_dir, traceid, auto=True)
     session_dir = run_dir.split('/FOV')[0]
     print(session_dir)
-    RID = gtraces.load_RID(session_dir, TID['PARAMS']['roi_id'])
+    RID = traceutils.load_RID(session_dir, TID['PARAMS']['roi_id'])
 
     # Set output dir
     mask_figdir = os.path.join(TID['DST'], 'figures', 'masks', 'neuropil_annulus')
@@ -214,7 +217,7 @@ def create_masks_for_run(run_dir, traceid='traces001', np_niterations=24, gap_ni
         os.makedirs(mask_figdir)
 
     # Load existing masks
-    maskinfo = gtraces.get_mask_info(TID, RID, nslices=1, rootdir=rootdir)
+    maskinfo = roiutils.get_mask_info(TID, RID, nslices=1, rootdir=rootdir)
     maskdict_path = os.path.join(TID['DST'], 'MASKS.hdf5')
 
     #### Make new NP mask

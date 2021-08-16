@@ -47,7 +47,7 @@ import analyze2p.utils as hutils
 import analyze2p.aggregate_datasets as aggr
 import analyze2p.gratings.utils as utils
 import analyze2p.plotting as pplot
-from analyze2p.extraction import traces
+import analyze2p.extraction.traces as traceutils
 #%%
 # #############################################################################
 # Metric calculations:
@@ -129,31 +129,6 @@ def get_run_name(datakey, traceid='traces001', verbose=False,
     return run_name
 
 
-#def get_experiment_data(data_fpath, add_offset=True, make_equal=False):
-#    '''Get processed traces, labels, grouped trial metrics, and stimulus info'''
-#    soma_fpath = data_fpath.replace('datasets', 'np_subtracted')
-#    # Load corrected/raw traces
-#    raw_traces, labels, sdf, run_info = hutils.load_dataset(soma_fpath, trace_type='corrected')
-#    # Get grouped ROI data: each group is roi's trials x metrics
-#    gdf = group_roidata_stimresponse(raw_traces.values, labels, return_grouped=True) 
-#
-#    # Calculate dff per trial
-#    stim_on_frame = labels['stim_on_frame'].unique()[0]
-#    tmp_df = []
-#    for k, g in labels.groupby(['trial']):
-#        tmat = raw_traces.loc[g.index]
-#        bas_mean = np.nanmean(tmat[0:stim_on_frame], axis=0)
-#        #if trace_type == 'dff':
-#        tmat_df = (tmat - bas_mean) / bas_mean
-#        #elif trace_type == 'df':
-#        #tmat_df = (tmat - bas_mean)
-#        tmp_df.append(tmat_df)
-#    df_traces = pd.concat(tmp_df, axis=0)
-#    del tmp_df
-#
-#   
-#    return df_traces, labels, gdf, sdf
-#
 
 #def get_stimulus_configs(animalid, session, fov, run_name, rootdir='/n/coxfs01/2p-data'):
 #    # Get stimulus configs
@@ -904,7 +879,7 @@ def get_tuning(datakey, run_name, return_iters=False,
                 statdf = None
     
         # Load raw data, calculate metrics 
-        raw_traces, labels, sdf, run_info = aggr.load_dataset(data_fpath, 
+        raw_traces, labels, sdf, run_info = traceutils.load_dataset(data_fpath, 
                                                 trace_type='corrected')
         dff_traces, metrics = aggr.process_traces(raw_traces, labels, 
                                     trace_type='dff', 
@@ -1356,7 +1331,7 @@ def plot_psth_roi(roi, raw_traces, labels, curr_cfgs, sdf,  trace_type='dff', fi
     #print('plotting roi %i' % roi) 
     # ---------------------------------------------------------------------
     #% plot raw traces:
-    mean_traces, std_traces, tpoints = traces.get_mean_and_std_traces(roi, 
+    mean_traces, std_traces, tpoints = traceutils.get_mean_and_std_traces(roi, 
                                         raw_traces, labels, curr_cfgs, sdf)
     
     stim_on_frame = labels['stim_on_frame'].unique()[0]

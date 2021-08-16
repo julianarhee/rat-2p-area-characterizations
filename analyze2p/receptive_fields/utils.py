@@ -22,6 +22,7 @@ import analyze2p.aggregate_datasets as aggr
 import analyze2p.plotting as pplot
 import analyze2p.utils as hutils
 import analyze2p.extraction.rois as roiutils
+import analyze2p.extraction.traces as traceutils
 
 from matplotlib.patches import Ellipse, Rectangle, Polygon
 from shapely.geometry.point import Point
@@ -2278,7 +2279,7 @@ def load_trialdata(fit_params, return_traces=False):
         return None
 
     # Load processed traces 
-    raw_traces, labels, sdf, run_info = aggr.load_dataset(data_fpath, 
+    raw_traces, labels, sdf, run_info = traceutils.load_dataset(data_fpath, 
                                         trace_type=fit_params['trace_type'],
                                         is_neuropil=is_neuropil,
                                         add_offset=True, make_equal=False)
@@ -2315,8 +2316,7 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
             shutil.rmtree(tmp_roi_dir)
     if not os.path.exists(tmp_roi_dir):
         os.makedirs(tmp_roi_dir)
- 
- 
+  
     #%% Do bootstrap analysis    
     print("-evaluating (%s)-" % str(create_new))
     if not create_new:
@@ -2334,35 +2334,38 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
             # traceback.print_exc()
             create_new=True
 
+    fitdf = rfits_to_df(fit_results, fit_params=fit_params, 
+                            scale_sigma=fit_params['scale_sigma'], 
+                            sigma_scale=fit_params['sigma_scale'], 
+                            convert_coords=True)
+    fitdf = fitdf[fitdf['r2']>fit_params['fit_thr']]
+    fit_rois = fitdf.index.tolist()
+
     if create_new: 
         if trialdata is None:
             trialdata, labels = load_trialdata(fit_params)
         if n_resamples is None:
-            n_resamples = int(trialdata.groupby(['config']).count().min().unique())
+            n_resamples = int(trialdata.groupby(['config'])\
+                            .count().min().unique())
 
-        roi_list = sorted(list(fit_results.keys()))
-        roidf_list = [trialdata[[roi, 'config', 'trial']] for roi in roi_list]
+        # Which cells have fits?
+        #roi_list = sorted(list(fit_results.keys()))
+        roidf_list = [trialdata[[roi, 'config', 'trial']] for roi in fit_rois]
         # Update params to include evaluation info 
         evaluation = {'n_bootstrap_iters': n_bootstrap_iters, 
                       'n_resamples': n_resamples,
                       'ci': ci}   
         fit_params.update({'evaluation': evaluation})
         # Do evaluation 
-        print("... doing rf evaluation (%i rois)" % len(roi_list))
+        print("... doing rf evaluation (%i rois)" % len(fit_rois))
         eval_results = evaluate_rfs(roidf_list, fit_params, 
                                     n_processes=n_processes, 
                                     all_new_evals=all_new_evals) 
         save_eval_results(eval_results, fit_params)
-
     if eval_results is None: 
         return None
 
     ##------------------------------------------------
-    fitdf = rfits_to_df(fit_results, fit_params=fit_params, 
-                            scale_sigma=fit_params['scale_sigma'], 
-                            sigma_scale=fit_params['sigma_scale'], convert_coords=True)
-    fitdf = fitdf[fitdf['r2']>fit_params['fit_thr']]
-    fit_rois = fitdf.index.tolist()
     data_id = '|'.join([datakey, fit_desc])
 
     # Identify cells w fit params within CIs
