@@ -472,56 +472,47 @@ def _pad_array(x, wing):
 
 def append_neuropil_subtraction(maskdict_path, cfactor, 
                         filetraces_dir, datakey, create_new=False, rootdir=''):
-
-    #signal_channel_idx = int(TID['PARAMS']['signal_channel']) - 1 # 0-indexing into tiffs
-
+    '''
+    Loads RAW traces hdf5 from <filetraces_dir>, adds:
+    - neuropil : neuropil masks applied to movie tifs
+    - np_subtracted: raw - (cfactor)*neuropil
+    
+    '''
     MASKS = h5py.File(maskdict_path, 'r')
-
     filetraces_fpaths = sorted([os.path.join(filetraces_dir, t) for t in os.listdir(filetraces_dir) if t.endswith('hdf5')], \
                                 key=hutils.natural_keys)
-
     #
     print("Appending subtrated NP traces to %i files." % len(filetraces_fpaths))
     for tfpath in filetraces_fpaths:
-        #tfpath = trace_file_paths[0]
         traces_currfile = h5py.File(tfpath, 'r+')
-        #print "FILETRACES attrs:"
-        #print traces_currfile.attrs.keys()
         fidx = int(os.path.split(tfpath)[-1].split('_')[0][4:]) - 1
         curr_file = "File%03d" % int(fidx+1)
         print("CFACTOR -- Appending neurpil corrected traces: %s" % curr_file)
         try:
             for curr_slice in traces_currfile.keys():
-
+                # Load raw traces
                 tracemat = np.array(traces_currfile[curr_slice]['traces']['raw'])
-
                 # First check that neuropil traces don't already exist:
                 if 'neuropil' in traces_currfile[curr_slice]['traces'].keys() and create_new is False:
                     np_tracemat = np.array(traces_currfile[curr_slice]['traces']['neuropil'])
                     overwrite_neuropil = False
                 else:
                     overwrite_neuropil = True
-
                 if 'np_subtracted' in traces_currfile[curr_slice]['traces'].keys() and create_new is False:
                     np_correctedmat = np.array(traces_currfile[curr_slice]['traces']['np_subtracted'])
                     if np.mean(np_correctedmat) == 0:
                         overwrite_correctedmat = True
                     else:
                         overwrite_correctedmat = False
-
+                        
                 if overwrite_neuropil is True:
                     overwrite_correctedmat = True # always overwrite tracemat if new neuropil
-
                     # Load tiff:
                     tiffpath = traces_currfile.attrs['source_file']
                     print("Calculating neuropil from src: %s" % tiffpath)
-
                     if rootdir not in tiffpath:
                         session, animalid, fovn = hutils.split_datakey_str(datakey)
-                        #session_dir = os.path.split(os.path.split(filetraces_dir.split('/traces')[0])[0])[0]
-                        #info = get_info_from_tiff_dir(os.path.split(tiffpath)[0], session_dir)
                         tiffpath = hutils.replace_root(tiffpath, rootdir, animalid, session)
-
                     tiff = tf.imread(tiffpath)
                     T, d1, d2 = tiff.shape
                     d = d1*d2

@@ -9,9 +9,24 @@ import copy
 import os
 import itertools
 import numpy as np
+import pandas as pd
 
-def format_stimconfigs(configs):
+def stimdict_to_df(stimconfigs, experiment):
+    stimdict = format_stimconfigs(stimconfigs) 
+    sdf0 = pd.DataFrame(stimdict).T
     
+    sort_cols = {
+       'gratings': ['ori', 'sf', 'size', 'speed', 'xpos', 'ypos'],
+       'blobs': ['morphlevel', 'size', 'xpos', 'ypos'],
+       'rfs': ['xpos', 'ypos', 'size']
+    }
+    sdf = sdf0.copy().sort_values(by=sort_cols[experiment])
+    n_cfgs = len(list(stimdict.keys()))
+    ordered_cfgs = ['config%03d' % int(i+1) for i in np.arange(0, n_cfgs)]
+    sdf.index = ordered_cfgs
+    return sdf 
+
+def format_stimconfigs(configs): 
     stimconfigs = copy.deepcopy(configs)
     cfg_list = sorted(list(stimconfigs.keys()))
     sample_key = cfg_list[0]
@@ -145,8 +160,6 @@ def format_stimconfigs(configs):
     return stimconfigs
 
 
-
-
 def get_transforms(stimconfigs):
     
     cfg_list = list(stimconfigs.keys())
@@ -219,6 +232,3 @@ def get_transforms(stimconfigs):
         object_transformations[trans] = included_objects
 
     return transforms, object_transformations
-
-
-

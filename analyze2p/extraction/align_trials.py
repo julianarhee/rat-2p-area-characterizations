@@ -101,9 +101,7 @@ def aggregate_experiment_runs(datakey, experiment,
                     '%s_*' % experiment)) if 'combined' not in d \
                     and os.path.isdir(d)], key=hutils.natural_keys)
 #%%
-    # #########################################################################
-    #% Cycle through all tifs, detrend, then get aligned frames
-    # #########################################################################
+    #%% Cycle through all tifs, detrend, then get aligned frames
     dfs = {}
     frame_times=[]; trial_ids=[]; config_ids=[]; sdf_list=[]; 
     run_ids=[]; file_ids=[];
@@ -129,8 +127,7 @@ def aggregate_experiment_runs(datakey, experiment,
             currfile = str(re.search(r"File\d{3}", fpath).group())
             if currfile in excluded_tifs:
                 print("... skipping...")
-                continue
-            
+                continue 
             # Set output dir
             basedir = os.path.split(os.path.split(fpath)[0])[0] 
             data_array_dir = os.path.join(basedir, 'data_arrays')
@@ -138,8 +135,7 @@ def aggregate_experiment_runs(datakey, experiment,
                 os.makedirs(data_array_dir)          
             #% # Get SCAN IMAGE info for run:
             run_name = os.path.split(rundir)[-1]
-            si = get_frame_info(rundir)
-            
+            si = get_frame_info(rundir) 
             #% # Load MW info to get stimulus details:
             mw_fpath = glob.glob(os.path.join(rundir, 'paradigm', \
                                 'trials_*.json'))[0] # 
@@ -147,6 +143,7 @@ def aggregate_experiment_runs(datakey, experiment,
                 mwinfo = json.load(m)
             pre_iti_sec = round(mwinfo[mwinfo.keys()[0]]['iti_dur_ms']/1E3) 
             nframes_iti_full = int(round(pre_iti_sec * si['volumerate']))
+            
             # Load current run's stim configs 
             sconfig_fpath = os.path.join(rundir,'paradigm','stimulus_configs.json')
             with open(sconfig_fpath, 'r') as s:
@@ -184,52 +181,49 @@ def aggregate_experiment_runs(datakey, experiment,
             # Get stimulus info for each trial:        
             excluded_params = [k for k in mwinfo[trials_in_block[0]]['stimuli'].keys() if k not in stim_params]
             print("Excluding:", excluded_params)
-            curr_trial_stimconfigs = dict((trial, dict((k,v) for k,v \
+            curr_stimconfigs = dict((trial, dict((k,v) for k,v \
                                         in mwinfo[trial]['stimuli'].items() \
                                         if k not in excluded_params)) \
                                         for trial in trials_in_block)
-            for k, v in curr_trial_stimconfigs.items():
+            for k, v in curr_stimconfigs.items():
                 if v['scale'][0] is not None:
-                    curr_trial_stimconfigs[k]['scale'] = [round(v['scale'][0], 1), round(v['scale'][1], 1)]
+                    curr_stimconfigs[k]['scale'] = [round(v['scale'][0], 1), round(v['scale'][1], 1)]
             for k, v in stimconfigs.items():
                 if v['scale'][0] is not None:
                     stimconfigs[k]['scale'] = [round(v['scale'][0], 1), round(v['scale'][1], 1)]
             if stimtype=='image' and 'filepath' in mwinfo['trial00001']['stimuli'].keys():
-                for t, v in curr_trial_stimconfigs.items():
+                for t, v in curr_stimconfigs.items():
                     if 'filename' not in v.keys():
-                        curr_trial_stimconfigs[t].update({'filename': os.path.split(mwinfo[t]['stimuli']['filepath'])[-1]})
-            
+                        curr_stimconfigs[t].update(\
+                            {'filename': os.path.split(mwinfo[t]['stimuli']['filepath'])[-1]
+                             }
+                        )
+                        
+             # Add stim_dur if included in stim params:          
             varying_stim_dur = False
-            # Add stim_dur if included in stim params:
-            if 'stim_dur' in stimconfigs[stimconfigs.keys()[0]].keys():
+            if 'stim_dur' in stim_params:
                 varying_stim_dur = True
                 for ti, trial in enumerate(sorted(trials_in_block, key=hutils.natural_keys)):
                     curr_trial_stimconfigs[trial]['stim_dur'] = round(mwinfo[trial]['stim_dur_ms']/1E3, 1)         
             trial_configs=[]
-            for trial, sparams in curr_trial_stimconfigs.items():
-                #print sparams.keys()
-                #print "-------"
-                config_name = [k for k, v in stimconfigs.items() if v==sparams]
-                #print v.keys()
+            for trial, sparams in curr_stimconfigs.items():
+                config_name = [k for k, v in stimconfigs.items() \
+                                if v==sparams]
                 assert len(config_name) == 1, "Bad configs - %s" % trial
-                #config_name = config_name[0]
                 sparams['position'] = tuple(sparams['position'])
                 sparams['scale'] = sparams['scale'][0] if not isinstance(sparams['scale'], int) else sparams['scale']
                 sparams['config'] = config_name[0]
-                trial_configs.append(pd.Series(sparams, name=trial))
-                
+                trial_configs.append(pd.Series(sparams, name=trial))                
             trial_configs = pd.concat(trial_configs, axis=1).T
             trial_configs = trial_configs.sort_index() #(by=)
-            
-            # Get corresponding stimulus/trial labels for each frame in each trial:
-            # --------------------------------------------------------------        
+ 
+            # Get corresponding stimulus/trial labels 
+            # for each frame in each trial:
             tlength = trial_frames_to_vols.shape[0]
             config_labels = np.hstack([np.tile(trial_configs.T[trial]['config'], (tlength, ))\
-                                       for trial in trials_in_block])
-            
+                                       for trial in trials_in_block]) 
             trial_labels = np.hstack([np.tile(trial, (tlength,)) \
-                                      for trial in trials_in_block])
-             
+                                      for trial in trials_in_block]) 
             # Get relevant timecourse points
             frames_in_trials = trial_frames_to_vols.T.values.ravel()            
             #%
@@ -242,7 +236,6 @@ def aggregate_experiment_runs(datakey, experiment,
                 print("... processing trace type: %s" % trace_type)
                 # Load raw traces and detrend within .tif file
                 df = pd.DataFrame(fdata['traces'][trace_type][:])
-
                # np_subtracted traces are created in traces/get_traces.py, without offset added.
                # Remove rolling baseline, return detrended traces with offset added back in? 
                 detrended_df, F0_df = traceutils.get_rolling_baseline(df, windowsize, quantile=quantile)
@@ -255,16 +248,15 @@ def aggregate_experiment_runs(datakey, experiment,
                 currf0 = F0_df.loc[frames_in_trials]
                 currf0['ix'] = [total_ix for _ in range(currdf.shape[0])]
                 dfs['%s-F0' % trace_type].append(currf0)
-            
-            frame_indices.append(frames_in_trials) # added 2019-05-21
-        
+                 
+            frame_indices.append(frames_in_trials) # added 2019-05-21 
             frame_times.append(relative_tsecs)
             trial_ids.append(trial_labels)
             config_ids.append(config_labels)
             run_ids.append([run_ix for _ in range(len(trial_labels))])
             file_ids.append([file_ix for _ in range(len(trial_labels))])
-            
-            sdf = pd.DataFrame(putils.format_stimconfigs(stimconfigs)).T
+           
+            sdf = putils.stimdict_to_df(stimconfigs, experiment)
             sdf_list.append(sdf)
         except Exception as e:
             traceback.print_exc()
@@ -310,7 +302,7 @@ def aggregate_experiment_runs(datakey, experiment,
         last_trial_num = int(sorted(trials[next_run_ixs], key=hutils.natural_keys)[-1][-5:])
         
     # Check for stim durations
-    if 'stim_dur' in stimconfigs[stimconfigs.keys()[0]].keys():
+    if 'stim_dur' in stim_params:
         stim_durs = np.array([stimconfigs[c]['stim_dur'] for c in configs])
     else:
         stim_durs = list(set([round(mwinfo[t]['stim_dur_ms']/1e3, 1) for t in trial_list]))
@@ -950,21 +942,23 @@ def parse_trial_epochs(datakey, experiment, traceid,
   
     return
  
-def remake_dataframes(datakey, experiment, traceid, rootdir='/n/coxfs01/2p-data'):
-    session, animalid, fovn = hutils.split_datakey_str(datakey)
-    soma_fpath = glob.glob(os.path.join(rootdir, animalid, session, 
-                        'FOV%i_*' % fovn, 
-                        'combined_%s_*' % experiment, 'traces', '%s*' % traceid,
-                        'data_arrays', 'np_subtracted.npz'))[0]
+def remake_dataframes(datakey, experiment, traceid, 
+                      rootdir='/n/coxfs01/2p-data'):
+    session, animalid, fovn = hutils.split_datakey_str(datakey) 
+    experiment_name = 'gratings' if (experiment in ['rfs', 'rfs10'] \
+                        and int(session)<20190511) else experiment
+    soma_fpath = traceutils.get_data_fpath(datakey, 
+                                experiment_name=experiment_name, 
+                                traceid=traceid, 
+                                trace_type='np_subtracted', rootdir=rootdir)
 
-    tr, lb, rinfo, sdf = traceutils.load_dataset(soma_fpath, trace_type='dff', 
+    tr, lb, rinfo, sdf = traceutils.load_dataset(soma_fpath, 
+                                    trace_type='dff', 
                                     add_offset=True, 
                                     make_equal=False, create_new=True)
     
     print("Remade all the other dataframes.")
     return
-
-
 
 def main(options):
     opts = extract_options(options)

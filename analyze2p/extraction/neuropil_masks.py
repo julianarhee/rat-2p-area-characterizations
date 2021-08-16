@@ -27,11 +27,6 @@ import analyze2p.plotting as pplot
 def create_neuropil_masks(masks, np_niterations=20, 
                         gap_niterations=4, verbose=False):
     # gap_iterations = 8 if np_niterations==20 else 4
-    if verbose:
-        um_per_pix = (2.312 + 1.904)/2.
-        inner_um = um_per_pix*gap_niterations
-        outer_um = um_per_pix*np_niterations
-        print("Annulus: %.2f-%.2f um" % (inner_um, outer_um))
     # Create kernel for dilating ROIs:
     kernel = np.ones((3,3),masks.dtype)
     nrois = masks.shape[-1]
@@ -58,16 +53,21 @@ def create_neuropil_masks(masks, np_niterations=20,
 
     return np_masks
 
-def remake_neuropil_annulus(maskdict_path, 
+def make_neuropil_per_tif(maskdict_path, 
                         np_niterations=24, gap_niterations=4, 
                         curr_slice='Slice01', plot_masks=False):
+    '''
+    Load original MASKS.hdf5 (MATLAB GUI), calls 
+    create_neuropil_masks() for EACH .tif in run
+    '''
     # Set output dir
     traceid_dir = os.path.split(maskdict_path)[0]
-    mask_figdir = os.path.join(traceid_dir, 'figures', 'masks', 'neuropil_annulus')
+    mask_figdir = os.path.join(traceid_dir, 'figures', \
+                                'masks', 'neuropil_annulus')
     if not os.path.exists(mask_figdir):
         os.makedirs(mask_figdir)
     print(mask_figdir)
-    
+     
     MASKS = h5py.File(maskdict_path, 'a')
     filenames = sorted(MASKS.keys(), key=hutils.natural_keys)
     try:
@@ -121,6 +121,10 @@ def create_masks_for_all_runs(datakey,
                     experiment=None, traceid='traces001', 
                     np_niterations=24, gap_niterations=4, 
                     rootdir='/n/coxfs01/2p-data', plot_masks=True):
+    '''
+    Cycle thru all runs/blocks of EXPERIMENT, calling 
+    create_masks_for_run() 
+    '''
     print("Creating masks for all runs.")
     # Get runs to extract
     session, animalid, fovn = hutils.split_datakey_str(datakey)
@@ -155,7 +159,8 @@ def create_masks_for_all_runs(datakey,
 
 def apply_masks_for_all_runs(datakey, experiment=None, fov_type='zoom2p0x',
                             traceid='traces001', np_correction_factor=0.7, rootdir='/n/coxfs01/2p-data'):
-
+    '''
+    '''
     session, animalid, fovn = hutils.split_datakey_str(datakey)
     fov = 'FOV%i_%s' % (fovn, fov_type)
     print("Applying masks to tifs for all runs.")
@@ -183,10 +188,14 @@ def apply_masks_for_all_runs(datakey, experiment=None, fov_type='zoom2p0x',
             # Set mask path
             maskdict_path = os.path.join(TID['DST'], 'MASKS.hdf5')
             filetraces_dir = os.path.join(TID['DST'], 'files')
-            filetraces_dir = apply_masks_for_run(filetraces_dir, 
-                                                 maskdict_path, 
-                                                 datakey, 
-                                                 np_correction_factor=np_correction_factor, rootdir=rootdir)
+            #### Apply new NP mask to extract traces
+            print("--- Using SUBTRACTION method, (global) correction-factor: ", np_correction_factor)
+            filetraces_dir = traceutils.append_neuropil_subtraction(
+                                                maskdict_path,
+                                                np_correction_factor,
+                                                filetraces_dir, datakey,
+                                                create_new=True,
+                                                rootdir=rootdir)
         except Exception as e:
             print("***ERROR creaitng masks: %s" % run_dir)
             continue
@@ -198,8 +207,12 @@ def apply_masks_for_all_runs(datakey, experiment=None, fov_type='zoom2p0x',
 
     
 def create_masks_for_run(run_dir, traceid='traces001', 
-                np_niterations=20, gap_niterations=4, rootdir='/n/coxfs01/2p-data', plot_masks=True):
-
+                np_niterations=24, gap_niterations=4, rootdir='/n/coxfs01/2p-data', plot_masks=True):
+    '''
+    Calls make_neuropil_per_tif(), which
+    loads original ROI masks (MATLAB GUI), then creates neuropil
+    masks using annulus method for ALL tifs in specified run_dir.
+    '''
     # Get trace extraction info
     if 'retino' in run_dir:
         print("...getting RETINO ID info...")
@@ -218,25 +231,12 @@ def create_masks_for_run(run_dir, traceid='traces001',
     maskinfo = roiutils.get_mask_info(TID, RID, nslices=1, rootdir=rootdir)
     maskdict_path = os.path.join(TID['DST'], 'MASKS.hdf5')
     #### Make new NP mask
-    maskdict_path = remake_neuropil_annulus(maskdict_path, 
+    maskdict_path = make_neuropil_per_tif(maskdict_path, 
                                     np_niterations=np_niterations, 
                                     gap_niterations=gap_niterations, 
                                     plot_masks=plot_masks)
  
     return maskdict_path
-
-def apply_masks_for_run(filetraces_dir, maskdict_path, datakey,
-                np_correction_factor=0.7, rootdir='/n/coxfs01/2p-data'):
-
-    #### Apply new NP mask to extract traces
-    print("--- Using SUBTRACTION method, (global) correction-factor: ", np_correction_factor)
-    filetraces_dir = traceutils.append_neuropil_subtraction(maskdict_path,
-                                                 np_correction_factor,
-                                                 filetraces_dir, datakey,
-                                                 create_new=True,
-                                                 rootdir=rootdir)
-
-    return filetraces_dir
 
 
 def extract_options(options):
@@ -315,26 +315,26 @@ def make_masks(datakey, experiment=None, traceid='traces001',
                             rootdir=rootdir, np_correction_factor=np_correction_factor)
     print("---- applied NP masks to tifs ----")
 
+    # Save params
     traceid_dir = os.path.split(filetraces_dir)[0]
-    with open(os.path.join(traceid_dir, 'extraction_params.json'), 'r') as f:
-    #with open(os.path.join(traceid_dir, 'event_alignment.json'), 'r') as f:
+    extraction_info_fpath = os.path.join(traceid_dir, 'extraction_params.json')
+    with open(extraction_info_fpath, 'r') as f:
         eparams = json.load(f)
     eparams.update({'np_niterations': np_niterations,
                     'gap_niterations': gap_niterations,
                     'np_correction_factor': np_correction_factor})
-    with open(os.path.join(traceid_dir, 'extraction_params.json'), 'w') as f: 
+    with open(extraction_info_fpath, 'w') as f: 
         json.dump(eparams, f, indent=4, sort_keys=True)
-
     print("--- updated extraction info ---")
-
 
     print("FINISHED.")
     print("---------------------------------------------")
     print("Here's a summary")
     print("---------------------------------------------")
-    print("Neuropil annulus: %i gap and %i outer iterations" % (gap_niterations, np_niterations))
-
-    um_per_pix = (2.312 + 1.904)/2.
+    print("Neuropil annulus: %i gap and %i outer iterations" \
+            % (gap_niterations, np_niterations))
+    pix_x, pix_y = hutils.get_pixel_size()
+    um_per_pix = np.mean([pix_x, pix_y]) #(2.312 + 1.904)/2.
     inner_um = um_per_pix*gap_niterations
     outer_um = um_per_pix*np_niterations 
     print("i.e., %.2f-%.2f micron annulus" % (inner_um, outer_um))
