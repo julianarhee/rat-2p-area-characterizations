@@ -5,6 +5,7 @@ Created on Fri Feb  21 12:17:55 2020
 
 @author: julianarhee
 """
+#%%
 import matplotlib as mpl
 mpl.use('agg')
 import h5py
@@ -27,7 +28,7 @@ import analyze2p.extraction.traces as traceutils
 import analyze2p.extraction.paradigm as putils
 
 #from pipeline.python.paradigm.plot_responses import make_clean_psths
-
+#%%
 def extract_options(options):
     parser = optparse.OptionParser()
     # PATH opts:
@@ -70,10 +71,13 @@ def extract_options(options):
 
     return options
 
+datakey='20190522_JC084_fov1'
+experiment='gratings'
 
 def aggregate_experiment_runs(datakey, experiment, 
-                        traceid='traces001', rootdir='/n/coxfs01/2p-data'):
-  
+                        traceid='traces001', 
+                        rootdir='/n/coxfs01/2p-data'):
+#%%  
     session, animalid, fovn = hutils.split_datakey_str(datakey)
     fovdir = glob.glob(os.path.join(rootdir, animalid, session, 
                                     'FOV%i_*' % fovn))[0]
@@ -256,21 +260,19 @@ def aggregate_experiment_runs(datakey, experiment,
             config_ids.append(config_labels)
             run_ids.append([run_ix for _ in range(len(trial_labels))])
             file_ids.append([file_ix for _ in range(len(trial_labels))])
-           
-            sdf = putils.stimdict_to_df(stimconfigs, experiment)
+            
+            stimdict = putils.format_stimconfigs(stimconfigs) 
+            sdf = pd.DataFrame(stimdict).T
+            #sdf = putils.stimdict_to_df(stimconfigs, experiment)
             sdf_list.append(sdf)
         except Exception as e:
             traceback.print_exc()
             print(e)
         finally:
             rfile.close()
-
 #%%
-    # #########################################################################
     #% Concatenate all runs into 1 giant dataframe
-    # #########################################################################
-    trial_list = sorted(mwinfo.keys(), key=hutils.natural_keys)
-    
+    trial_list = sorted(mwinfo.keys(), key=hutils.natural_keys)    
     # Make combined stimconfigs
     sdfcombined = pd.concat(sdf_list, axis=0)
     if 'position' in sdfcombined.columns:
@@ -291,7 +293,7 @@ def aggregate_experiment_runs(datakey, experiment,
             cfg_cipher[old_cfg_name] = new_cfg_name
         new_config_ids.append([cfg_cipher[c] for c in orig_cfgs])
     configs = np.hstack(new_config_ids)
-            
+#%% 
     # Reindex trial numbers in order
     trials = np.hstack(trial_ids)  # Need to reindex trials
     run_ids = np.hstack(run_ids)
@@ -310,8 +312,7 @@ def aggregate_experiment_runs(datakey, experiment,
         stim_durs = list(set([round(mwinfo[t]['stim_dur_ms']/1e3, 1) for t in trial_list]))
     nframes_on = np.array([int(round(dur*si['volumerate'])) for dur in stim_durs])
     print("Nframes on:", nframes_on)
-    print("stim_durs (sec):", stim_durs)
-    
+    print("stim_durs (sec):", stim_durs) 
     # Also collate relevant frame info (i.e., labels):
     tstamps = np.hstack(frame_times)
     f_indices = np.hstack(frame_indices) 
@@ -321,8 +322,7 @@ def aggregate_experiment_runs(datakey, experiment,
     # Get concatenated df for indexing meta info
     roi_list = np.array([r for r in dfs[dfs.keys()[0]][0].columns.tolist() if hutils.isnumber(r)])
     xdata_df = pd.concat([d[roi_list] for d in dfs[dfs.keys()[0]]], axis=0).reset_index(drop=True) #drop=True)
-    print("XDATA concatenated: %s" % str(xdata_df.shape))
-    
+    print("XDATA concatenated: %s" % str(xdata_df.shape)) 
      # Turn paradigm info into dataframe: 
     labels_df = pd.DataFrame({'tsec': tstamps, 
                               'frame': f_indices,
@@ -340,8 +340,7 @@ def aggregate_experiment_runs(datakey, experiment,
         unique_ons = np.unique(all_ons)
         print("**** WARNING: multiple stim onset idxs found - %s" % str(list(set(unique_ons))))
         stim_on_frame = int(round( np.mean(unique_ons) ))
-        print("--- assigning stim on frame: %i" % stim_on_frame)
-     
+        print("--- assigning stim on frame: %i" % stim_on_frame)     
     labels_df['stim_on_frame'] = np.tile(stim_on_frame, (len(tstamps),))
     labels_df['nframes_on'] = np.tile(int(nframes_on), (len(tstamps),))
     labels_df['run_ix'] = run_ids
@@ -399,7 +398,7 @@ def aggregate_experiment_runs(datakey, experiment,
         del f0_df
         del xdata_df
  
-# --------------------------------------------------------------------
+#%% --------------------------------------------------------------------
 def load_parsed_trials(parsed_trials_path):
     with open(parsed_trials_path, 'r') as f:
         trialdict = json.load(f)
@@ -962,6 +961,7 @@ def remake_dataframes(datakey, experiment, traceid,
     print("Remade all the other dataframes.")
     return
 
+#%%
 def main(options):
     opts = extract_options(options)
 
@@ -998,9 +998,13 @@ def main(options):
                      '--shade', '-r', row_str, '-c', col_str, '-H', hue_str, '-d', response_type, '-f', file_type,
                     '--responsive', '--test', responsive_test, '--thr', responsive_thr]
         #make_clean_psths(plot_opts) 
-    
+   
+   
+#%% 
 if __name__ == '__main__':
     main(sys.argv[1:])
     
 
 
+
+# %%
