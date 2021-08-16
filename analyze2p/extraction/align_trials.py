@@ -480,7 +480,7 @@ def get_run_summary(xdata_df, labels_df, stimconfigs, si, verbose=False):
     
     run_info = {}
     transform_dict, object_transformations = putils.get_transforms(stimconfigs)
-    trans_types = object_transformations.keys()
+    trans_types = list(object_transformations.keys())
 
     conditions = sorted(list(set(labels_df['config'])), key=hutils.natural_keys)
  

@@ -1452,10 +1452,13 @@ def decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA,
     with open(results_outfile, 'wb') as f:
         pkl.dump(iter_results, f, protocol=2)
 
+    cols = ['train_score', 'test_score', 'heldout_test_score', 'iteration']
     if test_type is None:
-        print(iter_results.groupby(['condition', 'n_cells']).mean())   
+        mean_iters = iter_results.groupby(['condition', 'n_cells']).mean().reset_index()
     else:
-        print(iter_results.groupby(['condition', 'n_cells', 'train_transform']).mean())   
+        mean_iters = iter_results.groupby(['condition', 'n_cells', 'train_transform']).mean()
+
+    print(mean_iters[cols])   
     print("@@@@@@@@@ done. %s (n=%i cells) @@@@@@@@@@" % (visual_area,n_cells_sample))
     print(results_outfile) 
  

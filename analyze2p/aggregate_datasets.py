@@ -155,30 +155,40 @@ def get_stimuli(datakey, experiment, match_names=False,
 
 
 def check_sdfs_gratings(dkey_list, experiment='gratings',
-                    return_incorrect=False):
+                    return_incorrect=False, return_all=False):
+    exclude_=[] 
+    #['20190602_JC091_fov1', '20190525_JC084_fov1', '20190522_JC084_fov1']
+    # ^Need to re-aggregate these for gratings, exclude for now
     print("Checking gratings configs")
+    incorrect=[]
     s_=[]
     for dk in dkey_list:
+        if dk in exclude_:
+            continue
         sdf = get_stimuli(dk, experiment, match_names=False)
         if 'aspect' in sdf.columns:
             sdf = sdf.drop(columns=['aspect'])
-        if not return_incorrect:
-            param_combos = list(itertools.product(
-                                sdf['sf'].unique(), 
-                                sdf['size'].unique(), 
-                                sdf['speed'].unique()))
-            nonori_params = sdf[['sf', 'size', 'speed']].drop_duplicates()
-            if len(param_combos)!=8 or len(nonori_params)!=len(param_combos):
-                print('    skipping: %s' % dk)
+        # Check params
+        param_combos = list(itertools.product(
+                            sdf['sf'].unique(), 
+                            sdf['size'].unique(), 
+                            sdf['speed'].unique()))
+        nonori_params = sdf[['sf', 'size', 'speed']].drop_duplicates()
+        if len(param_combos)!=8 or len(nonori_params)!=len(param_combos):
+            print('    skipping: %s' % dk)
+            incorrect.append(dk)
+            if not return_all:
                 continue
-                # and sdf.shape[0]!=64:
+            #continue
+            # and sdf.shape[0]!=64:
         sdf['datakey'] = dk
-        print(dk, sdf.shape)
         s_.append(sdf)
     SDF = pd.concat(s_, axis=0)
 
-    return SDF
-
+    if return_incorrect:
+        return SDF, incorrect
+    else:
+        return SDF
 
 def get_master_sdf(experiment='blobs', images_only=False):
     '''
@@ -191,14 +201,44 @@ def get_master_sdf(experiment='blobs', images_only=False):
     
     return sdf_master
 
-def check_sdfs(stim_datakeys, experiment='blobs', 
-                images_only=False,
+
+def check_sdfs(stim_datakeys, experiment='blobs', images_only=False, 
+                rename=True, return_incorrect=False, return_all=False):
+
+    wrong_configs = {
+        'blobs': ['20190314_JC070_fov1', '20190327_JC073_fov1'],
+        'gratings': []
+    }
+    diff_configs = wrong_configs[experiment]
+
+    if exeriment=='blobs':
+        sdfs, incorrect = check_sdfs_blobs(stim_datakeys, images_only=images_only, 
+                            rename=rename,
+                            return_incorrect=True,
+                            diff_configs=diff_configs)
+
+    elif experiment=='gratings':
+        sdfs0, incorrect = check_sdfs_gratings(stim_datakeys, return_incorrect=True,
+                            return_all=True)
+        if return_all:
+            sdfs = sdfs0[~sdfs0.datakey.isin(incorrect)]
+        else:
+            sdfs = sdfs0.copy()
+
+    if return_incorrect:
+        return sdfs, incorrect
+    else:
+        return sdfs
+
+
+def check_sdfs_blobs(stim_datakeys, images_only=False,
                 rename=True, return_incorrect=False, 
                 diff_configs=['20190314_JC070_fov1', '20190327_JC073_fov1'] ):
     '''
     Checks config names and reutrn master dict of all stimconfig dataframes
     Notes: only tested with blobs, and renaming only works with blobs.
     '''
+    experiment='blobs'
     sdf_master = get_master_sdf(images_only=False)
     n_configs = sdf_master.shape[0]
     #### Check that all datasets have same stim configs
@@ -211,24 +251,23 @@ def check_sdfs(stim_datakeys, experiment='blobs',
         if len(sdf['xpos'].unique())>1 or len(sdf['ypos'].unique())>1:
             print("*Warning* <%s> More than 1 pos? x: %s, y: %s" \
                     % (datakey, str(sdf['xpos'].unique()), str(sdf['ypos'].unique())))
-        if experiment=='blobs': # and (sdf.shape[0]!=sdf_master.shape[0]):
-            key_names = ['morphlevel', 'size']
-            updated_keys={}
-            for old_ix in sdf.index:
-                #try:
-                new_ix = sdf_master[(sdf_master[key_names] == sdf.loc[old_ix,  key_names]).all(1)].index[0]
-                updated_keys.update({old_ix: new_ix})
-            if rename: # and (datakey not in diff_configs): 
-                sdf = sdf.rename(index=updated_keys)
-            # Save renamed key 
-            renamed_configs[datakey] = updated_keys
-        if experiment=='blobs' and images_only:
+        key_names = ['morphlevel', 'size']
+        updated_keys={}
+        for old_ix in sdf.index:
+            #try:
+            new_ix = sdf_master[(sdf_master[key_names] == sdf.loc[old_ix,  key_names]).all(1)].index[0]
+            updated_keys.update({old_ix: new_ix})
+        if rename: # and (datakey not in diff_configs): 
+            sdf = sdf.rename(index=updated_keys)
+        # Save renamed key 
+        renamed_configs[datakey] = updated_keys
+        if images_only:
             SDF[datakey] = sdf[sdf['morphlevel']!=-1].copy()
         else:
             SDF[datakey] = sdf
     ignore_params = ['xpos', 'ypos', 'position', 'color']
-    if experiment != 'blobs':
-        ignore_params.extend(['size'])
+    #if experiment != 'blobs':
+    #    ignore_params.extend(['size'])
     compare_params = [p for p in sdf_master.columns if p not in ignore_params]
     different_configs = renamed_configs.keys()
     #sdf_master = get_master_sdf(images_only=images_only)
@@ -1363,7 +1402,8 @@ def load_aggregate_data(experiment, traceid='traces001',
                 incl_configs = SDF[k].index.tolist()
                 MEANS[k] = md[md['config'].isin(incl_configs)]
     elif experiment=='gratings':
-        SDF = check_sdfs_gratings(MEANS.keys(), return_incorrect=True)
+        SDF, incorrect = check_sdfs_gratings(MEANS.keys(), return_incorrect=True,
+                            return_all=False)
         
     if equalize_now:
         # Get equal counts
