@@ -141,7 +141,8 @@ def aggregate_experiment_runs(datakey, experiment,
                                 'trials_*.json'))[0] # 
             with open(mw_fpath,'r') as m:
                 mwinfo = json.load(m)
-            pre_iti_sec = round(mwinfo[mwinfo.keys()[0]]['iti_dur_ms']/1E3) 
+            trial_keys = list(mwinfo.keys())
+            pre_iti_sec = round(mwinfo[trial_keys[0]]['iti_dur_ms']/1E3) 
             nframes_iti_full = int(round(pre_iti_sec * si['volumerate']))
             
             # Load current run's stim configs 
@@ -275,7 +276,8 @@ def aggregate_experiment_runs(datakey, experiment,
     if 'position' in sdfcombined.columns:
         sdfcombined['position'] = [tuple(s) for s in sdfcombined['position'].values]
     sdf = sdfcombined.drop_duplicates()
-    param_names = sorted(sdf.columns.tolist())
+    all_param_names = sorted(sdf.columns.tolist())
+    param_names = [p for p in all_param_names if p not in ['position']] 
     sdf = sdf.sort_values(by=sorted(param_names))
     sdf.index = ['config%03d' % int(ci+1) for ci in range(sdf.shape[0])] 
     # Rename each run's configs according to combined sconfigs
@@ -529,13 +531,13 @@ def frames_to_trials(parsed_frames_fpath, trials_in_block, file_ix, si,
     '''Load parsed_frames.hdf5 and align frames to trials'''
     
     all_frames_tsecs = np.array(si['frames_tsec'])
-    nslices_full = len(all_frames_tsecs) / si['nvolumes']
+    nslices_full = int(len(all_frames_tsecs) / si['nvolumes'])
     if si['nchannels']==2:
         all_frames_tsecs = np.array(all_frames_tsecs[0::2])
     print("N tsecs:", len(all_frames_tsecs))
     
     # Get volume indices to assign frame numbers to volumes:
-    vol_ixs_tif = np.empty((si['nvolumes']*nslices_full,))
+    vol_ixs_tif = np.empty((int(si['nvolumes'])*nslices_full,))
     vcounter = 0
     for v in range(si['nvolumes']):
         vol_ixs_tif[vcounter:vcounter+nslices_full] = np.ones((nslices_full, )) * v
@@ -799,7 +801,7 @@ def assign_frames_to_trials(si_info, trial_info, paradigm_dir, create_new=False)
                                 key=hutils.natural_keys)
             # Get stimulus order:
             stimorder = [trialdict[t]['stimuli'] for t in trials_in_file]
-            print("... %s, %i" % (currfile, len(trials_in_file))) 
+            #print("... %s, %i" % (currfile, len(trials_in_file))) 
             for trialidx,currtrial_in_run in enumerate(trials_in_file):
                 currtrial_in_file = 'trial%03d' % int(trialidx+1)
                 # Trial in run might not be ntrials-per-file * nfiles

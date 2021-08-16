@@ -162,8 +162,6 @@ def redo_manual_extraction(options):
             print("4. Aligning traces to trials - %s" % experiment)
             aln.aggregate_experiment_runs(datakey, experiment, traceid=traceid)
             aln.remake_dataframes(datakey, experiment, traceid, rootdir=rootdir)
-
-
     # if do_retino:
     #     # Get retino runs and extract
     #     retino_rundirs = sorted(glob.glob(os.path.join(session_dir, fov, 'retino_run*')),
