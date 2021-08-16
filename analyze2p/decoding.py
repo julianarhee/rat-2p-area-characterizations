@@ -124,7 +124,8 @@ def calculate_overlaps(rfdf, rfpolys, overlap_thr=0.5, experiment='blobs',
     return min_overlaps
 
 
-def get_cells_with_matched_rfs(cells0, sdata, rf_lim='percentile',
+def get_cells_with_matched_rfs(cells0, sdata, 
+                rf_lim='percentile', rf_metric='fwhm_avg',
                 response_type='dff', do_spherical_correction=False):
     '''
     Load RF fits for current cells. 
@@ -141,32 +142,33 @@ def get_cells_with_matched_rfs(cells0, sdata, rf_lim='percentile',
     rfdf = get_rfdf(cells0, sdata, response_type=response_type,
                     do_spherical_correction=do_spherical_correction)
     cells_RF = get_cells_with_rfs(cells0, rfdf)
-    cells_lim, limits = limit_cells_by_rf(cells_RF, rf_lim=rf_lim)
+    cells_lim, limits = limit_cells_by_rf(cells_RF, rf_lim=rf_lim,
+                                rf_metric=rf_metric)
 
     return cells_lim
 
-def limit_cells_by_rf(cells_RF, rf_lim='percentile'):
+def limit_cells_by_rf(cells_RF, rf_lim='percentile', rf_metric='fwhm_avg'):
 
     if rf_lim=='maxmin':
-        rf_upper = cells_RF.groupby('visual_area')['std_avg'].max().min()
-        rf_lower = cells_RF.groupby('visual_area')['std_avg'].min().max()
+        rf_upper = cells_RF.groupby('visual_area')[rf_metric].max().min()
+        rf_lower = cells_RF.groupby('visual_area')[rf_metric].min().max()
     elif rf_lim=='percentile':
         lims = pd.concat([pd.DataFrame(\
-                    get_quartile_limits(cg, metric='std_avg', whis=1.5),
+                    get_quartile_limits(cg, rf_metric=rf_metric, whis=1.5),
                     columns=[va], index=['lower', 'upper'])\
                     for va, cg in cells_RF.groupby('visual_area')], axis=1)
         rf_lower, rf_upper = lims.loc['lower'].max(), lims.loc['upper'].min()
     else:
         rf_lower, rf_upper= rf_lim  # (6.9, 16.6)
 
-    cells_lim = cells_RF[(cells_RF['std_avg']<=rf_upper) 
-                    & (cells_RF['std_avg']>=rf_lower)].copy()
+    cells_lim = cells_RF[(cells_RF[rf_metric]<=rf_upper) 
+                    & (cells_RF[rf_metric]>=rf_lower)].copy()
 
     return cells_lim, lims
 
-def get_quartile_limits(cells_RF, metric='std_avg', whis=1.5):
-    q1 = cells_RF[metric].quantile(0.25)
-    q3 = cells_RF[metric].quantile(0.75)
+def get_quartile_limits(cells_RF, rf_metric='fwhm_avg', whis=1.5):
+    q1 = cells_RF[rf_metric].quantile(0.25)
+    q3 = cells_RF[rf_metric].quantile(0.75)
     iqr = q3 - q1
     limit_lower = q1 - whis*iqr
     limit_upper = q3 + whis*iqr
@@ -1302,8 +1304,8 @@ def create_aggregate_id(experiment, C_value=None,
 def decode_from_fov(datakey, experiment, neuraldf,
                     sdf=None, test_type=None, results_id='results',
                     n_iterations=50, n_processes=1, break_correlations=False,
-                    traceid='traces001', 
-                    rootdir='/n/coxfs01/2p-data', **clf_params): 
+                    traceid='traces001', verbose=False,
+                    rootdir='/n/coxfs01/2p-data', **in_args): 
     '''
     Fit FOV n_iterations times (multiproc). Save all iterations in dataframe.
     '''
@@ -1328,19 +1330,21 @@ def decode_from_fov(datakey, experiment, neuraldf,
     # Zscore data 
     ndf_z = aggr.get_zscored_from_ndf(neuraldf) 
     n_cells = int(ndf_z.shape[1]-1) 
-    if clf_params['verbose']:
+    if verbose:
         print("... BY_FOV [%s] %s, n=%i cells" % (visual_area, datakey, n_cells))
 
     # Stimulus info
     if sdf is None:
-        sdf = aggr.get_stimuli(dk, experiment, match_names=True)
+        match_stimulus_names = experiment=='blobs'
+        sdf = aggr.get_stimuli(datakey, experiment, 
+                                match_names=match_stimulus_names)
     # Decode
     start_t = time.time()
     iter_results = fit_svm_mp(ndf_z, sdf, test_type, 
                             n_iterations=n_iterations,
                             n_processes=n_processes,
                             break_correlations=break_correlations,
-                            **clf_params)
+                            **in_args)
     end_t = time.time() - start_t
     print("--> Elapsed time: {0:.2f}sec".format(end_t))
     assert iter_results is not None, "NONE returned -- %s, %s" % (visual_area, datakey)
@@ -1353,12 +1357,16 @@ def decode_from_fov(datakey, experiment, neuraldf,
     with open(results_outfile, 'wb') as f:
         pkl.dump(iter_results, f, protocol=2)
 
+    print('----------------------------------------------------')
     if test_type is not None:
         print(iter_results.groupby(['condition', 'train_transform']).mean())   
         print(iter_results.groupby(['condition', 'train_transform']).count())   
     else:
+        class_name = in_args['class_name']
+        class_values = in_args['class_values']
+        print("Class: %s, values: %s" % (class_name, class_values))
         print(iter_results.groupby(['condition']).mean())   
-    print("@@@@@@@@@ done. %s|%s  @@@@@@@@@@" % (visual_area, datakey))
+    print("@@@@@@@@@ Done. %s|%s  @@@@@@@@@@" % (visual_area, datakey))
     print(results_outfile) 
     
     return
@@ -1395,7 +1403,7 @@ def get_all_responsive_cells(cells0, NDATA):
 def decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA, 
                     sdf=None, test_type=None, results_id='results',
                     n_iterations=50, n_processes=2, break_correlations=False,
-                    dst_dir='/tmp', **clf_params):
+                    dst_dir='/tmp', **in_args):
     '''
     Create psuedo-population by sampling n_cells from global_rois.
     Do decoding analysis
@@ -1427,7 +1435,7 @@ def decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA,
                                 n_iterations=n_iterations,
                                 n_processes=n_processes,
                                 break_correlations=break_correlations,
-                                **clf_params)
+                                **in_args)
         end_t = time.time() - start_t
         print("--> Elapsed time: {0:.2f}sec".format(end_t))
         assert iter_results is not None, "NONE -- %s (%i cells)" \
@@ -1643,10 +1651,12 @@ def decoding_analysis(dk, va, experiment,
                     response_type='dff', traceid='traces001',
                     trial_epoch='stimulus',
                     responsive_test='nstds', responsive_thr=10.,
+                    match_rfs=False, 
+                    rf_lim='percentile', rf_metric='fwhm_avg',
                     overlap_thr=None,
                     test_type=None, 
                     break_correlations=False,
-                    n_cells_sample=None, drop_repeats=True, match_rfs=False,
+                    n_cells_sample=None, drop_repeats=True, 
                     C_value=None, test_split=0.2, cv_nfolds=5, 
                     class_name='morphlevel', class_values=None,
                     variation_name='size', variation_values=None,
@@ -1657,16 +1667,29 @@ def decoding_analysis(dk, va, experiment,
                     aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas',
                     visual_areas=['V1', 'Lm', 'Li']): 
     # Metadata    
-    sdata, cells0 = aggr.get_aggregate_info(visual_areas=visual_areas, 
+    sdata0, cells0 = aggr.get_aggregate_info(visual_areas=visual_areas, 
                                             return_cells=True)
+    excluded = {'blobs': ['20190315_JC070_fov1', '20190426_JC078_fov1'],
+                'gratings': ['20190517_JC083_fov1']
+    }
+    sdata = sdata0[~sdata0['datakey'].isin(excluded[experiment])].copy()
     if va is not None:
         meta = sdata[(sdata.visual_area==va)
                     & (sdata.experiment==experiment)].copy()
     else:
         meta = sdata[sdata.experiment==experiment].copy()
 
+    # Make sure stim configs match (if gratings)
+    if experiment=='gratings' and analysis_type=='by_ncells':
+        SDF = aggr.check_sdfs_gratings(meta['datakey'].unique())
+        incl_dkeys = SDF['datakey'].unique()
+        print("**Keeping %i of %i total datakeys" \
+                % (len(incl_dkeys), len(meta['datakey'].unique())))
+        meta = meta[meta.datakey.isin(incl_dkeys)]
+
     # Load all the data
-    NDATA0 = aggr.load_responsive_neuraldata(experiment, traceid=traceid,
+    NDATA0 = aggr.load_responsive_neuraldata(experiment, meta=meta,
+                      traceid=traceid,
                       response_type=response_type, trial_epoch=trial_epoch,
                       responsive_test=responsive_test, 
                       responsive_thr=responsive_thr)
@@ -1700,10 +1723,11 @@ def decoding_analysis(dk, va, experiment,
     cells0 = get_all_responsive_cells(cells0, NDATA0)
     if match_rfs:
         # Match cells for RF size
-        print("[RF]: matching RF size.")
+        print("[RF]: matching RF size (%s)." % rf_lim)
         print(cells0[['visual_area','datakey','cell']]\
                 .drop_duplicates()['visual_area'].value_counts())
-        cells0 = get_cells_with_matched_rfs(cells0, sdata, rf_lim=rf_lim,
+        cells0 = get_cells_with_matched_rfs(cells0, sdata, 
+                    rf_lim=rf_lim, rf_metric=rf_metric,
                     response_type=response_type, 
                     do_spherical_correction=do_spherical_correction)
         print("----> post:")
@@ -1726,6 +1750,8 @@ def decoding_analysis(dk, va, experiment,
                      & (NDATA0['cell'].isin(g['cell'].unique()))]\
                     for (va, dk), g in \
                     cells0.groupby(['visual_area', 'datakey'])])
+
+    match_stimulus_names = experiment=='blobs'
     # ANALYSIS.
     if analysis_type=='by_fov':
         # -------------------------------------------------------------
@@ -1734,7 +1760,8 @@ def decoding_analysis(dk, va, experiment,
         if dk is not None:
             neuraldf = NDATA[(NDATA.visual_area==va) 
                            & (NDATA.datakey==dk)].copy()
-            sdf = aggr.get_stimuli(dk, experiment, match_names=True)
+            sdf = aggr.get_stimuli(dk, experiment, 
+                            match_names=match_stimulus_names)
             if int(neuraldf.shape[0]-1)==0:
                 return None
             decode_from_fov(dk, experiment, neuraldf, sdf=sdf, 
@@ -1748,7 +1775,8 @@ def decoding_analysis(dk, va, experiment,
             for (va, dk), g in meta.groupby(['visual_area', 'datakey']):   
                 neuraldf = NDATA[(NDATA.visual_area==va) 
                                & (NDATA.datakey==dk)].copy()
-                sdf = aggr.get_stimuli(dk, experiment, match_names=True)
+                sdf = aggr.get_stimuli(dk, experiment, 
+                            match_names=match_stimulus_names)
                 if int(neuraldf.shape[0]-1)==0:
                     return None
                 decode_from_fov(dk, experiment, neuraldf, sdf=sdf, 
@@ -1764,6 +1792,7 @@ def decoding_analysis(dk, va, experiment,
         # -------------------------------------------------------------
         # BY_NCELLS - aggregate cells
         # -------------------------------------------------------------
+            
         if drop_repeats:
             # drop repeats
             print("~~~ dropping repeats ~~~")
@@ -1806,14 +1835,16 @@ def decoding_analysis(dk, va, experiment,
             pkl.dump(cells0, f, protocol=2) 
 
         # Stimuli
-        sdf = aggr.get_master_sdf(experiment, images_only=True)
+        #if experiment=='blobs':
+        sdf = aggr.get_master_sdf(experiment, images_only=experiment=='blobs')
         # NDATA0 = NDATA.copy()
         NDATA = NDATA[NDATA.config.isin(sdf.index.tolist())].copy() 
 
         # Get cells for current visual area
         GCELLS = cells0[cells0['visual_area']==va].copy()
         if n_cells_sample is not None: 
-            decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA, sdf=sdf,
+            decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA, 
+                        sdf=sdf,
                         test_type=test_type, 
                         results_id=results_id,
                         n_iterations=n_iterations, 
@@ -2109,6 +2140,8 @@ def main(options):
     match_rfs = opts.match_rfs
     overlap_thr = None if opts.overlap_thr in ['None', None] \
                         else float(opts.overlap_thr)
+    print("EXPERIMENT: %s, values: %s" % (experiment, str(class_values)))
+
     print("OVERLAP: %s" % str(overlap_thr))
 
     decoding_analysis(datakey, visual_area, experiment,  

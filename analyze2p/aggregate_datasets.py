@@ -154,17 +154,45 @@ def get_stimuli(datakey, experiment, match_names=False,
     return sdf.sort_index()
 
 
+def check_sdfs_gratings(dkey_list, experiment='gratings',
+                    return_incorrect=False):
+    print("Checking gratings configs")
+    s_=[]
+    for dk in dkey_list:
+        sdf = get_stimuli(dk, experiment, match_names=False)
+        if 'aspect' in sdf.columns:
+            sdf = sdf.drop(columns=['aspect'])
+        if experiment=='gratings' and (not return_incorrect):
+            n_sfs = len(sdf['sf'].unique())
+            n_speeds= len(sdf['speed'].unique())
+            n_sizes = len(sdf['size'].unique())
+            if not(n_sfs==2 and n_speeds==2 and n_sizes==2):
+                print('    skipping: %s' % dk)
+                continue
+                # and sdf.shape[0]!=64:
+        if experiment=='blobs' and sdf.shape[0]<45:
+            continue
+        sdf['datakey'] = dk
+        #print(dk, sdf.shape)
+        s_.append(sdf)
+    SDF = pd.concat(s_, axis=0)
+
+    return SDF
+
+
 def get_master_sdf(experiment='blobs', images_only=False):
     '''
     Get "standard" stimulus info.
     '''
-    sdf_master = get_stimuli('20190522_JC084_fov1', experiment, match_names=False)
+    sdf_master = get_stimuli('20190522_JC084_fov1', experiment, 
+                                match_names=False)
     if images_only:
         sdf_master=sdf_master[sdf_master['morphlevel']!=-1].copy()
     
     return sdf_master
 
-def check_sdfs(stim_datakeys, experiment='blobs', traceid='traces001', images_only=False,
+def check_sdfs(stim_datakeys, experiment='blobs', 
+                images_only=False,
                 rename=True, return_incorrect=False, 
                 diff_configs=['20190314_JC070_fov1', '20190327_JC073_fov1'] ):
     '''
@@ -203,14 +231,14 @@ def check_sdfs(stim_datakeys, experiment='blobs', traceid='traces001', images_on
         ignore_params.extend(['size'])
     compare_params = [p for p in sdf_master.columns if p not in ignore_params]
     different_configs = renamed_configs.keys()
-    sdf_master = get_master_sdf(images_only=images_only)
-    assert all([all(sdf_master[compare_params]==d[compare_params]) for k, d in SDF.items() \
-              if k not in different_configs]), "Incorrect stimuli..."
+    #sdf_master = get_master_sdf(images_only=images_only)
+    assert all([all(sdf_master[compare_params]==d[compare_params]) \
+            for k, d in SDF.items() \
+            if k not in different_configs]), "Incorrect stimuli..."
     if return_incorrect:
         return SDF, renamed_configs
     else:
         return SDF
-
 
 def match_config_names(sdf):
     sdf_master = get_master_sdf(images_only=False)
@@ -418,7 +446,7 @@ def drop_repeats(counts, criterion='max', colname='cell'):
     criterion: takes "max" (or whatever func) along column <colname>
     '''
     counts = hutils.split_datakey(counts)
-    unique_dsets = select_best_fovs(counts, criterion='max', colname='cell')
+    unique_dsets = select_best_fovs(counts, criterion=criterion, colname=colname)
     u_dkeys = list([tuple(k) for k in unique_dsets[['visual_area', 'datakey']].values])
     return u_dkeys
     
@@ -784,7 +812,7 @@ def load_frame_labels(datakey, experiment, traceid='traces001',
     return labels
 
 
-def load_responsive_neuraldata(experiment, traceid='traces001',
+def load_responsive_neuraldata(experiment, meta=None, traceid='traces001',
                       response_type='dff', trial_epoch='plushalf',
                       responsive_test='nstds', responsive_thr=10,n_stds=2.5,
                       retino_thr=0.01, retino_delay=0.5):
@@ -796,17 +824,17 @@ def load_responsive_neuraldata(experiment, traceid='traces001',
     Returns all data, so use count_n_responsive() to filter any repeat FOVs.
     '''
     if experiment=='gratings':
-        NDATA = get_aggregate_data(experiment, traceid=traceid, 
+        NDATA = get_aggregate_data(experiment, meta=meta, traceid=traceid, 
                               response_type=response_type, epoch=trial_epoch,
                               responsive_test=responsive_test, 
                               responsive_thr=responsive_thr, n_stds=n_stds)
     elif experiment=='blobs':
-        NDATA = get_aggregate_data(experiment, traceid=traceid, 
+        NDATA = get_aggregate_data(experiment, meta=meta, traceid=traceid, 
                               response_type=response_type, epoch=trial_epoch,
                               responsive_test=responsive_test, 
                               responsive_thr=responsive_thr, n_stds=n_stds)
     elif experiment=='retino':
-        retinodata = get_aggregate_retinodata(traceid=traceid, 
+        retinodata = get_aggregate_retinodata(meta=meta, traceid=traceid, 
                                 mag_thr=retino_thr, delay_thr=retino_delay)
         NDATA = get_responsive_retino(retinodata, mag_thr=retino_thr)
     elif experiment in ['rfs', 'rfs10']:
@@ -814,7 +842,7 @@ def load_responsive_neuraldata(experiment, traceid='traces001',
         # from RF fitting?
         nd_=[]
         for exp in ['rfs', 'rfs10']:
-            nd0 = get_aggregate_data(exp, traceid=traceid, 
+            nd0 = get_aggregate_data(exp, meta=meta, traceid=traceid, 
                               response_type=response_type, epoch=trial_epoch,
                               responsive_test=responsive_test, 
                               responsive_thr=responsive_thr, n_stds=n_stds)
@@ -938,6 +966,7 @@ def get_cells_by_area(sdata, create_new=False, excluded_datasets=[],
         except Exception as e:
             create_new=True
 
+    # bad segmentation
     excluded_datasets = ['20190321_JC073_fov1',
                          '20190314_JC070_fov2',
                          '20190602_JC080_fov1', 
@@ -1103,7 +1132,7 @@ def create_dataframe_name(traceid='traces001', response_type='dff',
     return data_desc
 
 
-def get_aggregate_retinodata(traceid='traces001', 
+def get_aggregate_retinodata(meta=None, traceid='traces001', 
                         mag_thr=None, delay_thr=None, return_missing=False,
                         visual_areas=['V1', 'Lm', 'Li'],
                         create_new=False, redo_fov=False,
@@ -1118,7 +1147,8 @@ def get_aggregate_retinodata(traceid='traces001',
     '''
     sdata, cells0 = get_aggregate_info(visual_areas=visual_areas, 
                                         return_cells=True)
-    meta = sdata[sdata.experiment=='retino'].copy() 
+    if meta is None:
+        meta = sdata[sdata.experiment=='retino'].copy() 
     # Only get cells for current experiment
     all_dkeys = [(va, dk) for (va, dk), g \
                     in meta.groupby(['visual_area', 'datakey'])]
@@ -1179,7 +1209,7 @@ def get_responsive_retino(retinodata, mag_thr=0.01):
     return retino_responsive
 
 
-def get_aggregate_data(experiment, traceid='traces001', 
+def get_aggregate_data(experiment, meta=None, traceid='traces001', 
                     response_type='dff', epoch='stimulus', 
                     responsive_test='ROC', responsive_thr=0.05, n_stds=0.0,
                     rename_configs=True, equalize_now=False, zscore_now=False,
@@ -1201,13 +1231,8 @@ def get_aggregate_data(experiment, traceid='traces001',
     '''
     sdata, cells0 = get_aggregate_info(visual_areas=visual_areas, 
                                         return_cells=True)
-#    if 'rfs' in experiment:
-#        experiment_list = ['rfs', 'rfs10']
-#    else:
-#        experiment_list = [experiment]
-#    print(experiment_list)
-#    meta = sdata[sdata.experiment.isin(experiment_list)].copy()
-    meta = sdata[sdata.experiment==experiment].copy()
+    if meta is None:
+        meta = sdata[sdata.experiment==experiment].copy()
  
     # Only get cells for current experiment
     all_dkeys = [(va, dk) for (va, dk), g \
@@ -1228,7 +1253,8 @@ def get_aggregate_data(experiment, traceid='traces001',
                         responsive_thr=responsive_thr, n_stds=n_stds,
                         rename_configs=rename_configs, 
                         equalize_now=equalize_now, zscore_now=zscore_now,
-                        return_configs=return_configs, images_only=images_only)
+                        return_configs=return_configs, 
+                        images_only=images_only)
     # Combine into dict by visual area
     NEURALDATA = dict((visual_area, {}) for visual_area in visual_areas)
     rf_=[]
@@ -1291,12 +1317,13 @@ def neuraldf_dict_to_dataframe(NEURALDATA, response_type='response', add_cols=[]
 
 
 
-def load_aggregate_data(experiment, traceid='traces001', response_type='dff', epoch='stimulus', 
-                       responsive_test='ROC', responsive_thr=0.05, n_stds=0.0,
-                        rename_configs=True, equalize_now=False, zscore_now=False,
-                        return_configs=False, images_only=False, 
-                        diff_configs = ['20190327_JC073_fov1', '20190314_JC070_fov1'], # 20190426_JC078 (LM, backlight)
-                        aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+def load_aggregate_data(experiment, traceid='traces001', 
+                    response_type='dff', epoch='stimulus', 
+                    responsive_test='ROC', responsive_thr=0.05, n_stds=0.0,
+                    rename_configs=True, equalize_now=False, zscore_now=False,
+                    return_configs=False, images_only=False, 
+            diff_configs = ['20190327_JC073_fov1', '20190314_JC070_fov1'], # 20190426_JC078 (LM, backlight)
+            aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     '''
     Return dict of neural dataframes (keys are datakeys).
 
@@ -1319,26 +1346,25 @@ def load_aggregate_data(experiment, traceid='traces001', response_type='dff', ep
         MEANS = pkl.load(f, encoding='latin1')
     print("...loading: %s" % data_outfile)
 
-    #### Fix config labels 
-    
-    if experiment=='blobs' and (rename_configs or return_configs):
-        SDF, renamed_configs = check_sdfs(MEANS.keys(), traceid=traceid, 
-                                          images_only=images_only, return_incorrect=True)
-        if rename_configs:
-            sdf_master = get_master_sdf(images_only=images_only)
-            for k, cfg_lut in renamed_configs.items():
-                #if k in diff_configs:
-                #    print("(skipping %s)" % k)
-                #    continue
-                #print("... updating %s" % k)
-                updated_cfgs = [cfg_lut[cfg] for cfg in MEANS[k]['config']]
-                MEANS[k]['config'] = updated_cfgs
-
-    if experiment=='blobs' and images_only is True: #Update MEANS dict
-        for k, md in MEANS.items():
-            incl_configs = SDF[k].index.tolist()
-            MEANS[k] = md[md['config'].isin(incl_configs)]
-
+    #### Fix config labels  
+    if experiment=='blobs':
+        if (rename_configs or return_configs):
+            SDF, renamed_configs = check_sdfs(MEANS.keys(), 
+                                          images_only=images_only, 
+                                          return_incorrect=True)
+            if rename_configs:
+                sdf_master = get_master_sdf(images_only=images_only)
+                for k, cfg_lut in renamed_configs.items():
+                    updated_cfgs = [cfg_lut[cfg] for cfg \
+                                        in MEANS[k]['config']]
+                    MEANS[k]['config'] = updated_cfgs
+        if images_only is True: #Update MEANS dict
+            for k, md in MEANS.items():
+                incl_configs = SDF[k].index.tolist()
+                MEANS[k] = md[md['config'].isin(incl_configs)]
+    elif experiment=='gratings':
+        SDF = check_sdfs_gratings(MEANS.keys(), return_incorrect=True)
+        
     if equalize_now:
         # Get equal counts
         print("---equalizing now---")
