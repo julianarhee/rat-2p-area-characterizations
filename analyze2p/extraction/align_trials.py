@@ -275,24 +275,35 @@ def aggregate_experiment_runs(datakey, experiment,
     trial_list = sorted(mwinfo.keys(), key=hutils.natural_keys)    
     # Make combined stimconfigs
     sdfcombined = pd.concat(sdf_list, axis=0)
+    #sdfcombined = sdfcombined.drop('position', 1)     
     if 'position' in sdfcombined.columns:
-        sdfcombined['position'] = [tuple(s) for s in sdfcombined['position'].values]
+        sdfcombined['position'] = [tuple(s) for s \
+                                    in sdfcombined['position'].values] 
     sdf = sdfcombined.drop_duplicates()
     all_param_names = sorted(sdf.columns.tolist())
     param_names = [p for p in all_param_names if p not in ['position']] 
     sdf = sdf.sort_values(by=sorted(param_names))
     sdf.index = ['config%03d' % int(ci+1) for ci in range(sdf.shape[0])] 
+    
     # Rename each run's configs according to combined sconfigs
     new_config_ids=[]
-    for orig_cfgs, orig_sdf in zip(config_ids, sdf_list):
+    for ci, (orig_cfgs, orig_sdf) in enumerate(zip(config_ids, sdf_list)):
         if 'position' in orig_sdf.columns:
             orig_sdf['position'] = [tuple(s) for s in orig_sdf['position'].values]
-        cfg_cipher= {}
-        for old_cfg_name in orig_cfgs:
-            new_cfg_name = sdf[sdf.eq(orig_sdf.loc[old_cfg_name], axis=1).all(axis=1)].index[0]
-            cfg_cipher[old_cfg_name] = new_cfg_name
-        new_config_ids.append([cfg_cipher[c] for c in orig_cfgs])
+        try:
+            merged_ = orig_sdf.reset_index().merge(sdf.reset_index(), 
+                                                   on=all_param_names, how='left')
+            cfg_lut = dict((k, v) for k, v in merged_[['index_x', 'index_y']].values)            
+            # for old_cfg_name in orig_cfgs:
+            #     new_cfg_name = sdf[sdf.eq(orig_sdf.loc[old_cfg_name], 
+            #                               axis=1).all(axis=1)].index[0]
+            #     cfg_cipher[old_cfg_name] = new_cfg_name
+            new_config_ids.append([cfg_lut[c] for c in orig_cfgs])
+        except Exception as e:
+            print(ci)
+            raise(e)
     configs = np.hstack(new_config_ids)
+    
 #%% 
     # Reindex trial numbers in order
     trials = np.hstack(trial_ids)  # Need to reindex trials
@@ -320,8 +331,9 @@ def aggregate_experiment_runs(datakey, experiment,
 #%% 
     #HERE.
     # Get concatenated df for indexing meta info
-    roi_list = np.array([r for r in dfs[dfs.keys()[0]][0].columns.tolist() if hutils.isnumber(r)])
-    xdata_df = pd.concat([d[roi_list] for d in dfs[dfs.keys()[0]]], axis=0).reset_index(drop=True) #drop=True)
+    trace_keys = list(dfs.keys() )
+    roi_list = np.array([r for r in dfs[trace_keys[0]][0].columns.tolist() if hutils.isnumber(r)])
+    xdata_df = pd.concat([d[roi_list] for d in dfs[trace_keys[0]]], axis=0).reset_index(drop=True) #drop=True)
     print("XDATA concatenated: %s" % str(xdata_df.shape)) 
      # Turn paradigm info into dataframe: 
     labels_df = pd.DataFrame({'tsec': tstamps, 
@@ -346,11 +358,11 @@ def aggregate_experiment_runs(datakey, experiment,
     labels_df['run_ix'] = run_ids
     labels_df['file_ix'] = np.hstack(file_ids)
     print("*** LABELS:", labels_df.shape)
-    
+     
     sconfigs = sdf.T.to_dict()
     
     run_info = get_run_summary(xdata_df, labels_df, stimconfigs, si)
- 
+#%% 
     # #########################################################################
     #% Combine all data trace types and save
     # #########################################################################
@@ -371,12 +383,10 @@ def aggregate_experiment_runs(datakey, experiment,
          
     labels_fpath = os.path.join(combined_dir, 'labels.npz')
     print("Saving labels data...", labels_fpath)
-    np.savez(labels_fpath, 
-             sconfigs = sconfigs,
-             labels_data=labels_df,
-             labels_columns=labels_df.columns.tolist(),
-             run_info=run_info)
-
+    ddict = {'sconfigs': sconfigs, 'labels_data': labels_df, 
+             'labels_columns': labels_df.columns.tolist(), 'run_info': run_info}
+    np.savez(labels_fpath, **ddict, protocol=2)
+            
     # Save all the dtypes
     for trace_type in trace_types:
         print(trace_type)
@@ -478,7 +488,7 @@ def get_run_summary(xdata_df, labels_df, stimconfigs, si, verbose=False):
     roi_list = sorted(list(set([r for r in xdata_df.columns.tolist() if hutils.isnumber(r)]))) #not r=='index'])))
     ntrials_total = len(sorted(list(set(labels_df['trial'])), key=hutils.natural_keys))
     trial_counts = labels_df.groupby(['config'])['trial'].apply(set)
-    ntrials_by_cond = dict((k, len(trial_counts[i])) for i,k in enumerate(trial_counts.index.tolist()))
+    ntrials_by_cond = tuple((k, len(trial_counts[i])) for i,k in enumerate(trial_counts.index.tolist()))
     nframes_per_trial = list(set(labels_df.groupby(['trial'])['stim_on_frame'].count())) #[0]
     nframes_on = list(set(labels_df['stim_dur']))
     nframes_on = [int(round(si['framerate'])) * n for n in nframes_on]
@@ -517,7 +527,7 @@ def get_run_summary(xdata_df, labels_df, stimconfigs, si, verbose=False):
     run_info['stim_on_frame'] = stim_on_frame
     run_info['nframes_on'] = nframes_on
     #run_info['trace_type'] = trace_type
-    run_info['transforms'] = object_transformations
+    #run_info['transforms'] = object_transformations
     #run_info['datakey'] = datakey
     run_info['trans_types'] = trans_types
     run_info['framerate'] = si['framerate']
