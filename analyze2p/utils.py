@@ -8,10 +8,14 @@ Created on Wed Jun  23 13:18:13 2021
 import re
 import glob
 import os
+import hashlib
+import shutil
 import numpy as np
+import cv2
+from functools import add
 
 # ###############################################################
-# General
+# Gejeral
 # ###############################################################
 def atoi(text):
     return int(text) if text.isdigit() else text
@@ -48,6 +52,57 @@ def make_ordinal(n):
         suffix = 'th'
     return str(n) + suffix
 
+def replace_root(origdir, rootdir, animalid, session):
+    orig = origdir.split('/%s/%s' % (animalid, session))[0]
+    origdir = origdir.replace(orig, rootdir)
+    print("ORIG ROOT: %s" % origdir)
+    print("NEW ROOT: %s" % origdir)
+    return origdir
+
+from stat import S_IREAD, S_IRGRP, S_IROTH, S_IWRITE, S_IWGRP, S_IWOTH
+
+def isreadonly(filepath):
+    st = os.stat(filepath)
+    status = bool(bool(st.st_mode & S_IREAD) & bool(st.st_mode & S_IRGRP) & bool(st.st_mode & S_IROTH))
+    return status
+
+def change_permissions_recursive(path, mode):
+    for root, dirs, files in os.walk(path, topdown=False):
+        #for dir in [os.path.join(root,d) for d in dirs]:
+            #os.chmod(dir, mode)
+        for file in [os.path.join(root, f) for f in files]:
+            if not isreadonly(file):
+                os.chmod(file, mode)
+
+def hash_file_read_only(fpath, hashtype='sha1'):
+    hashid = hash_file(fpath, hashtype=hashtype)
+    hashed_fpath = "%s_%s%s" % (os.path.splitext(fpath)[0], hashid, os.path.splitext(fpath)[1])
+    shutil.move(fpath, hashed_fpath)
+    print("Hashed file: %s" % hashed_fpath)
+
+    change_permissions_recursive(hashed_fpath, S_IREAD|S_IRGRP|S_IROTH)
+    print("Set READ-ONLY.")
+
+    return hashed_fpath
+
+def hash_file(fpath, hashtype='sha1'):
+
+    BLOCKSIZE = 65536
+    if hashtype=='md5':
+        hasher = hashlib.md5()
+    else:
+        hasher = hashlib.sha1()
+
+    with open(fpath, 'rb') as afile:
+        buf = afile.read(BLOCKSIZE)
+        while len(buf) > 0:
+            hasher.update(buf)
+            buf = afile.read(BLOCKSIZE)
+
+    return hasher.hexdigest()[0:6]
+
+
+# Dataframe functions
 
 def add_datakey(sdata):
     if 'fovnum' not in sdata.keys():

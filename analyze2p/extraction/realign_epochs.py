@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Fri Feb  21 12:17:55 2020
@@ -16,47 +16,42 @@ import traceback
 import re
 import optparse
 import sys
-
+import operator
+import shutil
 import pandas as pd
 import numpy as np
-#from pipeline.python.utils import natural_keys, get_frame_info, load_dataset
+from functools import reduce
+
 import analyze2p.utils as hutils
 import analyze2p.extraction.traces as traceutils
+import analyze2p.extraction.paradigm as putils
+import analyze2p.extraction.remake_neuropil_masks as mk
 
-
-#from pipeline.python.paradigm import align_acquisition_events as alignacq
-from pipeline.python.traces import trial_alignment as talignment
-from pipeline.python.traces import remake_neuropil_masks as mk
-
-from pipeline.python.paradigm.plot_responses import make_clean_psths
-from pipeline.python.classifications import experiment_classes as cutils
+#from pipeline.python.paradigm.plot_responses import make_clean_psths
 
 
 
 def extract_options(options):
     parser = optparse.OptionParser()
-
     # PATH opts:
     parser.add_option('-D', '--root', action='store', dest='rootdir', default='/n/coxfs01/2p-data', 
                       help='root project dir containing all animalids [default: /n/coxfs01/2pdata]')
-    parser.add_option('-i', '--animalid', action='store', dest='animalid', default='', 
-                      help='Animal ID')
-    parser.add_option('-S', '--session', action='store', dest='session', default='', 
-                      help='Session (format: YYYYMMDD)')
-    # Set specific session/run for current animal:
-    parser.add_option('-A', '--fov', action='store', dest='fov', default='FOV1_zoom2p0x', 
-                      help="fov name (default: FOV1_zoom2p0x)")
+    parser.add_option('-i', '--datakey', action='store', dest='datakey', 
+                      default='', help='YYYYMMDD_JCxx_fovi')
+#    parser.add_option('-S', '--session', action='store', dest='session', default='', 
+#                      help='Session (format: YYYYMMDD)')
+#    # Set specific session/run for current animal:
+#    parser.add_option('-A', '--fov', action='store', dest='fov', default='FOV1_zoom2p0x', 
+#                      help="fov name (default: FOV1_zoom2p0x)")
     parser.add_option('-E', '--experiment', action='store', dest='experiment', default='', 
                       help="experiment name (e.g,. gratings, rfs, rfs10, or blobs)") #: FOV1_zoom2p0x)")
     
     parser.add_option('-t', '--traceid', action='store', dest='traceid', default='traces001', 
                       help="traceid (default: traces001)")
-
     parser.add_option('-p', '--iti-pre', action='store', dest='iti_pre', default=1.0, 
                       help="pre-stim amount in sec (default: 1.0)")
     parser.add_option('-P', '--iti-post', action='store', dest='iti_post', default=1.0, 
                       help="post-stim amount in sec (default: 1.0)")
-
     parser.add_option('--plot', action='store_true', dest='plot_psth', default=False, 
                       help="set flat to plot psths (specify row, col, hue)")
     parser.add_option('-r', '--rows', action='store', dest='rows',
@@ -149,10 +144,10 @@ def aggregate_experiment_runs(animalid, session, fov, experiment,
             with open(tid_fpath, 'r') as f:
                 tids = json.load(f)
             excluded_tifs = tids[traceid]['PARAMS']['excluded_tiffs']
-            print "*** Excluding:", excluded_tifs
+            print("*** Excluding:", excluded_tifs)
             currfile = str(re.search(r"File\d{3}", fpath).group())
             if currfile in excluded_tifs:
-                print "... skipping..."
+                print("... skipping...")
                 continue
             
             basedir = os.path.split(os.path.split(fpath)[0])[0]
@@ -273,8 +268,8 @@ def aggregate_experiment_runs(animalid, session, fov, experiment,
                # np_subtracted traces are created in traces/get_traces.py, without offset added.
                # Remove rolling baseline, return detrended traces with offset added back in? 
                 detrended_df, F0_df = traceutils.get_rolling_baseline(df, windowsize, quantile=quantile)
-                print "Showing initial drift correction (quantile: %.2f)" % quantile
-                print "Min value for all ROIs:", np.min(np.min(detrended_df, axis=0))
+                print("Showing initial drift correction (quantile: %.2f)" % quantile)
+                print("Min value for all ROIs:", np.min(np.min(detrended_df, axis=0)))
                 currdf = detrended_df.loc[frames_in_trials]
                 currdf['ix'] = [total_ix for _ in range(currdf.shape[0])]
                 dfs['%s-detrended' % trace_type].append(currdf)
@@ -405,7 +400,7 @@ def aggregate_experiment_runs(animalid, session, fov, experiment,
         
     
     labels_fpath = os.path.join(combined_dir, 'labels.npz')
-    print "Saving labels data...", labels_fpath
+    print("Saving labels data...", labels_fpath)
     np.savez(labels_fpath, 
              sconfigs = sconfigs,
              labels_data=labels_df,
@@ -414,13 +409,13 @@ def aggregate_experiment_runs(animalid, session, fov, experiment,
 
     # Save all the dtypes
     for trace_type in trace_types:
-        print trace_type
+        print(trace_type)
         xdata_df = pd.concat(dfs['%s-detrended' % trace_type], axis=0).reset_index() 
         f0_df = pd.concat(dfs['%s-F0' % trace_type], axis=0).reset_index() 
         roidata = [c for c in xdata_df.columns if hutils.isnumber(c)] #c != 'ix']
         
         data_fpath = os.path.join(combined_dir, '%s.npz' % trace_type)
-        print "Saving labels data...", data_fpath
+        print("Saving labels data...", data_fpath)
         np.savez(data_fpath, 
                  data=xdata_df[roidata].values,
                  f0=f0_df[roidata].values,
@@ -433,6 +428,12 @@ def aggregate_experiment_runs(animalid, session, fov, experiment,
         del f0_df
         del xdata_df
  
+# --------------------------------------------------------------------
+
+def load_parsed_trials(parsed_trials_path):
+    with open(parsed_trials_path, 'r') as f:
+        trialdict = json.load(f)
+    return trialdict
 
 def get_frame_info(run_dir):
     si_info = {}
@@ -450,7 +451,7 @@ def get_frame_info(run_dir):
     # volume should not be included in the indices...
     frame_idxs = runinfo['frame_idxs']
     if len(frame_idxs) > 0:
-        print "Found %i frames from flyback correction." % len(frame_idxs)
+        print("Found %i frames from flyback correction." % len(frame_idxs))
     else:
         frame_idxs = np.arange(0, runinfo['nvolumes'] * len(runinfo['slices']))
 
@@ -530,14 +531,14 @@ def get_run_summary(xdata_df, labels_df, stimconfigs, si, verbose=False):
     #assert len(list(set(ons)))==1, "More than one unique stim ON idx found!"
     #stim_on_frame = list(set(ons))[0]
     if verbose:
-        print "-------------------------------------------"
-        print "Run summary:"
-        print "-------------------------------------------"
-        print "N rois:", len(roi_list)
-        print "N trials:", ntrials_total
-        print "N frames per trial:", nframes_per_trial
-        print "N trials per stimulus:", ntrials_by_cond
-        print "-------------------------------------------"
+        print("-------------------------------------------")
+        print("Run summary:")
+        print("-------------------------------------------")
+        print("N rois:", len(roi_list))
+        print("N trials:", ntrials_total)
+        print("N frames per trial:", nframes_per_trial)
+        print("N trials per stimulus:", ntrials_by_cond)
+        print("-------------------------------------------")
 
     run_info['roi_list'] = roi_list
     run_info['ntrials_total'] = ntrials_total
@@ -563,7 +564,7 @@ def frames_to_trials(parsed_frames_fpath, trials_in_block, file_ix, si,
     nslices_full = len(all_frames_tsecs) / si['nvolumes']
     if si['nchannels']==2:
         all_frames_tsecs = np.array(all_frames_tsecs[0::2])
-    print "N tsecs:", len(all_frames_tsecs)
+    print("N tsecs:", len(all_frames_tsecs))
 
     # Get volume indices to assign frame numbers to volumes:
     vol_ixs_tif = np.empty((si['nvolumes']*nslices_full,))
@@ -579,14 +580,14 @@ def frames_to_trials(parsed_frames_fpath, trials_in_block, file_ix, si,
     try:
         parsed_frames = h5py.File(parsed_frames_fpath, 'r') 
         trial_list = sorted(parsed_frames.keys(), key=hutils.natural_keys)
-        print "There are %i total trials across all .tif files." % len(trial_list)
+        print("There are %i total trials across all .tif files." % len(trial_list))
         
         # Check if frame indices are indexed relative to full run (all .tif files)
         # or relative to within-tif frames (i.e., a "block")
         block_indexed = True
         if all([all(parsed_frames[t]['frames_in_run'][:] == parsed_frames[t]['frames_in_file'][:]) for t in trial_list]):
             block_indexed = False
-            print "Frame indices are NOT block indexed"
+            print("Frame indices are NOT block indexed")
             
         # Assumes all trials have same structure
         min_frame_interval = 1 #list(set(np.diff(frames_to_select['Slice01'].values)))  # 1 if not slices
@@ -600,8 +601,8 @@ def frames_to_trials(parsed_frames_fpath, trials_in_block, file_ix, si,
         # Get all frame indices for trial epochs (if there are overlapping frame indices, there will be repeats)    
         all_frames_in_trials = np.hstack([np.array(parsed_frames[t]['frames_in_file']) \
                                    for t in trials_in_block])
-        print "... N frames to align:", len(all_frames_in_trials)
-        print "... N unique frames:", len(np.unique(all_frames_in_trials))
+        print("... N frames to align:", len(all_frames_in_trials))
+        print("... N unique frames:", len(np.unique(all_frames_in_trials)))
         stim_onset_idxs = np.array([parsed_frames[t]['frames_in_file'].attrs['stim_on_idx'] \
                                     for t in trials_in_block])
     
@@ -611,10 +612,10 @@ def frames_to_trials(parsed_frames_fpath, trials_in_block, file_ix, si,
         if block_indexed is False:
             all_frames_in_trials = all_frames_in_trials - len(all_frames_tsecs)*file_ix - frame_shift  
             if all_frames_in_trials[-1] >= len(all_frames_tsecs):
-                print '... File: %i (has %i frames)' % (file_ix, len(all_frames_tsecs))
-                print "... asking for %i extra frames..." % (all_frames_in_trials[-1] - len(all_frames_tsecs))
+                print('... File: %i (has %i frames)' % (file_ix, len(all_frames_tsecs)))
+                print("... asking for %i extra frames..." % (all_frames_in_trials[-1] - len(all_frames_tsecs)))
             stim_onset_idxs = stim_onset_idxs - len(all_frames_tsecs)*file_ix - frame_shift 
-        print "... Last frame to align: %i (N frames total, %i)" % (all_frames_in_trials[-1], len(all_frames_tsecs))
+        print("... Last frame to align: %i (N frames total, %i)" % (all_frames_in_trials[-1], len(all_frames_tsecs)))
     
         stim_onset_idxs_adjusted = vol_ixs_tif[stim_onset_idxs]
         stim_onset_idxs = copy.copy(stim_onset_idxs_adjusted)
@@ -645,19 +646,19 @@ def frames_to_trials(parsed_frames_fpath, trials_in_block, file_ix, si,
     # Turn frame_tsecs into RELATIVE tstamps (to stim onset):
     # ------------------------------------------------
     first_plane_tstamps = all_frames_tsecs[np.array(frame_ixs)]
-    print "... N tstamps:", len(first_plane_tstamps)
+    print("... N tstamps:", len(first_plane_tstamps))
     trial_tstamps = first_plane_tstamps[frames_in_trials[0:len(actual_frames)]]  
     # Check whether asking for more frames than unique, and pad array if so
     if len(trial_tstamps) < len(all_frames_in_trials): #len(frames_in_trials):
-        print "... padding trial tstamps array... (should be %i)" % len(all_frames_in_trials)
+        print("... padding trial tstamps array... (should be %i)" % len(all_frames_in_trials))
         trial_tstamps = np.pad(trial_tstamps, (0, len(all_frames_in_trials)-len(trial_tstamps)), mode='constant', constant_values=np.nan)
         frames_in_trials = np.pad(frames_in_trials, (0, len(all_frames_in_trials)-len(frames_in_trials)), mode='constant', constant_values=np.nan)
 
     # All trials have the same structure:
     reformat_tstamps = False
-    print "N frames per trial:", nframes_per_trial
-    print "N tstamps:", len(trial_tstamps)
-    print "N trials in block:", len(trials_in_block)
+    print("N frames per trial:", nframes_per_trial)
+    print("N tstamps:", len(trial_tstamps))
+    print("N trials in block:", len(trials_in_block))
     try: 
         tsec_mat = np.reshape(trial_tstamps, (len(trials_in_block), nframes_per_trial))
         # Subtract stim_on tstamp from each frame of each trial (relative tstamp)
@@ -697,18 +698,18 @@ def get_alignment_specs(paradigm_dir, si_info, iti_pre=1.0, iti_post=None, \
         trial_fn = trial_fn[0]
         parsed_trials_path = os.path.join(paradigm_dir, trial_fn)
         trialdict = load_parsed_trials(parsed_trials_path)
-        trial_list = sorted(trialdict.keys(), key=natural_keys)
+        trial_list = sorted(trialdict.keys(), key=hutils.natural_keys)
         stimtype = trialdict[trial_list[0]]['stimuli']['type']
 
         # Get presentation info (should be constant across trials and files):
-        trial_list = sorted(trialdict.keys(), key=natural_keys)
+        trial_list = sorted(trialdict.keys(), key=hutils.natural_keys)
         stim_durs = [round((float(trialdict[t]['stim_dur_ms'])/1E3), 1) \
                         for t in trial_list]
         print('Found STIM durs:', list(set(stim_durs)))
         if all([i >= 1.0 for i in stim_durs]): 
             stim_durs = [round(t, 0) for t in stim_durs]
         if len(list(set(stim_durs))) > 1:
-            print "more than 1 stim_dur found:", list(set(stim_durs))
+            print("more than 1 stim_dur found:", list(set(stim_durs)))
             stim_on_sec =dict((t,round(float(trialdict[t]['stim_dur_ms'])/1E3,1)) \
                             for t in trial_list)
         else:
@@ -717,7 +718,7 @@ def get_alignment_specs(paradigm_dir, si_info, iti_pre=1.0, iti_post=None, \
       
         iti_durs = [round(np.floor(float(trialdict[t]['iti_dur_ms'])/1E3), 1) \
                             for t in trial_list]
-        print 'Found ITI durs:', list(set(iti_durs))
+        print('Found ITI durs:', list(set(iti_durs)))
         if len(list(set(iti_durs))) > 1:
             iti_jitter = round(max(iti_durs) - min(iti_durs)) #1.0 # TMP TMP 
             replace_max = max(list(set(iti_durs))) - iti_jitter
@@ -727,26 +728,26 @@ def get_alignment_specs(paradigm_dir, si_info, iti_pre=1.0, iti_post=None, \
             iti_durs_unique = list(set(iti_durs_tmp))
         else:
             iti_durs_unique = list(set(iti_durs))
-        print "Unique itis (minus jitter from max):", iti_durs_unique
+        print("Unique itis (minus jitter from max):", iti_durs_unique)
         assert len(iti_durs_unique) == 1, "More than 1 iti_dur found..."
         iti_full = iti_durs_unique[0]
         if iti_post is None:
             iti_post = iti_full - iti_pre
-        print "ITI POST:", iti_post
+        print("ITI POST:", iti_post)
         assert (stim_on_sec + iti_pre + iti_post) <= (stim_on_sec + iti_full), \
                 "Requested ITI pre/post+stim_dur too big (iti_full=%.1f, stim_dur=%.1f)" % (iti_full, stim_on_sec)
 
         # Check whether acquisition method is one-to-one 
         # (1 aux file per SI tif) or single-to-many:
         sample_trial = trial_list[0]
-        one_to_one = trialdict[sample_trial['ntiffs_per_auxfile']==1
+        one_to_one = trialdict[sample_trial]['ntiffs_per_auxfile']==1
 
     except Exception as e:
-        print "Could not find unique trial-file for current run %s..." % run
-        print "Aborting with error:"
-        print "---------------------------------------------------------------"
+        print("Could not find unique trial-file for current run %s..." % run)
+        print("Aborting with error:")
+        print("--------------------------------------------------------")
         traceback.print_exc()
-        print "---------------------------------------------------------------"
+        print("--------------------------------------------------------")
         return None
     try:
         nframes_iti_pre = int(round(iti_pre * si_info['volumerate'])) 
@@ -757,18 +758,19 @@ def get_alignment_specs(paradigm_dir, si_info, iti_pre=1.0, iti_post=None, \
                             for t in sorted(stim_on_sec.keys(), \
                             key=hutils.natural_keys))
             nframes_post_onset = dict((t, nframes_on+nframes_iti_post) \
-                            for t in sorted(stim_on_sec.keys(), key=natural_keys))
+                            for t in sorted(stim_on_sec.keys(), \
+                                key=hutils.natural_keys))
             vols_per_trial = dict((t, nframes_iti_pre+nframes_on+nframes_iti_post) \
-                            for t in sorted(stim_on_sec.keys(), key=natural_keys))
+                            for t in sorted(stim_on_sec.keys(), \
+                                key=hutils.natural_keys))
         else:
             nframes_on = int(round(stim_on_sec * si_info['framerate'])) 
             nframes_post_onset = nframes_on + nframes_iti_post
             vols_per_trial = nframes_iti_pre + nframes_on + nframes_iti_post
     except Exception as e:
-        print "Problem calcuating nframes for trial epochs..."
+        print("Problem calcuating nframes for trial epochs...")
         traceback.print_exc()
         return None
-
     trial_epoch_info['stim_on_sec'] = stim_on_sec
     trial_epoch_info['iti_full'] = iti_full
     trial_epoch_info['iti_post'] = iti_post
@@ -801,14 +803,14 @@ def assign_frames_to_trials(si_info, trial_info, paradigm_dir, create_new=False)
     found_paths.sort(key=lambda x: os.stat(x).st_mtime) 
     if len(found_paths) > 0 and create_new is False:
         parsed_frames_fpath = found_paths[-1] # Get most recently modified file
-        print "---> Got existing parsed-frames file:", parsed_frames_fpath
+        print("---> Got existing parsed-frames file:", parsed_frames_fpath)
         return parsed_frames_fpath
 
-    print "---> Creating NEW parsed-frames file..."
+    print("---> Creating NEW parsed-frames file...")
     parsed_frames_fpath = os.path.join(paradigm_dir, 'parsed_frames.hdf5')
 
     # 1. Create HDF5 file to store trials in run with stimulus info and frame info:
-    parsed_frames = h5py.File(parsed_frames_filepath, 'w')
+    parsed_frames = h5py.File(parsed_frames_fpath, 'w')
     parsed_frames.attrs['framerate'] = si_info['framerate'] #framerate
     parsed_frames.attrs['volumerate'] = si_info['volumerate'] #volumerate
     parsed_frames.attrs['baseline_dur'] = trial_info['iti_pre'] #iti_pre
@@ -829,7 +831,7 @@ def assign_frames_to_trials(si_info, trial_info, paradigm_dir, create_new=False)
                                 key=hutils.natural_keys)
             # Get stimulus order:
             stimorder = [trialdict[t]['stimuli'] for t in trials_in_file]
-            print "... %s, %i" % (currfile, len(trials_in_file)) 
+            print("... %s, %i" % (currfile, len(trials_in_file))) 
             for trialidx,currtrial_in_run in enumerate(trials_in_file):
                 currtrial_in_file = 'trial%03d' % int(trialidx+1)
                 # Trial in run might not be ntrials-per-file * nfiles
@@ -888,19 +890,19 @@ def assign_frames_to_trials(si_info, trial_info, paradigm_dir, create_new=False)
                 fridxs.attrs['iti_dur_sec'] = trial_info['iti_post']
                 fridxs.attrs['baseline_dur_sec'] = trial_info['iti_pre']
     except Exception as e:
-        print e
-        print "Error parsing frames into trials: current file - %s" % currfile
-        print "%s in tiff file %s (%i trial out of total in run)." % (currtrial_in_file, currfile, trial_counter)
+        print(e)
+        print("Error parsing frames into trials: current file - %s" % currfile)
+        print("%s in tiff file %s (%i trial out of total in run)." % (currtrial_in_file, currfile, trial_counter))
         traceback.print_exc()
-        print "-------------------------------------------------------------------"
+        print("---------------------------------------------------------------")
     finally:
         parsed_frames.close()
 
     # Get unique hash for current PARSED FRAMES file:
-    parsed_frames_hash = hash_file(parsed_frames_filepath, hashtype='sha1')
+    parsed_frames_hash = hutils.hash_file(parsed_frames_fpath, hashtype='sha1')
 
     # Check existing files:
-    outdir = os.path.split(parsed_frames_filepath)[0]
+    outdir = os.path.split(parsed_frames_fpath)[0]
     existing_files = [f for f in os.listdir(outdir) if 'parsed_frames_' \
                         in f and f.endswith('hdf5') and parsed_frames_hash not in f]
     if len(existing_files) > 0:
@@ -911,12 +913,12 @@ def assign_frames_to_trials(si_info, trial_info, paradigm_dir, create_new=False)
         for f in existing_files:
             shutil.move(os.path.join(outdir, f), os.path.join(old, f))
 
-    if parsed_frames_hash not in parsed_frames_filepath:
-        parsed_frames_filepath = hash_file_read_only(parsed_frames_filepath)
+    if parsed_frames_hash not in parsed_frames_fpath:
+        parsed_frames_filepath = hutils.hash_file_read_only(parsed_frames_fpath)
 
-    print "Finished assigning frames across all tiffs to trials in run %s." % run
-    print "Saved parsed frame info to file:", parsed_frames_filepath
-    print "---------------------------------------------------------------------"
+    print("Finished assigning frames across all tiffs to trials in run %s." % run)
+    print("Saved parsed frame info to file:", parsed_frames_fpath)
+    print("---------------------------------------------------------------------")
 
     return parsed_frames_filepath
 
@@ -941,15 +943,15 @@ def parse_trial_epochs(animalid, session, fov, experiment, traceid,
         # Update extraction_params.json
         extraction_info_fpath = os.path.join(traceid_dir, \
                                                 'extraction_params.json')
-        if os.path.exists(extraction_info_filepath):
-            with open(extraction_info_filepath, 'r') as f:
+        if os.path.exists(extraction_info_fpath):
+            with open(extraction_info_fpath, 'r') as f:
                 eparams = json.load(f)
             for k, v in trial_info.items():
                 if k in eparams:
                     eparams[k] = v
         else:
             eparams = trial_info
-        with open(extraction_info_filepath, 'w') as f:
+        with open(extraction_info_fpath, 'w') as f:
             json.dump(eparams, f, sort_keys=True, indent=4)       
 
         # Get parsed frame indices
@@ -959,13 +961,6 @@ def parse_trial_epochs(animalid, session, fov, experiment, traceid,
   
     return
  
-#def align_traces(animalid, session, fov, experiment, traceid, rootdir='/n/coxfs01/2p-data'):
-#
-#    talignment.aggregate_experiment_runs(animalid, session, fov, experiment, traceid=traceid)
-#
-#    print("Aligned traces!") 
-#    return 
-
 def remake_dataframes(animalid, session, fov, experiment, traceid, rootdir='/n/coxfs01/2p-data'):
     soma_fpath = glob.glob(os.path.join(rootdir, animalid, session, fov, 
                         'combined_%s_*' % experiment, 'traces', '%s*' % traceid,
@@ -998,10 +993,12 @@ def main(options):
     np_correction_factor = float(opts.np_correction_factor)
     plot_masks = opts.plot_masks
     apply_masks_only = opts.apply_masks_only
- 
+   
+    datakey = opts.datakey
+    
     if do_masks:
         print("0. PRE-step: Remaking masks")
-        mk.make_masks(animalid, session, fov, traceid=traceid, \
+        mk.make_masks(datakey, traceid=traceid, \
                         np_niterations=np_niterations, 
                         gap_niterations=gap_niterations,
                         np_correction_factor=np_correction_factor, 
@@ -1032,7 +1029,7 @@ def main(options):
         plot_opts = ['-i', animalid, '-S', session, '-A', fov, '-t', traceid, '-R', 'combined_%s_static' % experiment, 
                      '--shade', '-r', row_str, '-c', col_str, '-H', hue_str, '-d', response_type, '-f', file_type,
                     '--responsive', '--test', responsive_test, '--thr', responsive_thr]
-        make_clean_psths(plot_opts) 
+        #make_clean_psths(plot_opts) 
     
 if __name__ == '__main__':
     main(sys.argv[1:])

@@ -1,10 +1,24 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Mar  1 20:23:06 2018
+
+@author: juliana
+"""
 
 import os
 import glob
 import traceback
+import json
+import h5py
+import random
+import math
 
+import tifffile as tf
 import numpy as np
 import pandas as pd
+import pprint
+pp = pprint.PrettyPrinter(indent=4)
 
 import scipy.stats as spstats
 import analyze2p.utils as hutils
@@ -69,7 +83,7 @@ def get_trial_alignment(datakey, curr_exp, traceid='traces001',
                                 animalid, session, 'FOV%i*' % fovn, 
                                 '*%s*' % curr_exp, 'traces', 
                                 '%s*' % traceid,'event_alignment.json')), 
-                                key=natural_keys) 
+                                key=hutils.natural_keys) 
         assert len(extraction_files) > 0, \
             "(%s, %s) No extraction info found..." % (datakey, curr_exp)
     except AssertionError:
@@ -79,10 +93,10 @@ def get_trial_alignment(datakey, curr_exp, traceid='traces001',
         with open(ifile, 'r') as f:
             info = json.load(f)
         if i==0:
-            infodict = dict((k, [v]) for k, v in info.items() if isnumber(v)) 
+            infodict = dict((k, [v]) for k, v in info.items() if hutils.isnumber(v)) 
         else:
             for k, v in info.items():
-                if isnumber(v): 
+                if hutils.isnumber(v): 
                     infodict[k].append(v)
     try: 
         for k, v in infodict.items():
@@ -149,13 +163,13 @@ def load_TID(run_dir, trace_id, auto=False):
                     tmpfns = [t for t in os.listdir(tmp_tid_dir) \
                                     if t.endswith('json')]
                     for tidx, tidfn in enumerate(tmpfns):
-                        print tidx, tidfn
-                    userchoice = raw_input("Select IDX of found tmp trace-id to view: ")
+                        print(tidx, tidfn)
+                    userchoice = input("Select IDX of found tmp trace-id to view: ")
                     with open(os.path.join(tmp_tid_dir, tmpfns[int(userchoice)]), 'r') as f:
                         tmpTID = json.load(f)
                     print("Showing tid: %s, %s" % (tmpTID['trace_id'], tmpTID['trace_hash']))
                     pp.pprint(tmpTID)
-                    userconfirm = raw_input('Press <Y> to use this trace ID, or <q> to abort: ')
+                    userconfirm = input('Press <Y> to use this trace ID, or <q> to abort: ')
                     if userconfirm == 'Y':
                         TID = tmpTID
                         break
@@ -170,17 +184,47 @@ def load_TID(run_dir, trace_id, auto=False):
 
     return TID
 
-#
- 
-# ---------------------------------------------------------------------
+ # ---------------------------------------------------------------------
 # Data processing
 # ---------------------------------------------------------------------
+def check_counts_per_condition(raw_traces, labels):
+    # Check trial counts / condn:
+    #print("Checking counts / condition...")
+    min_n = labels.groupby(['config'])['trial'].unique().apply(len).min()
+    conds_to_downsample = np.where( labels.groupby(['config'])['trial'].unique().apply(len) != min_n)[0]
+    if len(conds_to_downsample) > 0:
+        print("... adjusting for equal reps / condn...")
+        d_cfgs = [sorted(labels.groupby(['config']).groups.keys())[i]\
+                  for i in conds_to_downsample]
+        trials_kept = []
+        for cfg in labels['config'].unique():
+            c_trialnames = labels[labels['config']==cfg]['trial'].unique()
+            if cfg in d_cfgs:
+                #ntrials_remove = len(c_trialnames) - min_n
+                #print("... removing %i trials" % ntrials_remove)
+    
+                # In-place shuffle
+                random.shuffle(c_trialnames)
+    
+                # Take the first 2 elements of the now randomized array
+                trials_kept.extend(c_trialnames[0:min_n])
+            else:
+                trials_kept.extend(c_trialnames)
+    
+        ixs_kept = labels[labels['trial'].isin(trials_kept)].index.tolist()
+        
+        tmp_traces = raw_traces.loc[ixs_kept].reset_index(drop=True)
+        tmp_labels = labels[labels['trial'].isin(trials_kept)].reset_index(drop=True)
+        return tmp_traces, tmp_labels
+
+    else:
+        return raw_traces, labels
+   
 def reformat_morph_values(sdf, verbose=False):
     '''
-    Rounds values for stimulus parameters, checks to make sure true aspect ratio is used.
+    Rounds values for stimulus parameters
+    Checks to make sure true aspect ratio is used.
     '''
-
-
     sdf = sdf.sort_index()
     aspect_ratio=1.75
     control_ixs = sdf[sdf['morphlevel']==-1].index.tolist()
@@ -301,7 +345,6 @@ def load_dataset(soma_fpath, trace_type='dff', is_neuropil=False,
     Loads all the roi traces and labels.
     If want to load corrected NP traces, set flag is_neuropil.
     To load raw NP traces, set trace_type='neuropil' and is_neuropil=False.
-
     '''
     traces=None
     labels=None
@@ -318,7 +361,7 @@ def load_dataset(soma_fpath, trace_type='dff', is_neuropil=False,
         else:
             if is_neuropil:
                 np_fpath = data_fpath.replace(trace_type, 'neuropil')
-                traces = traceutils.load_corrected_neuropil_traces(np_fpath)
+                traces = load_corrected_neuropil_traces(np_fpath)
             else:
                 #print("... loading saved data array (%s)." % trace_type)
                 traces_dset = np.load(data_fpath, allow_pickle=True)
@@ -427,16 +470,18 @@ def _pad_array(x, wing):
                            x[:-wing-1:-1]))
 
 
-def append_neuropil_subtraction(maskdict_path, cfactor, filetraces_dir, create_new=False, rootdir=''):
+def append_neuropil_subtraction(maskdict_path, cfactor, 
+                        filetraces_dir, datakey, create_new=False, rootdir=''):
 
     #signal_channel_idx = int(TID['PARAMS']['signal_channel']) - 1 # 0-indexing into tiffs
 
     MASKS = h5py.File(maskdict_path, 'r')
 
-    filetraces_fpaths = sorted([os.path.join(filetraces_dir, t) for t in os.listdir(filetraces_dir) if t.endswith('hdf5')], key=natural_keys)
+    filetraces_fpaths = sorted([os.path.join(filetraces_dir, t) for t in os.listdir(filetraces_dir) if t.endswith('hdf5')], \
+                                key=hutils.natural_keys)
 
     #
-    print "Appending subtrated NP traces to %i files." % len(filetraces_fpaths)
+    print("Appending subtrated NP traces to %i files." % len(filetraces_fpaths))
     for tfpath in filetraces_fpaths:
         #tfpath = trace_file_paths[0]
         traces_currfile = h5py.File(tfpath, 'r+')
@@ -444,7 +489,7 @@ def append_neuropil_subtraction(maskdict_path, cfactor, filetraces_dir, create_n
         #print traces_currfile.attrs.keys()
         fidx = int(os.path.split(tfpath)[-1].split('_')[0][4:]) - 1
         curr_file = "File%03d" % int(fidx+1)
-        print "CFACTOR -- Appending neurpil corrected traces: %s" % curr_file
+        print("CFACTOR -- Appending neurpil corrected traces: %s" % curr_file)
         try:
             for curr_slice in traces_currfile.keys():
 
@@ -469,12 +514,13 @@ def append_neuropil_subtraction(maskdict_path, cfactor, filetraces_dir, create_n
 
                     # Load tiff:
                     tiffpath = traces_currfile.attrs['source_file']
-                    print "Calculating neuropil from src: %s" % tiffpath
+                    print("Calculating neuropil from src: %s" % tiffpath)
 
                     if rootdir not in tiffpath:
-                        session_dir = os.path.split(os.path.split(filetraces_dir.split('/traces')[0])[0])[0]
-                        info = get_info_from_tiff_dir(os.path.split(tiffpath)[0], session_dir)
-                        tiffpath = replace_root(tiffpath, rootdir, info['animalid'], info['session'])
+                        session, animalid, fovn = hutils.split_datakey_str(datakey)
+                        #session_dir = os.path.split(os.path.split(filetraces_dir.split('/traces')[0])[0])[0]
+                        #info = get_info_from_tiff_dir(os.path.split(tiffpath)[0], session_dir)
+                        tiffpath = hutils.replace_root(tiffpath, rootdir, animalid, session)
 
                     tiff = tf.imread(tiffpath)
                     T, d1, d2 = tiff.shape
@@ -485,7 +531,7 @@ def append_neuropil_subtraction(maskdict_path, cfactor, filetraces_dir, create_n
 
                     tiffR = np.reshape(tiff, (T, d), order='C'); del tiff
                     tiffslice = tiffR[signal_channel_idx::nchannels,:]
-                    print "SLICE shape is:", tiffslice.shape
+                    print("SLICE shape is:", tiffslice.shape)
 
                     np_maskarray = MASKS[curr_file][curr_slice]['np_maskarray'][:]
                     np_tracemat = tiffslice.dot(np_maskarray)
@@ -505,15 +551,14 @@ def append_neuropil_subtraction(maskdict_path, cfactor, filetraces_dir, create_n
                 np_corrected[...] = np_correctedmat
                 np_corrected.attrs['correction_factor'] = cfactor
         except Exception as e:
-            print "** ERROR appending NP-subtracted traces: %s" % traces_currfile
-            print traceback.print_exc()
+            print("** ERROR appending NP-subtracted traces: %s" % traces_currfile)
+            print(traceback.print_exc())
         finally:
             traces_currfile.close()
 
     return filetraces_dir
 
 
- 
 
 # --------------------------------------------------------------------
 # Data grouping and calculations
@@ -543,7 +588,7 @@ def get_mean_and_std_traces(roi, traces, labels, curr_cfgs, stimdf):
     return mean_traces, std_traces, tpoints
 
 
-def group_roidata_stimresponse(roidata, labels_df, roi_list=None, 
+def group_roidata_stimresponse(roidata, labels, roi_list=None, 
                             return_grouped=True, nframes_post=0): #None):
     '''
     roidata: array of shape nframes_total x nrois

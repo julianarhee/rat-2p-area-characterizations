@@ -1,3 +1,10 @@
+#!/usr/bin/env python2
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Jan 23 17:56:01 2018
+
+@author: julianarhee
+"""
 import os
 import cv2
 import traceback 
@@ -13,9 +20,9 @@ import pandas as pd
 
 import analyze2p.utils as hutils
 
-
-
-# Calculations
+# --------------------------------------------------------------------
+# Masks 
+# --------------------------------------------------------------------
 def masks_to_normed_array(masks):
     '''
     Assumes masks.shape = (d1, d2, nrois)
@@ -26,12 +33,10 @@ def masks_to_normed_array(masks):
     '''
     d1, d2 = masks[:,:,0].shape
     d = d1*d2
-
     nrois = masks.shape[-1]
-
     masks_arr = np.empty((d, nrois))
-    for r in range(nrois):
-        masks_arr[:, r] = np.reshape(masks[:,:,r], (d,), order='C') /  len(np.nonzero(masks[:,:,r])[0])
+    for rix in range(nrois):
+        masks_arr[:, rix] = np.reshape(masks[:,:,rix], (d,), order='C') /  len(np.nonzero(masks[:,:,rix])[0])
 
     return masks_arr
 
@@ -41,9 +46,7 @@ def get_mask_info(TID, RID, nslices=1, rootdir='/n/coxfs01/2p-data'):
     mask_path = os.path.join(RID['DST'], 'masks.hdf5')
     if rootdir not in mask_path and '/mnt/odyssey' in mask_path:
         mask_path = mask_path.replace('/mnt/odyssey', '/n/coxfs01/2p-data')
-
     excluded_tiffs = TID['PARAMS']['excluded_tiffs']
-
 
     maskinfo = dict()
     try:
@@ -56,19 +59,19 @@ def get_mask_info(TID, RID, nslices=1, rootdir='/n/coxfs01/2p-data'):
             roidict = json.load(f)
         roi_tiff_src = roidict[maskfile.attrs['roi_id']]['SRC']
         if rootdir not in roi_tiff_src:
-            roi_tiff_src = replace_root(roi_tiff_src, rootdir, maskfile.attrs['animal'], maskfile.attrs['session'])
+            roi_tiff_src = hutils.replace_root(roi_tiff_src, rootdir, maskfile.attrs['animal'], maskfile.attrs['session'])
 
         # Check whether ROI tiffs are same src as TRACE ID tiffs:
         trace_tiff_src = TID['SRC']
         if rootdir not in trace_tiff_src:
-            trace_tiff_src = replace_root(trace_tiff_src, rootdir, maskfile.attrs['animal'], maskfile.attrs['session'])
+            trace_tiff_src = hutils.replace_root(trace_tiff_src, rootdir, maskfile.attrs['animal'], maskfile.attrs['session'])
 
         # Get n tiffs from TRACE source:
         ntiffs = len([f for f in os.listdir(trace_tiff_src) if f.endswith('tif')])
 
         # Get files from which ROIs were extracted in this set:
         maskfiles = maskfile.keys()
-        print "MASK FILES:", len(maskfiles)
+        print("MASK FILES:", len(maskfiles))
         if len(maskfiles) == 1:
             ref_file = maskfiles[0]
             single_reference = True
@@ -87,14 +90,14 @@ def get_mask_info(TID, RID, nslices=1, rootdir='/n/coxfs01/2p-data'):
             else:
                 mask_source_dir = maskfile[maskfile.keys()[0]].attrs['source']
         if rootdir not in mask_source_dir:
-            mask_source_dir = replace_root(mask_source_dir, rootdir, maskfile.attrs['animal'], maskfile.attrs['session'])
+            mask_source_dir = hutils.replace_root(mask_source_dir, rootdir, maskfile.attrs['animal'], maskfile.attrs['session'])
         rid_zproj_basedir = os.path.split(mask_source_dir)[0]
 
         sigchannel_dirname = os.path.split(rid_zproj_basedir)[-1]
 
         # Get reference file in current trace id set (just use reference from processed dir)
         if roi_tiff_src == trace_tiff_src:
-            print "Extracting traces from ROI source"
+            print("Extracting traces from ROI source")
             matched_sources = True
             if len(maskfiles) == 1:
                 ref_file = maskfiles[0]  # REF FILE just is the one used to extract ROIs
@@ -102,7 +105,7 @@ def get_mask_info(TID, RID, nslices=1, rootdir='/n/coxfs01/2p-data'):
                 ref_file = None          # REF FILE doesn't exist, since ROIs extracted from each tif in set
             zproj_source_dir = rid_zproj_basedir
         else:
-            print "Extracting traces from ALT run roi src"
+            print("Extracting traces from ALT run roi src")
             matched_sources = False
             # Identify which file was used as reference, assuming tiffs were preprocessed and motion-corrected:
             if 'mcorrected' in trace_tiff_src:
@@ -118,9 +121,9 @@ def get_mask_info(TID, RID, nslices=1, rootdir='/n/coxfs01/2p-data'):
             zproj_source_dir = '%s_mean_deinterleaved/%s' % (trace_tiff_src, sigchannel_dirname)
 
         # Get list of files in current trace set:
-        filenames = sorted(['File%03d' % int(i+1) for i in range(ntiffs)], key=natural_keys)
-        filenames = sorted([ f for f in filenames if f not in excluded_tiffs], key=natural_keys)
-        print "Using reference file %s on %i total tiffs." % (ref_file, len(filenames))
+        filenames = sorted(['File%03d' % int(i+1) for i in range(ntiffs)], key=hutils.natural_keys)
+        filenames = sorted([ f for f in filenames if f not in excluded_tiffs], key=hutils.natural_keys)
+        print("Using reference file %s on %i total tiffs." % (ref_file, len(filenames)))
         # Check if masks are split up by slices: (Matlab, manual2D methods are diff)
         if type(maskfile[maskfiles[0]]['masks']) == h5py.Dataset:
             slice_masks = False
@@ -133,14 +136,16 @@ def get_mask_info(TID, RID, nslices=1, rootdir='/n/coxfs01/2p-data'):
 
         # Get slices for which there are ROIs in this set:
         if slice_masks:
-            roi_slices = sorted([str(s) for s in maskfile[maskfiles[0]]['masks'].keys()], key=natural_keys)
+            roi_slices = sorted([str(s) for s in maskfile[maskfiles[0]]['masks'].keys()], \
+                                    key=hutils.natural_keys)
             print("Found %i slices for this roi set (%s)" % (len(roi_slices), str(roi_slices)))
 
         else:
-            roi_slices = sorted(["Slice%02d" % int(s+1) for s in range(nslices)], key=natural_keys)
+            roi_slices = sorted(["Slice%02d" % int(s+1) for s in range(nslices)], \
+                                    key=hutils.natural_keys)
     except Exception as e:
         traceback.print_exc()
-        print("Error loading mask info..."_
+        print("Error loading mask info...")
         print("Mask path was: %s" % mask_path)
     #finally:
         #maskfile.close()
@@ -158,11 +163,9 @@ def get_mask_info(TID, RID, nslices=1, rootdir='/n/coxfs01/2p-data'):
 
     return maskinfo
 
-
-
-
-
-
+# --------------------------------------------------------------------
+# Data loading
+# --------------------------------------------------------------------
 
 def load_roi_assignments(animalid, session, fov, retinorun='retino_run1', 
                             rootdir='/n/coxfs01/2p-data'):

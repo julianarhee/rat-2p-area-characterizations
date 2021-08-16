@@ -5,6 +5,10 @@ Created on Thu May 17 12:31:35 2018
 
 @author: juliana
 """
+import copy
+import os
+import itertools
+import numpy as np
 
 def format_stimconfigs(configs):
     
@@ -19,7 +23,7 @@ def format_stimconfigs(configs):
         stimtype = 'movie'
     else:
         stimtype = 'image' 
-    print "STIM TYPE:", stimtype 
+    print("STIM TYPE:", stimtype )
     # Split position into x,y:
     for cf in cfg_list: #stimconfigs.keys():
         stimconfigs[cf]['xpos'] = None if configs[cf]['position'][0] is None \
@@ -60,7 +64,7 @@ def format_stimconfigs(configs):
                         anchor1 = 0
                         anchor2 = 106
                 else:
-                    fns = [configs[c]['filename'] for c in cfgf_list \
+                    fns = [configs[c]['filename'] for c in cfg_list \
                             if 'morph' in configs[c]['filename']]
                     mlevels = sorted(list(set([int(fn.split('_')[0][5:]) \
                             for fn in fns])))
@@ -77,7 +81,7 @@ def format_stimconfigs(configs):
                     % (anchor2, str(mlevels))
 
             if stimtype == 'image':
-                imname = os.path.splitext(configs[config]['filename'])[0]
+                imname = os.path.splitext(configs[cf]['filename'])[0]
                 if ('CamRot' in imname):
                     objectid = imname.split('_CamRot_')[0]
                     yrot = int(imname.split('_CamRot_y')[-1])
@@ -104,14 +108,14 @@ def format_stimconfigs(configs):
                         objectid = imname.split('_y')[0]
                         yrot = int(imname.split('_y')[-1])
                         morphlevel = int(imname.split('_y')[0].split('morph')[-1])
-                elif configs[config]['filename']=='' \
-                        and configs[config]['stimulus']=='control':
+                elif configs[cf]['filename']=='' \
+                        and configs[cf]['stimulus']=='control':
                     objectid = 'control'
                     yrot = 0
                     morphlevel = -1
                      
             elif stimtype == 'movie':
-                imname = os.path.splitext(configs[config]['filename'])[0]
+                imname = os.path.splitext(configs[cf]['filename'])[0]
                 objectid = imname.split('_movie')[0] 
                 #'_'.join(imname.split('_')[0:-1])
                 if 'reverse' in imname:
@@ -179,10 +183,10 @@ def get_transforms(stimconfigs):
         transforms['ori'] = sorted(np.unique([v['ori'] \
                                         for c, v in sconfigs.items()]))
         transforms['sf'] = sorted(np.unique([v['sf'] \
-                                        for c, v in sconfigs.items()])))
+                                        for c, v in sconfigs.items()]))
         if 'stim_dur' in stim_params:
             transforms['direction'] = sorted(np.unique([v['direction'] \
-                                        for c, v in sconfigs.items()])))
+                                        for c, v in sconfigs.items()]))
             transforms['duration'] = sorted(np.unique([v['stim_dur'] \
                                         for c, v in sconfigs.iteritems()]))
         
@@ -196,7 +200,7 @@ def get_transforms(stimconfigs):
                 curr_configs = [c for c,v in sconfigs.iteritems() \
                                         if v[trans]==transval]
                 tmp_obj = [np.unique([sconfigs[c]['object'] \
-                                        for c in curr_configs])) \
+                                        for c in curr_configs]) \
                                         for t in transforms[trans]]
                 tmp_obj = list(itertools.chain(*tmp_obj))
                 curr_objects.append(tmp_obj)

@@ -20,12 +20,12 @@ mpl.use('agg')
 import numpy as np
 import pylab as pl
 
-from pipeline.python.utils import natural_keys, label_figure
-from pipeline.python.traces import realign_epochs as realign
-from pipeline.python.traces import remake_neuropil_masks as rmasks
-from pipeline.python.retinotopy import do_retinotopy_analysis as retino
-from pipeline.python.retinotopy import fit_2d_rfs as fitrf
-from pipeline.python.classifications import bootstrap_roc as roc
+import analyze2p.utils as hutils
+import analyze2p.extraction.realign_epochs as realign
+import analyze2p.extraction.remake_neuropil_masks as rmasks
+#from pipeline.python.retinotopy import do_retinotopy_analysis as retino
+#from pipeline.python.retinotopy import fit_2d_rfs as fitrf
+#from pipeline.python.classifications import bootstrap_roc as roc
 
 
 def extract_options(options):
@@ -140,7 +140,8 @@ def redo_manual_extraction(options):
         
     # Get event-basd runs to extract
     session_dir = os.path.join(rootdir, animalid, session)
-    nonretino_rundirs = [r for r in sorted(glob.glob(os.path.join(session_dir, fov, '*_run*')), key=natural_keys)\
+    nonretino_rundirs = [r for r in sorted(glob.glob(os.path.join(session_dir, fov, '*_run*')), \
+                            key=hutils.natural_keys)\
                              if 'retino' not in r and 'compare' not in r]
 
     experiment_types = np.unique([os.path.split(r)[-1].split('_')[0] for r in nonretino_rundirs])
@@ -154,86 +155,85 @@ def redo_manual_extraction(options):
                                         iti_pre=iti_pre, iti_post=iti_post)
             
             print("4. Aligning traces to trials - %s" % experiment)
-            realign.align_traces(animalid, session, fov, experiment, 
-                                    traceid, rootdir=rootdir)
+            realign.aggregate_experiment_runs(animalid, session, fov, experiment, traceid=traceid)
 
-    if do_retino:
-        # Get retino runs and extract
-        retino_rundirs = sorted(glob.glob(os.path.join(session_dir, fov, 'retino_run*')),
-                                key=natural_keys)
-        print("5.  Doiing retino anaysis for %i runs." % len(retino_rundirs))
-        for retino_rundir in retino_rundirs:
-            curr_retino_run = os.path.split(retino_rundir)[1]
-            print("--> %s" % curr_retino_run)
-            # extract
-            retino_opts = ['-i', animalid, '-S', session, '-A', fov, 
-                            '-g', gap_niterations, '-a', np_niterations, 
-                            '--new', '--masks',
-                            '-d', traceid, '-R', curr_retino_run]
-            retino.do_analysis(retino_opts)
+    # if do_retino:
+    #     # Get retino runs and extract
+    #     retino_rundirs = sorted(glob.glob(os.path.join(session_dir, fov, 'retino_run*')),
+    #                             key=hutils.natural_keys)
+    #     print("5.  Doiing retino anaysis for %i runs." % len(retino_rundirs))
+    #     for retino_rundir in retino_rundirs:
+    #         curr_retino_run = os.path.split(retino_rundir)[1]
+    #         print("--> %s" % curr_retino_run)
+    #         # extract
+    #         retino_opts = ['-i', animalid, '-S', session, '-A', fov, 
+    #                         '-g', gap_niterations, '-a', np_niterations, 
+    #                         '--new', '--masks',
+    #                         '-d', traceid, '-R', curr_retino_run]
+    #         retino.do_analysis(retino_opts)
 
-    if fit_rfs:
-        response_type = 'dff'
-        post_stimulus_sec = 0.5
-        sigma_scale=2.35 #True
-        scale_sigma=True
-        ci=0.95
+    # if fit_rfs:
+    #     response_type = 'dff'
+    #     post_stimulus_sec = 0.5
+    #     sigma_scale=2.35 #True
+    #     scale_sigma=True
+    #     ci=0.95
 
-        # Do RF fits
-        if int(session) < 20190511 and 'gratings' in experiment_types:
-                rf_runs = ['rfs']
-        else:
-            rf_runs = [r for r in experiment_types if 'rfs' in r]
+    #     # Do RF fits
+    #     if int(session) < 20190511 and 'gratings' in experiment_types:
+    #             rf_runs = ['rfs']
+    #     else:
+    #         rf_runs = [r for r in experiment_types if 'rfs' in r]
 
-        for rf_run in rf_runs:
-            print("[%s] 6a.  Fitting RF runs." % rf_run)
-            # fit RFs
-            fit_thr = 0.5
-            res_, params_ = fitrf.fit_2d_receptive_fields(animalid, session, fov, 
-                                                        rf_run, traceid, 
-                                                        fit_thr=fit_thr, 
-                                                        make_pretty_plots=True,
-                                                        create_new=True,
-                                                        reload_data=True,
-                                                        sigma_scale=sigma_scale, 
-                                                        scale_sigma=scale_sigma,
-                                                        post_stimulus_sec=post_stimulus_sec,
-                                                        response_type=response_type     
-                                                        )
+    #     for rf_run in rf_runs:
+    #         print("[%s] 6a.  Fitting RF runs." % rf_run)
+    #         # fit RFs
+    #         fit_thr = 0.5
+    #         res_, params_ = fitrf.fit_2d_receptive_fields(animalid, session, fov, 
+    #                                                     rf_run, traceid, 
+    #                                                     fit_thr=fit_thr, 
+    #                                                     make_pretty_plots=True,
+    #                                                     create_new=True,
+    #                                                     reload_data=True,
+    #                                                     sigma_scale=sigma_scale, 
+    #                                                     scale_sigma=scale_sigma,
+    #                                                     post_stimulus_sec=post_stimulus_sec,
+    #                                                     response_type=response_type     
+    #                                                     )
 
-            # evaluate  
-            print("[%s] 6b. Evaluating RF fits." % rf_run)
-            eval_, params_ = evalrfs.do_rf_fits_and_evaluation(animalid, session, fov, 
-                                                    rfname=rf_run, traceid=traceid, 
-                                                    response_type=response_type, 
-                                                    fit_thr=fit_thr, 
-                                                    sigma_scale=sigma_scale, 
-                                                    scale_sigma=scale_sigma,
-                                                    ci=ci,
-                                                    post_stimulus_sec=post_stimulus_sec,
-                                                    n_processes=n_processes,
-                                                    reload_data=False,
-                                                    create_stats=True,
-                                                    do_evaluation=True) 
+    #         # evaluate  
+    #         print("[%s] 6b. Evaluating RF fits." % rf_run)
+    #         eval_, params_ = evalrfs.do_rf_fits_and_evaluation(animalid, session, fov, 
+    #                                                 rfname=rf_run, traceid=traceid, 
+    #                                                 response_type=response_type, 
+    #                                                 fit_thr=fit_thr, 
+    #                                                 sigma_scale=sigma_scale, 
+    #                                                 scale_sigma=scale_sigma,
+    #                                                 ci=ci,
+    #                                                 post_stimulus_sec=post_stimulus_sec,
+    #                                                 n_processes=n_processes,
+    #                                                 reload_data=False,
+    #                                                 create_stats=True,
+    #                                                 do_evaluation=True) 
 
-    if roc_test:
-        # Do ROC responsivity test
-        if 'blobs' in experiment_types:
-            print("[blobs] 7.  Doing ROC test.")
-            roc.bootstrap_roc_func(animalid, session, fov, traceid, 'blobs', n_processes=n_processes)
+    # if roc_test:
+    #     # Do ROC responsivity test
+    #     if 'blobs' in experiment_types:
+    #         print("[blobs] 7.  Doing ROC test.")
+    #         roc.bootstrap_roc_func(animalid, session, fov, traceid, 'blobs', n_processes=n_processes)
 
-        if 'gratings' in experiment_types and int(session) < 20190511:
-            print("[gratings] 8.  Doing ROC test.")
-            roc.bootstrap_roc_func(animalid, session, fov, traceid, 'gratings', n_processes=n_processes)
+    #     if 'gratings' in experiment_types and int(session) < 20190511:
+    #         print("[gratings] 8.  Doing ROC test.")
+    #         roc.bootstrap_roc_func(animalid, session, fov, traceid, 'gratings', n_processes=n_processes)
 
-            print("[gratings] 9.  Doing OSI fits, using nstds")
-            osi_thr = 0.66
-            exp = cutils.Gratings(animalid, session, fov, traceid=traceid)
-            bootr_, fitparams = exp.get_tuning(n_processes=n_processes, response_type='dff',
-                                               make_plots=True, create_new=True,
-                                               responsive_test='nstds', responsive_thr=10, n_stds=2.5)
-            evalosi_, goodfits = exp.evaluate_fits(bootr_, fitparams, goodness_thr=osi_thr, make_plots=True)
-            print("--- done: %i cells with good fits (thr %.2f)" % (len(goodfits), osi_thr))
+    #         print("[gratings] 9.  Doing OSI fits, using nstds")
+    #         osi_thr = 0.66
+    #         exp = cutils.Gratings(animalid, session, fov, traceid=traceid)
+    #         bootr_, fitparams = exp.get_tuning(n_processes=n_processes, response_type='dff',
+    #                                            make_plots=True, create_new=True,
+    #                                            responsive_test='nstds', responsive_thr=10, n_stds=2.5)
+    #         evalosi_, goodfits = exp.evaluate_fits(bootr_, fitparams, goodness_thr=osi_thr, make_plots=True)
+    #         print("--- done: %i cells with good fits (thr %.2f)" % (len(goodfits), osi_thr))
        
     print("********************************")
     print("Finished.")
