@@ -15,7 +15,51 @@ import seaborn as sns
 
 import analyze2p.aggregate_datasets as aggr
 import analyze2p.utils as hutils
+import analyze2p.plotting as pplot
 
+import scipy.stats as spstats
+
+
+# do fiting
+def linregress_on_binned(cc_, metric='signal_cc', to_quartile='cortical_distance',
+                        return_inputs=False):
+    xdata = np.array([i \
+             for i, (xi, xg) in enumerate(cc_.groupby('binned_%s' % to_quartile))])
+    ydata = np.array([xg[metric].mean() \
+             for xi, xg in cc_.groupby('binned_%s' % to_quartile)])
+    # popt, pcov = curve_fit(func, xdata, ydata)
+    res = spstats.linregress(xdata, ydata)
+
+    res_ = pd.Series([res.slope, res.intercept, res.rvalue, res.pvalue, 
+                  res.stderr, res.intercept_stderr],
+                 index=['slope', 'intercept', 'rvalue', 'pvalue', 
+                        'stderr', 'intercept_stderr'])
+    if return_inputs:
+        return res_, xdata, ydata
+    else:
+        return res_
+
+def bootstrap_linregress(bcorrs, metric='signal_cc', to_quartile='cortical_distance',
+                         n_iterations=500, n_samples=10):
+    r_=[]
+    for va, cc_ in bcorrs.groupby('visual_area'):
+        for n_iter in np.arange(0, n_iterations):
+            curr_cc = cc_.groupby('binned_%s' % to_quartile).sample(n=n_samples, 
+                                                random_state=n_iter, replace=True)
+            res = linregress_on_binned(curr_cc, metric=metric,
+                                                to_quartile=to_quartile, 
+                                                return_inputs=False)
+            res['iteration'] = n_iter
+            res['visual_area'] = va
+            r_.append(res)
+    resdf = pd.concat(r_, axis=1).T
+    
+    return resdf
+
+
+# ------------------------------------------
+# calculate correlations
+# ------------------------------------------
 def trial_averaged_responses(zscored, sdf, params=['ori', 'sf', 'size', 'speed']):
     '''
     Average all trials for each condition. 
@@ -33,6 +77,28 @@ def trial_averaged_responses(zscored, sdf, params=['ori', 'sf', 'size', 'speed']
     tuning_.index = multix
 
     return tuning_
+
+
+def get_ccdist(neuraldf, return_zscored=False, curr_cfgs=None, curr_cells=None):
+    '''
+    Calculate pairwise correlation coefs and also add distance. 
+    '''
+    if curr_cfgs is None:
+        curr_cfgs = neuraldf['config'].unique()
+    if curr_cells is None:
+        curr_cells = neuraldf['cell'].unique()
+    # Dont do zscore within-condition
+    corrs, zscored = calculate_corrs(neuraldf, do_zscore=False, return_zscored=True,
+                                     curr_cells=curr_cells, curr_cfgs=curr_cfgs)
+    # Add cortical distances
+    wpos = aggr.add_roi_positions(neuraldf.copy())
+    roi_pos = wpos[['cell', 'ml_pos', 'ap_pos']].drop_duplicates().copy()
+    ccdist = get_pw_cortical_distance(corrs, roi_pos)
+
+    if return_zscored:
+        return ccdist, zscored
+    else:
+        return ccdist
 
 def calculate_corrs(ndf, do_zscore=True, return_zscored=False, 
                     curr_cells=None, curr_cfgs=None):
@@ -173,6 +239,11 @@ def get_pw_cortical_distance(cc_, pos_):
     return cc_
 
 
+
+
+
+# Data binning
+
 def get_bins(n_bins=4, custom_bins=False, use_quartile=True, cmap='viridis'):
     '''Get generic bins and bin labels to split data up'''
     if custom_bins:
@@ -232,6 +303,83 @@ def bin_column_values(cc_, to_quartile='cortical_distance', use_quartile=True,
         return cc_, bin_edges
     else:
         return cc_
+
+
+
+# --------------------------------------------------------------------
+# plotting
+# --------------------------------------------------------------------
+def get_key_stimulus_params(experiment):
+    # Get mean response per condition (columns=cells, rows=conditions)
+    if experiment=='gratings':
+        params=['ori', 'sf', 'size', 'speed']
+    elif experiment=='blobs':
+        params=['morphlevel', 'size'] #, 'yrot', 'xpos', 'ypos']
+    elif experiment=='rfs':
+        params = ['position']
+
+    return params
+
+def get_correlation_matrix(tuning_, sdf, experiment='blobs', method='spearman'):
+    '''
+    Return correlation matrix (nconfigs x nconfigs)
+    Args
+    tuning_ (pd.DataFrame)
+        rows=trial-averaged response to each config, cols=rois
+    method: (str)
+        Correlation method to use (should be valid arg for pd.corr())
+    sdf: pd.DataFrame
+    
+    Returns:
+    mat_: (pd.DataFrame)
+        nconfigs x nconfigs correlation matrix
+    msk_: (np.array)
+        Mask to just plot lower triangle
+    xlabels: (list)
+        Strings of all config parameters
+    '''
+    params = get_key_stimulus_params(experiment)
+    rois_ = [i for i in tuning_.columns if hutils.isnumber(i)]
+    if experiment == 'gratings':
+        sdf['tf'] = sdf['sf']*sdf['speed']
+        xlabels = ['%i|%.2f|%i|%i' % (o, sf, sz, sp) for (o, sf, sz, sp) in \
+                   sdf.loc[tuning_['config']][['ori', 'sf', 'size', 'speed']].values]
+    elif experiment=='blobs':
+        xlabels = ['%i|%.i' % (mp, sz) for (mp, sz) in\
+                   sdf.loc[tuning_['config']][params].values]
+    elif experiment == 'rfs':
+        xlabels = ['%s' % str(p[0]) for p in\
+                   sdf.loc[tuning_['config']][params].values]
+    mat_ = tuning_[rois_].T.corr(method=method)
+    msk_ = np.triu(np.ones_like(mat_, dtype=bool))
+    return mat_, msk_, xlabels
+
+def plot_correlation_matrix(mat_, plot_rdm=True, ax=None,
+                           vmin=None, vmax=None):
+    if plot_rdm:
+        pmat = 1-mat_
+        cmap='viridis' # 0=totally same, 2+ more dissimilar
+        plot_name = 'rdm'
+    else:
+        pmat = mat_.copy()
+        cmap = 'RdBu_r' # red, corr=1, blue, anticorr=-1
+        plot_name = 'corr'
+    if ax is None:
+        fig, ax = pl.subplots(1,1,figsize=(10, 6))
+    if vmin is None or vmax is None:
+        vmin, vmax = pmat.min().min(), pmat.max().max()
+
+    sns.heatmap(pmat, cmap=cmap, ax=ax, #mask=msk_, 
+                square=True, cbar_kws={"shrink": 0.5}, vmin=vmin, vmax=vmax)
+    #Below 3 lines remove default labels
+    labels = ['' for item in ax.get_yticklabels()]
+    ax.set_yticklabels(labels)
+    ax.set_ylabel('')
+    ax.set_xticks([])
+    pplot.label_group_bar_table(ax, mat_, offset=0.1, lw=0.5)
+    return ax
+
+
 
 def plot_quartile_dists_FOV(cc_, metric='signal_cc', to_quartile='cortical_distance',
                             bin_colors=None, bin_labels=None,

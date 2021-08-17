@@ -211,7 +211,7 @@ def check_sdfs(stim_datakeys, experiment='blobs', images_only=False,
     }
     diff_configs = wrong_configs[experiment]
 
-    if exeriment=='blobs':
+    if experiment=='blobs':
         sdfs, incorrect = check_sdfs_blobs(stim_datakeys, images_only=images_only, 
                             rename=rename,
                             return_incorrect=True,
@@ -311,6 +311,10 @@ def select_stimulus_configs(datakey, experiment, select_stimuli=None):
     sdf = get_stimuli(datakey, experiment=experiment)
     if sdf is None:
         return None
+    if experiment not in ['gratings', 'blobs']:
+        curr_cfgs = sdf.index.tolist()
+        return curr_cfgs
+
     if select_stimuli is not None:
         if experiment=='gratings':
             curr_cfgs = sdf[sdf['size']==200].index.tolist() \
