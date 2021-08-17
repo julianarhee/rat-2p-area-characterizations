@@ -155,7 +155,8 @@ def get_stimuli(datakey, experiment, match_names=False,
 
 
 def check_sdfs_gratings(dkey_list, experiment='gratings',
-                    return_incorrect=False, return_all=False):
+                    return_incorrect=False, return_all=False, 
+                    verbose=False):
     exclude_=[] 
     #['20190602_JC091_fov1', '20190525_JC084_fov1', '20190522_JC084_fov1']
     # ^Need to re-aggregate these for gratings, exclude for now
@@ -175,7 +176,8 @@ def check_sdfs_gratings(dkey_list, experiment='gratings',
                             sdf['speed'].unique()))
         nonori_params = sdf[['sf', 'size', 'speed']].drop_duplicates()
         if len(param_combos)!=8 or len(nonori_params)!=len(param_combos):
-            print('    skipping: %s' % dk)
+            if verbose:
+                print('    skipping: %s' % dk)
             incorrect.append(dk)
             if not return_all:
                 continue
@@ -194,11 +196,18 @@ def get_master_sdf(experiment='blobs', images_only=False):
     '''
     Get "standard" stimulus info.
     '''
-    sdf_master = get_stimuli('20190522_JC084_fov1', experiment, 
+    if experiment=='blobs':
+        sdf_master = get_stimuli('20190522_JC084_fov1', experiment, 
                                 match_names=False)
-    if images_only:
-        sdf_master=sdf_master[sdf_master['morphlevel']!=-1].copy()
-    
+        if images_only:
+            sdf_master=sdf_master[sdf_master['morphlevel']!=-1].copy()
+   
+    elif experiment=='gratings':
+        sdf_master = get_stimuli('20190522_JC084_fov1', experiment,
+                                match_names=False)
+        if images_only:
+            sdf_master=sdf_master[sdf_master['size']<200].copy()
+
     return sdf_master
 
 
@@ -239,7 +248,7 @@ def check_sdfs_blobs(stim_datakeys, images_only=False,
     Notes: only tested with blobs, and renaming only works with blobs.
     '''
     experiment='blobs'
-    sdf_master = get_master_sdf(images_only=False)
+    sdf_master = get_master_sdf(experiment='blobs', images_only=False)
     n_configs = sdf_master.shape[0]
     #### Check that all datasets have same stim configs
     SDF={}
@@ -270,7 +279,6 @@ def check_sdfs_blobs(stim_datakeys, images_only=False,
     #    ignore_params.extend(['size'])
     compare_params = [p for p in sdf_master.columns if p not in ignore_params]
     different_configs = renamed_configs.keys()
-    #sdf_master = get_master_sdf(images_only=images_only)
     assert all([all(sdf_master[compare_params]==d[compare_params]) \
             for k, d in SDF.items() \
             if k not in different_configs]), "Incorrect stimuli..."
@@ -279,8 +287,8 @@ def check_sdfs_blobs(stim_datakeys, images_only=False,
     else:
         return SDF
 
-def match_config_names(sdf):
-    sdf_master = get_master_sdf(images_only=False)
+def match_config_names(sdf, experiment='blobs'):
+    sdf_master = get_master_sdf(experiment=experiment, images_only=False)
     key_names = ['morphlevel', 'size']
     updated_keys={}
     for old_ix in sdf.index:
@@ -1392,11 +1400,12 @@ def load_aggregate_data(experiment, traceid='traces001',
     #### Fix config labels  
     if experiment=='blobs':
         if (rename_configs or return_configs):
-            SDF, renamed_configs = check_sdfs(MEANS.keys(), 
+            SDF, renamed_configs = check_sdfs_blobs(MEANS.keys(),
                                           images_only=images_only, 
                                           return_incorrect=True)
             if rename_configs:
-                sdf_master = get_master_sdf(images_only=images_only)
+                sdf_master = get_master_sdf(experiment='blobs',
+                                            images_only=images_only)
                 for k, cfg_lut in renamed_configs.items():
                     updated_cfgs = [cfg_lut[cfg] for cfg \
                                         in MEANS[k]['config']]

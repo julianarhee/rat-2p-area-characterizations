@@ -21,6 +21,135 @@ import scipy.stats as spstats
 
 
 # do fiting
+from scipy.optimize import curve_fit
+
+def func_halflife(t, a, tau, c):
+    return a * 2**(-t / tau) + c
+
+def func_tau(t, a, tau, c):
+    return a * np.exp(-t / tau) + c
+
+def func_decay(t, a, tau, c):
+    return a * np.exp(-t * tau) + c
+
+
+def fit_decay(xdata, ydata, p0=None, return_inputs=False, normalize_x=True):
+    in_x = xdata.copy()
+    in_y = ydata.copy()
+    if normalize_x:
+        in_x_norm = (in_x - in_x[0])/(in_x[-1] - in_x[0])   # normalized
+    else:
+        in_x_norm = in_x.copy()
+
+    a_f, tau_f, c_f, r2 = None, None, None, None
+    # init params
+    if p0 is None:
+        p0 = init_decay_params(ydata) # (1, 1, 1)
+    bounds = ((-1., 0., -np.inf), (1., 3000, np.inf))
+    a_0, tau_0, c_0 = p0
+    try:
+        popt4, pcov4 = curve_fit(func_halflife, in_x_norm, in_y, 
+                                p0=(a_0, tau_0, c_0), bounds=bounds)
+        if normalize_x:
+            a4, tau4, c4 = popt4
+            a_f = a4*np.exp(xdata[0]/(xdata[-1] - xdata[0]) / tau4)
+            tau_f = (xdata[-1] - xdata[0]) * tau4
+            c_f = c4
+            #print(a_f, tau_f, c_f)
+        else:
+            a_f, tau_f, c_f = popt4
+        fitv = func_halflife(in_x, a_f, tau_f, c_f)
+
+        # Get residual sum of squares 
+        residuals = in_y - fitv
+        ss_res = np.nansum(residuals**2)
+        ss_tot = np.nansum((in_y - np.nanmean(in_y))**2)
+        r2 = 1 - (ss_res / ss_tot)
+    except RuntimeError as e:
+        print('    no fit')
+
+    if return_inputs:
+        return a_f, tau_f, c_f, r2, in_x, in_y
+    else:
+        return af, tau_f, c_f, r2
+
+def init_decay_params(ydata):
+#     c_0 = ydata[-1]
+#     tau_0 = 1
+#     a_0 = (ydata[-1] - ydata[0])
+    c_0 = ydata[-1]
+    tau_0 = 1
+    a_0 = abs(ydata[0] - ydata[-1])
+    p0 = (a_0, tau_0, c_0)
+    return p0
+
+
+def fit_decay_on_binned(cc_, use_binned=False,
+                       metric='signal_cc', bin_column='binned_cortical_distance',
+                       return_inputs=False):
+    '''
+    Fit exponential decay (returns half-life).
+    use_binned: (bool)
+        If True, get median cell pair values for each bin, then fit. 
+        Otherwise, sample within bin, but fit on raw points.
+    '''
+    if use_binned:
+        xdata = np.array([xg[bin_column].mean() for xi, xg \
+                         in cc_.groupby(bin_column)])
+        ydata = np.array([xg[metric].mean() for xi, xg \
+                          in cc_.groupby(bin_column)]) 
+        normalize_x = True
+    else:
+        xdata = cc_.sort_values(by=bin_column)[bin_column].values
+        ydata = cc_.sort_values(by=bin_column)[metric].values
+        normalize_x = False
+    # ----------------
+    non_nans = np.array([int(i) for i, v in enumerate(xdata) if not np.isnan(v)])
+    if len(non_nans)==0:
+        print(cc_.head(), xdata)
+    xdata = xdata[non_nans]
+    ydata = ydata[non_nans]
+
+    p0 = init_decay_params(ydata)
+    initv, tau, const, r2, xvals, yvals = fit_decay(xdata, ydata, 
+                                            normalize_x=normalize_x,
+                                            return_inputs=True, p0=p0)
+    res_ = pd.Series({'init': initv, 'tau': tau, 'constant': const, 'R2': r2})
+    
+    if return_inputs:
+        return res_, xvals, yvals
+    else:
+        return res_
+    
+def bootstrap_fitdecay(bcorrs, use_binned=False, 
+                      metric='signal_cc', bin_column='binned_cortical_distance',
+                      n_iterations=500):
+    '''
+    Cycle thru visual areas, sample w replacement, fit decay func.
+    Return df of bootstrapped params.
+    '''
+    r_=[]
+    for va, cc0 in bcorrs.groupby('visual_area'):
+        cnts = cc0.groupby(bin_column)['neuron_pair']\
+                  .count().reset_index()
+        filled_bins = cnts[cnts['neuron_pair']>0][bin_column].values
+        cc_ = cc0[cc0[bin_column].isin(filled_bins)].copy()
+        n_samples = cc_.groupby(bin_column).count().min().min()
+        for n_iter in np.arange(0, n_iterations):
+            curr_cc = cc_.groupby(bin_column).sample(n=n_samples,
+                                        random_state=n_iter, replace=True)
+            res_, xvals, yvals = fit_decay_on_binned(curr_cc, use_binned=use_binned,
+                                            metric=metric, 
+                                            bin_column=bin_column,
+                                            return_inputs=True)
+            res_['iteration'] = n_iter
+            res_['visual_area'] = va
+            r_.append(res_)
+    resdf = pd.concat(r_, axis=1).T
+    resdf['tau'] = resdf['tau'].astype(float)
+    return resdf
+
+
 def linregress_on_binned(cc_, metric='signal_cc', to_quartile='cortical_distance',
                         return_inputs=False):
     xdata = np.array([i \
