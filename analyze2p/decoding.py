@@ -595,6 +595,99 @@ def train_test_size_subset(iter_num, curr_data, sdf, verbose=False,
 
     return iterdf
 
+def train_test_gratings_single(iter_num, curr_data, sdf, verbose=False,
+                    C_value=None, test_split=0.2, cv_nfolds=5, 
+                    class_name='ori', class_values=None,
+                    variation_name='size', variation_values=None,
+                    n_train_configs=4, 
+                    balance_configs=True,do_shuffle=True, return_clf=True):
+    ''' Train with single set of nonori params, test on same. 
+    *only works with ORI
+    Does 1 iteration of SVC fit for FOV (no global rois). 
+    Assumes 'config' column in curr_data.
+
+    Args
+    class_name: (str)
+        Column to classify
+    class_values: (list)
+        Values of the targets (e.g., value of ORI).
+   
+    do_shuffle: (bool)
+        Runs fit_svm() twice, once reg and once with labels shuffled. 
+
+    balance_configs: (bool)
+        Add step to select same N trials per config (if not done before).
+
+    '''    
+    return_clf=True
+    # All relevant GRATINGS params
+    all_params=['ori', 'sf', 'size', 'speed']
+    nonX_params = [x for x in all_params if x!=class_name]
+    # Select train/test configs for clf A vs B
+    if class_values is None:
+        class_values = sorted(sdf[class_name].unique())
+    # Select non-X params 
+    variation_name = 'non_%s' % class_name
+    nonX_df = sdf[nonX_params].drop_duplicates()
+    sdf.loc[sdf.index, variation_name] = ['%.1f_%.1f_%.1f' % (v1, v2, v3) \
+                            for v1, v2, v3 in sdf[nonX_params].values]
+    # Go thru all training sizes, then test on non-trained sizes
+    df_list=[]
+    #i=0
+    for ix, train_parvals in nonX_df.iterrows():
+        train_list=[]
+        # Get subset of configs that match current set of params
+        curr_sdf = sdf[sdf[nonX_params].eq(train_parvals).all(axis=1)].copy()
+        # Get train configs
+        train_configs = curr_sdf[curr_sdf[class_name].isin(class_values)]\
+                                .index.tolist()
+        # TRAIN SET: trial data for selected cells and config types
+        trainset = curr_data[curr_data['config'].isin(train_configs)].copy()
+        if balance_configs:
+            trainset = aggr.equal_counts_df(trainset)
+        train_data = trainset.drop('config', 1)
+        # TRAIN SET: labels
+        targets = pd.DataFrame(trainset['config'].copy(), columns=['config'])
+        targets['label'] = [sdf[class_name][cfg] for cfg \
+                            in targets['config'].values]
+        targets['group'] = [sdf[variation_name][cfg] for cfg \
+                            in targets['config'].values]
+        train_transform ='%.1f_%.1f_%.1f' % tuple(train_parvals.values)
+        # Fit params
+        randi = random.randint(1, 10000)
+        clf_params = {'C_value': C_value, 
+                      'cv_nfolds': cv_nfolds,
+                      'test_split': test_split,
+                      'randi': randi,
+                      'verbose': verbose,
+                      'inum': iter_num}
+        # FIT
+        idf_, trained_svc, trained_scaler = fit_svm(train_data, targets, 
+                                                return_clf=True, **clf_params)
+        idf_['condition'] = 'data'
+        clf_params['C_value'] = idf_['C'].values[0]
+        train_list.append(idf_)
+        # Shuffle labels
+        if do_shuffle:
+            idf_shuffled = fit_shuffled(train_data, targets, **clf_params)
+            idf_shuffled['condition'] = 'shuffled'
+            train_list.append(idf_shuffled)
+        # Aggr training results
+        df_train = pd.concat(train_list, axis=0)
+        df_train['train_transform'] = train_transform
+        df_train['test_transform'] = train_transform 
+        df_train['n_trials'] = len(targets)
+        df_train['novel'] = False
+        df_list.append(df_train)
+
+    iterdf = pd.concat(df_list, axis=0).reset_index(drop=True)
+    iterdf['iteration'] = iter_num 
+    iterdf['n_cells'] = curr_data.shape[1]-1
+
+    return iterdf
+
+
+
 def train_test_size_single(iter_num, curr_data, sdf, verbose=False,
                     C_value=None, test_split=0.2, cv_nfolds=5, 
                     class_name='morphlevel', class_values=None,
@@ -1236,6 +1329,8 @@ def select_test(ni, test_type, ndata, sdf, break_correlations, **kwargs):
             curri = train_test_morph_single(ni, ndata, sdf, **kwargs) 
         elif test_type=='morph':
             curri = train_test_morph(ni, ndata, sdf, **kwargs)
+        elif test_type=='ori_single':
+            curri = train_test_gratings_single(ni, ndata, sdf, **kwargs)
         else:
              curri = do_fit_within_fov(ni, ndata, sdf, **kwargs) 
         #print('done')
@@ -1267,18 +1362,26 @@ def create_results_id(C_value=None,
     '''
     C_str = 'tuneC' if C_value is None else 'C%.2f' % C_value
     corr_str = 'nocorrs' if break_correlations else 'intact'
-    if match_rfs:
-        overlap_str = 'matchRF'
+    #if match_rfs:
+    if match_rfs is False and overlap_thr is None:
+        rf_str = 'noRF'
+    elif match_rfs is True and (overlap_thr is None or overlap_thr==0):
+        rf_str = 'matchRF'
+    elif match_rfs is True and overlap_thr>0.:
+        rf_str = 'matchRFoverlap%.2f' % overlap_thr
     else:
-        overlap_str = 'noRF' if overlap_thr is None else 'overlap%.2f' % overlap_thr
+        # match_rfs is False and overlap_thr is not None:
+        rf_str = 'overlap%.2f' % overlap_thr
+
+    #overlap_str = 'noRF' if overlap_thr is None else 'overlap%.2f' % overlap_thr
     #test_str='all' if test_type is None else test_type
     response_str = '%s-%s' % (response_type, responsive_test)
     results_id='%s__%s__%s__%s__%s__%s' \
-                % (visual_area, response_str, trial_epoch, overlap_str, C_str, corr_str)
+                % (visual_area, response_str, trial_epoch, rf_str, C_str, corr_str)
    
     return results_id
 
-def create_aggregate_id(experiment, C_value=None,
+def create_aggregate_id(C_value=None,
                     trial_epoch='stimulus', 
                     response_type='dff', responsive_test='resp', 
                     match_rfs=False, overlap_thr=None): 
@@ -1286,17 +1389,31 @@ def create_aggregate_id(experiment, C_value=None,
     test_type: generatlization test name (size_single, size_subset, morph, morph_single)
     trial_epoch: mean val over time period (stimulus, plushalf, baseline) 
     '''
-    C_str = 'tuneC' if C_value is None else 'C%.2f' % C_value
-    if match_rfs:
-        overlap_str = 'matchRF'
-    else:
-        overlap_str = 'noRF' if overlap_thr is None else 'overlap%.2f' % overlap_thr
     #test_str='all' if test_type is None else test_type
-    response_str = '%s-%s' % (response_type, responsive_test)
-    results_id='%s__%s__%s__%s__%s' \
-                % (experiment, response_str, trial_epoch, overlap_str, C_str)
+    #response_str = '%s-%s' % (response_type, responsive_test)
+    if overlap_thr is not None and isinstance(overlap_thr, (list, np.ndarray)):
+        sub_results_id = create_results_id(C_value=C_value, visual_area='None', 
+                                    trial_epoch=trial_epoch, 
+                                    response_type=response_type,
+                                    responsive_test=responsive_test,
+                                    break_correlations=False, 
+                                    match_rfs=match_rfs, overlap_thr=overlap_thr[0])
+        tmp_id = '__'.join(sub_results_id.split('__')[1:-1])
+        parts_ = tmp_id.split('__')
+        print(parts_)
+        aggr_id = '__'.join([parts_[0], parts_[1], parts_[3]])
+
+    else:
+        sub_results_id = create_results_id(C_value=C_value, visual_area='None', 
+                                    trial_epoch=trial_epoch, 
+                                    response_type=response_type,
+                                    responsive_test=responsive_test,
+                                    break_correlations=False, 
+                                    match_rfs=match_rfs, overlap_thr=overlap_thr)
+        aggr_id = '__'.join(sub_results_id.split('__')[1:-1])
+    #results_id='%s__%s' % (class_name, sub_id)
    
-    return results_id
+    return aggr_id #results_id
 
 # --------------------------------------------------------------------
 # BY_FOV 
@@ -1310,7 +1427,7 @@ def decode_from_fov(datakey, experiment, neuraldf,
     Fit FOV n_iterations times (multiproc). Save all iterations in dataframe.
     '''
     curr_areas = neuraldf['visual_area'].unique()
-    assert len(curr_areas)==1, "Too many visual areas in global cell df"
+    assert len(curr_areas)==1, "Too many visual areas in ndf: %s" % str(curr_areas)
     visual_area = curr_areas[0]
 
     # Set output dir and file
@@ -1319,7 +1436,8 @@ def decode_from_fov(datakey, experiment, neuraldf,
                         'FOV%i_*' % fovnum, 'combined_%s_static' % experiment, 
                         'traces', '%s*' % traceid))[0]
     test_str = 'default' if test_type is None else test_type
-    curr_dst_dir = os.path.join(traceid_dir, 'decoding_test', test_str)
+    class_name = in_args['class_name']
+    curr_dst_dir = os.path.join(traceid_dir, 'decoding', class_name, test_str)
     if not os.path.exists(curr_dst_dir):
         os.makedirs(curr_dst_dir)
         print("... saving tmp results to:\n  %s" % curr_dst_dir)
@@ -1330,9 +1448,12 @@ def decode_from_fov(datakey, experiment, neuraldf,
     # Zscore data 
     ndf_z = aggr.get_zscored_from_ndf(neuraldf) 
     n_cells = int(ndf_z.shape[1]-1) 
+    class_name = in_args['class_name']
+    class_values = in_args['class_values']
     if verbose:
         print("... BY_FOV [%s] %s, n=%i cells" % (visual_area, datakey, n_cells))
-
+        print("... test: %s (class %s, values: %s)" % (test_str, class_name,
+                                                        str(class_values)))
     # Stimulus info
     if sdf is None:
         match_stimulus_names = experiment=='blobs'
@@ -1413,7 +1534,8 @@ def decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA,
     visual_area = curr_areas[0]
 
     #### Set output dir and file
-    results_outfile = os.path.join(dst_dir, '%s_%03d.pkl' % (results_id, n_cells_sample))
+    results_outfile = os.path.join(dst_dir, \
+                            '%s_%03d.pkl' % (results_id, n_cells_sample))
     # remove old file
     if os.path.exists(results_outfile):
         os.remove(results_outfile)
@@ -1650,13 +1772,13 @@ def sample_neuraldata_for_N_cells(n_cells_sample, NDATA, GCELLS,
 # --------------------------------------------------------------------
 
 def decoding_analysis(dk, va, experiment,  
-                    analysis_type='by_fov',
-                    response_type='dff', traceid='traces001',
-                    trial_epoch='stimulus',
+                    analysis_type='by_fov',trial_epoch='stimulus',
+                    traceid='traces001', 
                     responsive_test='nstds', responsive_thr=10.,
                     match_rfs=False, 
                     rf_lim='percentile', rf_metric='fwhm_avg',
-                    overlap_thr=None,
+                    overlap_thr=None,response_type='dff', 
+                    do_spherical_correction=False,
                     test_type=None, 
                     break_correlations=False,
                     n_cells_sample=None, drop_repeats=True, 
@@ -1760,13 +1882,23 @@ def decoding_analysis(dk, va, experiment,
         # -------------------------------------------------------------
         # BY_FOV - for each fov, do_decode
         # -------------------------------------------------------------
-        if dk is not None:
+        if dk is not None and va is None:
+            meta = meta[(meta.datakey==dk)]
+        elif dk is not None and va is not None:
+            meta = meta[(meta.datakey==dk) & (meta.visual_area==va)]
+        # otherwwise, just cycles thru all datakeys in visual area
+        for (va, dk), g in meta.groupby(['visual_area', 'datakey']):   
             neuraldf = NDATA[(NDATA.visual_area==va) 
                            & (NDATA.datakey==dk)].copy()
+            # Get stimuli
             sdf = aggr.get_stimuli(dk, experiment, 
-                            match_names=match_stimulus_names)
+                        match_names=match_stimulus_names)
+            if experiment=='gratings' and class_name=='sf':
+                # Need to convert to int
+                sdf['sf'] = (sdf['sf']*10.).astype(int)
             if int(neuraldf.shape[0]-1)==0:
                 return None
+
             decode_from_fov(dk, experiment, neuraldf, sdf=sdf, 
                             test_type=test_type, 
                             results_id=results_id,
@@ -1774,21 +1906,6 @@ def decoding_analysis(dk, va, experiment,
                             traceid=traceid,
                             break_correlations=break_correlations,
                             n_processes=n_processes, **in_args)
-        else:
-            for (va, dk), g in meta.groupby(['visual_area', 'datakey']):   
-                neuraldf = NDATA[(NDATA.visual_area==va) 
-                               & (NDATA.datakey==dk)].copy()
-                sdf = aggr.get_stimuli(dk, experiment, 
-                            match_names=match_stimulus_names)
-                if int(neuraldf.shape[0]-1)==0:
-                    return None
-                decode_from_fov(dk, experiment, neuraldf, sdf=sdf, 
-                                test_type=test_type, 
-                                results_id=results_id,
-                                n_iterations=n_iterations, 
-                                traceid=traceid,
-                                break_correlations=break_correlations,
-                                n_processes=n_processes, **in_args)
         print("--- done by_fov ---")
 
     elif analysis_type=='by_ncells':
@@ -1824,7 +1941,7 @@ def decoding_analysis(dk, va, experiment,
         # Set global output dir (since not per-FOV):
         test_str = 'default' if test_type is None else test_type
         dst_dir = os.path.join(aggregate_dir, 'decoding', 
-                                    'py3_by_ncells', test_str)
+                                    'py3_by_ncells', class_name, test_str)
         curr_results_dir = os.path.join(dst_dir, 'files')
         if not os.path.exists(curr_results_dir):
             os.makedirs(curr_results_dir)
@@ -1838,8 +1955,11 @@ def decoding_analysis(dk, va, experiment,
             pkl.dump(cells0, f, protocol=2) 
 
         # Stimuli
-        #if experiment=='blobs':
         sdf = aggr.get_master_sdf(experiment, images_only=experiment=='blobs')
+        if experiment=='gratings' and class_name=='sf':
+            # Need to convert to int
+            sdf['sf'] = (sdf['sf']*10.).astype(int)
+
         # NDATA0 = NDATA.copy()
         NDATA = NDATA[NDATA.config.isin(sdf.index.tolist())].copy() 
 
@@ -1879,8 +1999,8 @@ def decoding_analysis(dk, va, experiment,
 # --------------------------------------------------------------------
 # Aggregate functions
 # --------------------------------------------------------------------
-def aggregate_iterated_results(experiment, meta, analysis_type='by_fov',
-                      test_type=None,
+def aggregate_iterated_results(meta, class_name, experiment=None,
+                      analysis_type='by_fov', test_type=None,
                       traceid='traces001',
                       trial_epoch='plushalf', responsive_test='nstds', 
                       C_value=1., break_correlations=False, 
@@ -1888,10 +2008,13 @@ def aggregate_iterated_results(experiment, meta, analysis_type='by_fov',
                       rootdir='/n/coxfs01/2p-data',
                       aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     test_str = 'default' if test_type is None else test_type
+    if experiment is None:
+        experiment = 'gratings' if class_name=='ori' else 'blobs'
     iterdf=None
     missing_=[]
     d_list=[]
     if analysis_type=='by_fov':
+        n_found = dict((k, 0) for k in ['V1', 'Lm', 'Li'])
         for (va, dk), g in meta.groupby(['visual_area', 'datakey']):
             results_id = create_results_id(C_value=C_value, 
                                            visual_area=va,
@@ -1906,7 +2029,7 @@ def aggregate_iterated_results(experiment, meta, analysis_type='by_fov',
                                   'FOV%i_*' % fovn,
                                   'combined_%s_*' % experiment, 
                                   'traces/%s*' % traceid, 
-                                  'decoding_test', test_str))[0]
+                                  'decoding', class_name, test_str))[0]
                 results_fpath = os.path.join(results_dir, '%s.pkl' % results_id)
                 assert os.path.exists(results_fpath), \
                                     'Not found:\n    %s' % results_fpath
@@ -1917,9 +2040,14 @@ def aggregate_iterated_results(experiment, meta, analysis_type='by_fov',
                 missing_.append((va, dk))
                 #traceback.print_exc()
                 continue
+            n_found[va] += 1
+
+        for va, nf in n_found.items():
+            print("(%s) Found %i paths" % (va, nf))
+
     elif analysis_type=='by_ncells':
         results_dir = glob.glob(os.path.join(aggregate_dir, 'decoding',\
-                                'py3_by_ncells', test_str, 'files'))
+                                'py3_by_ncells', class_name, test_str, 'files'))
         if len(results_dir)==0:
             print("No results by_ncells")
             return None, None
@@ -1949,6 +2077,163 @@ def aggregate_iterated_results(experiment, meta, analysis_type='by_fov',
     
     return iterdf, missing_
 
+
+def load_iterdf(meta, class_name, experiment=None,
+                      analysis_type=None, test_type=None,
+                      traceid='traces001', trial_epoch='stimulus', 
+                      responsive_test='nstds', 
+                      C_value=1, break_correlations=False, 
+                      match_rfs=False, overlap_thr=None):
+    '''
+    Load and aggregate results
+    '''
+    if overlap_thr is None or not isinstance(overlap_thr, (list, np.ndarray)):
+        overlap_thr = [overlap_thr]
+    i_list=[]
+    missing_dict = dict((k, {}) for k in overlap_thr)
+    #print(overlap_thr)
+
+    for overlap_val in overlap_thr:
+        iterdf=None; iterdf_b=None;
+        missing_=None; missing_b=None;
+        iterdf, missing_ = aggregate_iterated_results(meta, 
+                              class_name, experiment=experiment,
+                              analysis_type=analysis_type,
+                              test_type=test_type,
+                              traceid=traceid,
+                              trial_epoch=trial_epoch, 
+                              responsive_test=responsive_test, 
+                              C_value=C_value, break_correlations=False, 
+                              match_rfs=match_rfs, overlap_thr=overlap_val)
+        missing_dict[overlap_val]['intact'] = missing_
+
+        if iterdf is None:
+            continue
+        iterdf['intact'] = True
+        df_ = iterdf.copy()
+
+        if test_type is None:
+            iterdf_b, missing_b = aggregate_iterated_results(meta, 
+                                  class_name, experiment=experiment,
+                                  analysis_type=analysis_type,                   
+                                  test_type=test_type,
+                                  traceid=traceid,
+                                  trial_epoch=trial_epoch, 
+                                  responsive_test=responsive_test, 
+                                  C_value=C_value, break_correlations=True, 
+                                  match_rfs=match_rfs, overlap_thr=overlap_val)
+            missing_dict[overlap_val]['no_cc'] = missing_b
+            if iterdf_b is not None:
+                iterdf_b['intact'] = False
+                df_ = pd.concat([iterdf, iterdf_b], axis=0)
+            else:
+                df_ = iterdf.copy()
+
+        if df_ is not None:
+            df_['overlap_thr'] = overlap_val
+
+        i_list.append(df_)
+
+    df = pd.concat(i_list, axis=0)
+
+    return df, missing_dict
+
+def average_across_iterations(iterdf, iterdf_b=None, analysis_type='by_fov', 
+                              test_type=None):
+    '''
+    Get average value (across iterations) for each columns
+    grouper=['visual_area', 'datakey', 'condition']
+    if test_type is not None:
+        grouper.extend(['novel', 'train_transform', 'test_transform'])
+    '''
+    grouper=['visual_area', 'datakey', 'condition']
+    if analysis_type=='by_ncells':
+        grouper.append('n_cells')
+    if test_type is not None:
+        grouper.extend(['novel', 'train_transform', 'test_transform'])
+    df_intact = iterdf.groupby(grouper).mean().reset_index()
+    df_intact['intact'] = True
+    
+    if iterdf_b is not None:
+        df_nocc = iterdf_b.groupby(grouper).mean().reset_index()
+        df_nocc['intact'] = False
+        DF = pd.concat([df_intact, df_nocc], axis=0)
+    else:
+        DF = df_intact.copy()
+    return DF
+
+
+def average_across_iterations_by_fov(iterdf, analysis_type='by_fov', 
+                           test_type='morph',
+                        grouper=['visual_area', 'condition', 'datakey']):
+
+    if test_type is not None:
+        grouper.extend(['novel', 'train_transform', 'test_transform', 'morphlevel'])
+
+    mean_by_iters = iterdf.groupby(grouper).mean().reset_index()
+    return mean_by_iters
+
+
+def average_within_iterations_by_ncells(iterdf, analysis_type='by_ncells', 
+                              test_type='size_single',
+                        grouper=['visual_area', 'condition', 'iteration']):
+    '''
+    For each iteration, get average of relevant columns. Returns distn of 
+    iteration results.
+    '''
+    if analysis_type=='by_ncells':
+        grouper.append('n_cells')
+    if test_type is not None:
+        grouper.append('novel')
+    print(grouper)
+    mean_by_iters = iterdf.groupby(grouper).mean().reset_index()
+    return mean_by_iters
+
+
+def generalization_score_by_iter(mean_df, max_ncells=None, 
+                                 metric='heldout_test_score'):
+    '''Calculate generalization score for each iteration.
+    mean_df: (pd.DataFrame)
+        Average val (novel and trained) for each iteration.
+    '''
+    if max_ncells is None:
+        max_ncells = int(mean_df['n_cells'].max())
+    byiter_data = mean_df[(mean_df['n_cells']<=max_ncells) 
+                      & (mean_df['condition']=='data')].copy()
+    # remove unnec. columns
+    drop_cols = ['fit_time', 'score_time', 'train_score', 'test_score']
+    cols = [c for c in byiter_data.columns if c not in drop_cols]
+    # Get NOVEL only
+    byiter_novel = byiter_data[byiter_data['novel']==True][cols].copy()
+    # Calculate generalization score
+    byiter_novel['generalization'] = byiter_data[(byiter_data.novel)][metric].values\
+                                        /byiter_data[~(byiter_data.novel)][metric].values
+    return byiter_novel
+
+
+
+def plot_score_v_ncells_color_X(finaldf, sample_sizes, ax=None,
+                         metric='heldout_test_score', hue_name='visual_area', 
+                         palette='viridis', dpi=150, legend=True):
+    '''
+    Plot test score vs n_cells for each visual area.
+    '''
+    if ax is None:
+        fig, ax = pl.subplots(figsize=(4,4), dpi=dpi)
+    sns.lineplot(x='n_cells', y=metric, data=finaldf, ax=ax,
+            style='condition', dashes=['', (1,1)], style_order=['data', 'shuffled'],
+            err_style='bars', hue=hue_name, palette=palette, ci='sd') 
+
+    if legend:
+        ax.legend(bbox_to_anchor=(1,1), loc='upper left', frameon=False)
+        ax.set_xticks(sample_sizes)
+    else:
+        ax.legend_.remove()    
+
+
+# --------------------------------------------------------------------
+# run main
+# --------------------------------------------------------------------
 
 def extract_options(options):
     
@@ -1984,17 +2269,24 @@ def extract_options(options):
             help="Trial epoch, choices: %s. (default: %s" % (choices_e, default_e))
 
     # classifier
-    parser.add_option('-a', action='store', dest='class_a', 
-            default=0, help="m0 (default: 0 morph)")
-    parser.add_option('-b', action='store', dest='class_b', 
-            default=106, help="m100 (default: 106 morph)")
+    parser.add_option('--class-name', action='store', dest='class_name',
+            default=None, help='Class name (morphlevel, size, sf, ori, etc.)')
+    parser.add_option('--class-values', action='append', dest='class_values',
+            default=[], nargs=1, help='Class values (leave empty to get default')
+    parser.add_option('--var-name', action='store', dest='variation_name',
+            default=None, help='Variation name (transform to keep constant)')
+    parser.add_option('--var-values', action='append', dest='variation_values',
+            default=[], nargs=1, help='Class values (leave empty to get default), if var_name=morphlevel, set value to -1 (not testd)')
+
+#    parser.add_option('-a', action='store', dest='class_a', 
+#            default=0, help="m0 (default: 0 morph)")
+#    parser.add_option('-b', action='store', dest='class_b', 
+#            default=106, help="m100 (default: 106 morph)")
     parser.add_option('-n', action='store', dest='n_processes', 
             default=1, help="N processes (default: 1)")
     parser.add_option('-N', action='store', dest='n_iterations', 
-            default=100, help="N iterations (default: 100)")
+            default=500, help="N iterations (default: 500)")
 
-    parser.add_option('-o', action='store', dest='overlap_thr', 
-            default=None, help="% overlap between RF and stimulus (default: None)")
     parser.add_option('--verbose', action='store_true', dest='verbose', 
             default=False, help="verbose printage")
     parser.add_option('--new', action='store_true', dest='create_new', 
@@ -2018,7 +2310,8 @@ def extract_options(options):
     parser.add_option('--no-shuffle', action='store_false', dest='do_shuffle', 
             default=True, help="don't do shuffle")
 
-    choices_t = (None, 'None', 'size_single', 'size_subset', 'morph', 'morph_single')
+    choices_t = (None, 'None', 'size_single', 'size_subset', 
+                'morph', 'morph_single', 'ori_single')
     default_t = None  
     parser.add_option('-T', '--test', action='store', dest='test_type', 
             default=default_t, type='choice', choices=choices_t,
@@ -2032,12 +2325,17 @@ def extract_options(options):
     parser.add_option('--incl-repeats', action='store_false', dest='drop_repeats', 
             default=True, help="BY_NCELLS:  Drop repeats before sampling")
     parser.add_option('-S', '--ncells', action='store', dest='n_cells_sample', 
-            default=None, help="BY_NCELLS: n cells to sample (None, cycles thru all)")
-    parser.add_option('--rf-size', action='store_true', dest='match_rfs', 
-            default=False, help="BY_NCELLS: Cells with matched RF sizes")
+            default=None, 
+            help="BY_NCELLS: n cells to sample (None, cycle thru all)")
+    parser.add_option('--match-rfs', action='store_true', dest='match_rfs', 
+            default=False, help="Only include cells with matched RF sizes")
 
     parser.add_option('-O', '--overlap', action='store', dest='overlap_thr', 
-            default=None, help="BY_NCELLS: Only include cells overlapping by >= overlap_thr")
+            default=None, 
+            help="BY_NCELLS: Only cells overlapping wth stimulus by >= overlap_thr")
+    parser.add_option('--sphere', action='store_true', 
+            dest='do_spherical_correction', 
+            default=False, help="For RF metrics, use spherically-corrected fits")
 
     (options, args) = parser.parse_args(options)
 
@@ -2056,7 +2354,6 @@ def main(options):
 
     # Pick data ------------------------------------ 
     traceid = opts.traceid #'traces001'
-    response_type = opts.response_type #'dff'
     responsive_test = opts.responsive_test #'nstds' # 'nstds' #'ROC' #None
     if responsive_test=='None':
         responsive_test=None
@@ -2117,22 +2414,32 @@ def main(options):
     retino_pass_criterion='all'
    
     # do it --------------------------------
-    variation_name=None
-    variation_values=None
-    class_name=None
-    class_values=None
+    variation_values = None if None in opts.variation_values \
+                        or 'None' in opts.variation_values else opts.variation_values
+    variation_name = None if opts.variation_name in [None, 'None'] \
+                        else opts.variation_name
+    class_name = None if opts.class_name in [None, 'None'] \
+                        else opts.class_name
+    class_values = None if None in opts.class_values \
+                        or 'None' in opts.class_values else opts.class_values
+
+    if class_name is None:
+        class_name = 'morphlevel' if experiment=='blobs' else 'ori'
     if experiment=='blobs':
-        class_name = 'morphlevel'
-        class_values = [0, 106]
+        assert class_name in ['morphlevel', 'size']
+        class_values = [0, 106] if class_name=='morphlevel' else None
         if test_type is not None: # generalization tests
-            variation_name = 'size'
+            variation_name = 'size' if class_name=='morphlevel' else 'morphlevel'
             variation_values = None # these get filled later
+            # TODO:  if decoding LUMINANCE, class_name='size':
+            # variation_name='morphlevel', AND variation_values=[-1]
     elif experiment=='gratings':
-        class_name = 'ori'
+        assert class_name in ['ori', 'sf', 'size', 'speed'], \
+                    "Bad class_name for %s: %s" % (experiment, str(class_name))
         class_values = None
-        if test_type is not None:
+        if test_type in [None, 'ori_single']:
             # TODO: not implemented 
-            variation_name = None
+            variation_name = None # only works for ORI as class_name 
             variation_values=None 
 
     balance_configs=True
@@ -2143,13 +2450,16 @@ def main(options):
     match_rfs = opts.match_rfs
     overlap_thr = None if opts.overlap_thr in ['None', None] \
                         else float(opts.overlap_thr)
+    response_type=opts.response_type
+    do_spherical_correction=opts.do_spherical_correction
+
     print("EXPERIMENT: %s, values: %s" % (experiment, str(class_values)))
 
     print("OVERLAP: %s" % str(overlap_thr))
 
     decoding_analysis(datakey, visual_area, experiment,  
                     analysis_type=analysis_type,
-                    response_type=response_type, traceid=traceid,
+                    traceid=traceid,
                     trial_epoch=trial_epoch,
                     responsive_test=responsive_test, 
                     responsive_thr=responsive_thr,
@@ -2158,6 +2468,8 @@ def main(options):
                     n_cells_sample=n_cells_sample,
                     drop_repeats=drop_repeats,
                     overlap_thr=overlap_thr, match_rfs=match_rfs,
+                    response_type=response_type, 
+                    do_spherical_correction=do_spherical_correction,
                     C_value=C_value, test_split=test_split, cv_nfolds=cv_nfolds, 
                     class_name=class_name, 
                     class_values=class_values,

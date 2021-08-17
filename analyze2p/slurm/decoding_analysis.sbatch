@@ -22,7 +22,7 @@ source activate /n/coxfs01/2p-pipeline/envs/rat2p
 #{TID} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS}".format(
 #{TID} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS} {MATCHRF} {OVERLAP}".format(
 
-TRACEID="$1"
+CLASSNAME="$1"
 EXP="$2"
 VAREA="$3"
 DATAKEY="$4"
@@ -34,6 +34,7 @@ MATCHRF="$9"
 OVERLAP="${10}"
 
 # run processing on raw data
+echo "CLASS: ${CLASSNAME}"
 echo "datakey: ${DATAKEY}"
 echo "experiment: ${EXP}"
 echo "ANALYSIS: ${ANALYSIS}"
@@ -46,18 +47,18 @@ if [[ ${BREAK} == "True" ]]; then
     echo "breaking corrs..."
     if [[ ${MATCHRF} == "True" ]]; then
         echo "matching RF size!"
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS -O $OVERLAP --break --rf-size 
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP  -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS -O $OVERLAP --break --match-rfs --class-name $CLASSNAME
     else
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS -O $OVERLAP --break
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS -O $OVERLAP --break --class-name $CLASSNAME
     fi
 
 else
     echo "Corrs intact..."
     if [[ ${MATCHRF} == "True" ]]; then
         echo "matching RF size!"
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS -O $OVERLAP --rf-size
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS -O $OVERLAP --match-rfs --class-name $CLASSNAME
     else
         echo "No match"
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -t $TRACEID -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS -O $OVERLAP
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -d dff -X $ANALYSIS -T $TEST -R nstds -r 10. --epoch plushalf -C 1 -N 500 -n 4 -S $NCELLS -O $OVERLAP --class-name $CLASSNAME
     fi
 fi
