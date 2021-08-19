@@ -241,7 +241,7 @@ def check_sdfs(stim_datakeys, experiment='blobs', images_only=False,
 
 
 def check_sdfs_blobs(stim_datakeys, images_only=False,
-                rename=True, return_incorrect=False, 
+                rename=True, return_incorrect=False, as_dict=False,
                 diff_configs=['20190314_JC070_fov1', '20190327_JC073_fov1'] ):
     '''
     Checks config names and reutrn master dict of all stimconfig dataframes
@@ -282,6 +282,15 @@ def check_sdfs_blobs(stim_datakeys, images_only=False,
     assert all([all(sdf_master[compare_params]==d[compare_params]) \
             for k, d in SDF.items() \
             if k not in different_configs]), "Incorrect stimuli..."
+
+    if not as_dict:
+        sdict = SDF.copy()
+        s_list=[]
+        for k, v in sdict.items():
+            v['datakey'] = k
+            s_list.append(v)
+        SDF = pd.concat(s_list, axis=0)
+
     if return_incorrect:
         return SDF, renamed_configs
     else:
@@ -304,7 +313,7 @@ def match_config_names(sdf, experiment='blobs'):
 
 def select_stimulus_configs(datakey, experiment, select_stimuli=None):
     '''
-    Get config list for datakey and experiment.
+    Load configs for datakey and experiment.
 
     select_stimuli: (str or None)
         - None: Returns all configs in sdf.
@@ -323,6 +332,22 @@ def select_stimulus_configs(datakey, experiment, select_stimuli=None):
         curr_cfgs = sdf.index.tolist()
         return curr_cfgs
 
+    curr_cfgs = get_included_stimconfigs(sdf, experiment=experiment, 
+                        select_stimuli=select_stimuli)        
+    return curr_cfgs
+
+
+def get_included_stimconfigs(sdf, experiment='blobs', select_stimuli='images'):
+    '''
+    select_stimuli: (str or None)
+        - None: Returns all configs in sdf.
+        - fullfield: Return only full-field stimuli 
+                   This will be FF (gratings) or morphlevel=-1 (blobs)
+        - images: Return non-FF stimuli.
+                This will be apertured (gratings) or images (blobs)
+    Returns list ['config001', 'config002', etc.]
+    '''
+
     if select_stimuli is not None:
         if experiment=='gratings':
             curr_cfgs = sdf[sdf['size']==200].index.tolist() \
@@ -334,9 +359,8 @@ def select_stimulus_configs(datakey, experiment, select_stimuli=None):
                         else sdf[sdf['morphlevel']==-1].index.tolist()
     else:
         curr_cfgs = sdf.index.tolist()
-        
     return curr_cfgs
-
+ 
 
 def get_stimulus_coordinates(dk, experiment):
     sdf = get_stimuli(dk, experiment, match_names=True)

@@ -53,23 +53,6 @@ pd.options.mode.chained_assignment='warn' #'raise' # 'warn'
 import analyze2p.receptive_fields.utils as rfutils
 import analyze2p.objects.sim_utils as su
 
-def load_rfpolys(fit_desc, 
-        aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
-    rf_polys=None
-    check_rfs=None
-
-    dst_dir = os.path.join(aggregate_dir, 'receptive-fields', 'dataframes')
-    poly_fpath = os.path.join(dst_dir, 'average_polys_%s.pkl' % fit_desc)
-    try:
-        with open(poly_fpath, 'rb') as f:
-            res = pkl.load(f)
-        check_rfs = res['check_rfs']
-        rf_polys = res['POLYS']
-    except Exception as e:
-        raise(e)
-
-    return rf_polys, check_rfs
-
 def get_cells_with_overlap(cells0, sdata, overlap_thr=0.5,
                 response_type='dff', do_spherical_correction=False):
 
@@ -79,9 +62,16 @@ def get_cells_with_overlap(cells0, sdata, overlap_thr=0.5,
 
     fit_desc = rfutils.get_fit_desc(response_type=response_type,
                             do_spherical_correction=do_spherical_correction)
-    rfpolys, _ = load_rfpolys(fit_desc)
+    rfpolys, _ = su.load_rfpolys(fit_desc)
  
     cells_pass = calculate_overlaps(cells_RF, rfpolys, overlap_thr=overlap_thr)
+
+    cells_pass['global_ix'] = [int(cells0[(cells0.visual_area==va)
+                             & (cells0.datakey==dk) 
+                             & (cells0['cell']==rid)]['global_ix']\
+                             .unique()) for va, dk, rid \
+                             in cells_pass[['visual_area', 'datakey', 'cell']]\
+                             .values]
 
     return cells_pass
 
@@ -145,6 +135,13 @@ def get_cells_with_matched_rfs(cells0, sdata,
     cells_lim, limits = limit_cells_by_rf(cells_RF, rf_lim=rf_lim,
                                 rf_metric=rf_metric)
 
+    cells_lim['global_ix'] = [int(cells0[(cells0.visual_area==va)
+                             & (cells0.datakey==dk) 
+                             & (cells0['cell']==rid)]['global_ix']\
+                             .unique()) for va, dk, rid \
+                             in cells_lim[['visual_area', 'datakey', 'cell']]\
+                             .values]
+
     return cells_lim
 
 def limit_cells_by_rf(cells_RF, rf_lim='percentile', rf_metric='fwhm_avg'):
@@ -204,17 +201,23 @@ def get_cells_with_rfs(CELLS, rfdf):
     CELLS should be assigned + responsive cells (from NDATA)
     rfdf should only have 1 value per cell
     '''
-    c_list=[]
-    for (va, dk), cg in CELLS.groupby(['visual_area', 'datakey']):
-        rdf=rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk)].copy()
-        common_cells = np.intersect1d(rdf['cell'].unique(), cg['cell'].unique())
-        df_ = cg[cg['cell'].isin(common_cells)].copy()
-        rf_ = rdf[rdf['cell'].isin(common_cells)].copy()
-        assert df_.shape[0]==rf_.shape[0], 'Bad selection'
-        new_ = pd.merge(df_, rf_)
-        assert new_.shape[0]==df_.shape[0], "bad merge"
-        c_list.append(new_)
-    cells_RF = pd.concat(c_list, axis=0).reset_index(drop=True)
+    cells_RF = pd.concat([rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk) 
+                     & (rfdf['cell'].isin(g['cell'].values))] \
+                 for (va, dk), g in CELLS.groupby(['visual_area', 'datakey'])])
+
+
+#    c_list=[]
+#    for (va, dk), cg in CELLS.groupby(['visual_area', 'datakey']):
+#        rdf=rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk)].copy()
+#        common_cells = np.intersect1d(rdf['cell'].unique(), cg['cell'].unique())
+#        df_ = cg[cg['cell'].isin(common_cells)].copy()
+#        rf_ = rdf[rdf['cell'].isin(common_cells)].copy()
+#        assert df_.shape[0]==rf_.shape[0], 'Bad selection'
+#        new_ = pd.merge(df_, rf_)
+#        assert new_.shape[0]==df_.shape[0], "bad merge"
+#        c_list.append(new_)
+#    cells_RF = pd.concat(c_list, axis=0).reset_index(drop=True)
+
     return cells_RF
 
 
@@ -1772,25 +1775,25 @@ def sample_neuraldata_for_N_cells(n_cells_sample, NDATA, GCELLS,
 # --------------------------------------------------------------------
 
 def decoding_analysis(dk, va, experiment,  
-                    analysis_type='by_fov',trial_epoch='stimulus',
-                    traceid='traces001', 
-                    responsive_test='nstds', responsive_thr=10.,
-                    match_rfs=False, 
-                    rf_lim='percentile', rf_metric='fwhm_avg',
-                    overlap_thr=None,response_type='dff', 
-                    do_spherical_correction=False,
-                    test_type=None, 
-                    break_correlations=False,
-                    n_cells_sample=None, drop_repeats=True, 
-                    C_value=None, test_split=0.2, cv_nfolds=5, 
-                    class_name='morphlevel', class_values=None,
-                    variation_name='size', variation_values=None,
-                    n_train_configs=4, 
-                    balance_configs=True, do_shuffle=True,
-                    n_iterations=50, n_processes=1,
-                    rootdir='/n/coxfs01/2p-data', verbose=False,
-                    aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas',
-                    visual_areas=['V1', 'Lm', 'Li']): 
+                analysis_type='by_fov',trial_epoch='stimulus',
+                traceid='traces001', 
+                responsive_test='nstds', responsive_thr=10.,
+                match_rfs=False, 
+                rf_lim='percentile', rf_metric='fwhm_avg',
+                overlap_thr=None,response_type='dff', 
+                do_spherical_correction=False,
+                test_type=None, 
+                break_correlations=False,
+                n_cells_sample=None, drop_repeats=True, 
+                C_value=None, test_split=0.2, cv_nfolds=5, 
+                class_name='morphlevel', class_values=None,
+                variation_name='size', variation_values=None,
+                n_train_configs=4, 
+                balance_configs=True, do_shuffle=True,
+                n_iterations=50, n_processes=1,
+                rootdir='/n/coxfs01/2p-data', verbose=False,
+                aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas',
+                visual_areas=['V1', 'Lm', 'Li']): 
     # Metadata    
     sdata0, cells0 = aggr.get_aggregate_info(visual_areas=visual_areas, 
                                             return_cells=True)
@@ -1869,6 +1872,18 @@ def decoding_analysis(dk, va, experiment,
         print(cells0[['visual_area','datakey', 'cell']]\
                 .drop_duplicates()['visual_area'].value_counts())
 
+    if analysis_type=='by_ncells' and drop_repeats:
+        # drop repeats
+        print("~~~ dropping repeats ~~~")
+        print(cells0[['visual_area','datakey', 'cell']]\
+                .drop_duplicates()['visual_area'].value_counts())
+        cells0 = aggr.unique_cell_df(cells0, criterion='max', 
+                                        colname='cell')
+        print("~~~ post ~~~")
+        print(cells0[['visual_area','datakey', 'cell']]\
+                .drop_duplicates()['visual_area'].value_counts()) 
+
+
     # Get final neuraldata
     NDATA = pd.concat([NDATA0[(NDATA0.visual_area==va) 
                      & (NDATA0.datakey==dk)
@@ -1896,7 +1911,8 @@ def decoding_analysis(dk, va, experiment,
             if experiment=='gratings' and class_name=='sf':
                 # Need to convert to int
                 sdf['sf'] = (sdf['sf']*10.).astype(int)
-            if int(neuraldf.shape[0]-1)==0:
+            #print(va, dk, neuraldf.shape)
+            if int(neuraldf.shape[0])==0:
                 return None
 
             decode_from_fov(dk, experiment, neuraldf, sdf=sdf, 
@@ -1913,17 +1929,6 @@ def decoding_analysis(dk, va, experiment,
         # BY_NCELLS - aggregate cells
         # -------------------------------------------------------------
             
-        if drop_repeats:
-            # drop repeats
-            print("~~~ dropping repeats ~~~")
-            print(cells0[['visual_area','datakey', 'cell']]\
-                    .drop_duplicates()['visual_area'].value_counts())
-            cells0 = aggr.unique_cell_df(cells0, criterion='max', 
-                                            colname='cell')
-            print("~~~ post ~~~")
-            print(cells0[['visual_area','datakey', 'cell']]\
-                    .drop_duplicates()['visual_area'].value_counts()) 
-
         counts = cells0[['visual_area', 'datakey', 'cell']]\
                     .drop_duplicates().groupby(['visual_area'])\
                     .count().reset_index()

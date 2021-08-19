@@ -40,6 +40,8 @@ parser.add_argument('-O', '--overlap', dest='overlap_thr', action='store', defau
 
 parser.add_argument('-C', '--class-name', dest='class_name', default='morphlevel',help='Name of class to decode (morphlevel, ori, sf)')
 
+parser.add_argument('-R', '--resp-test', dest='responsive_test', default='nstds',help='Responsive test (nstds or ROC)')
+parser.add_argument('--epoch', dest='trial_epoch', default='stimulus',help='Trial epoch to use for metrics (default: stimulus. Can be: plushalf, stimulus)')
 
 args = parser.parse_args()
 
@@ -93,6 +95,8 @@ overlap_thr = None if args.overlap_thr in ['None', None] \
                 else float(args.overlap_thr)
 
 class_name = args.class_name
+responsive_test = args.responsive_test
+trial_epoch = args.trial_epoch
 
 # Set up logging
 # ---------------------------------------------------------------
@@ -114,12 +118,12 @@ else:
 if match_rfs is False and overlap_thr is None:
     rf_str = '' #'noRF'
 elif match_rfs is True and (overlap_thr is None or overlap_thr==0):
-    rf_str = 'matchRF'
+    rf_str = 'matchRF_'
 elif match_rfs is True and overlap_thr>0:
-    rf_str = 'matchRFoverlap%.2f' % overlap_thr
+    rf_str = 'matchRFoverlap%02d_' % (overlap_thr*10)
 else:
     # match_rfs is False and overlap_thr is not None:
-    rf_str = 'overlap%.2f' % overlap_thr
+    rf_str = 'overlap%02d_' % (overlap_thr*10)
 
 logdir = '%s%s' % (rf_str, logdir)
 
@@ -184,11 +188,11 @@ if analysis_type=='by_ncells':
             cmd = "sbatch --job-name={PROCID}.dcode.{MTAG} \
                 -o '{LOGDIR}/{PROCID}.{MTAG}.out' \
                 -e '{LOGDIR}/{PROCID}.{MTAG}.err' \
-                {CMD} {CLS} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS} {MATCHRF} {OVERLAP}".format(
+                {CMD} {CLS} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS} {MATCHRF} {OVERLAP} {RTEST} {EPOCH}".format(
                     PROCID=piper, MTAG=mtag, LOGDIR=logdir, CMD=cmd_str, 
                     CLS=class_name, EXP=experiment, VA=va, DKEY=dk, 
                     ANALYSIS=analysis_type, TEST=test_type, CORRS=break_corrs,
-                    NCELLS=n_cells_sample, MATCHRF=match_rfs, OVERLAP=overlap_thr)
+                    NCELLS=n_cells_sample, MATCHRF=match_rfs, OVERLAP=overlap_thr, RTEST=responsive_test, EPOCH=trial_epoch)
             #info("Submitting PROCESSPID job with CMD:\n%s" % cmd)
             status, joboutput = subprocess.getstatusoutput(cmd)
             jobnum = joboutput.split(' ')[-1]
@@ -204,11 +208,11 @@ elif analysis_type=='by_fov':
         cmd = "sbatch --job-name={PROCID}.dcode.{MTAG} \
             -o '{LOGDIR}/{PROCID}.{MTAG}.out' \
             -e '{LOGDIR}/{PROCID}.{MTAG}.err' \
-            {CMD} {CLS} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS} {MATCHRF} {OVERLAP}".format(
+            {CMD} {CLS} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS} {MATCHRF} {OVERLAP} {RTEST} {EPOCH}".format(
                     PROCID=piper, MTAG=mtag, LOGDIR=logdir, CMD=cmd_str, 
                     CLS=class_name, EXP=experiment, VA=va, DKEY=dk, 
                     ANALYSIS=analysis_type, TEST=test_type, CORRS=break_corrs,
-                    NCELLS=n_cells_sample, MATCHRF=match_rfs, OVERLAP=overlap_thr)
+                    NCELLS=n_cells_sample, MATCHRF=match_rfs, OVERLAP=overlap_thr, RTEST=responsive_test, EPOCH=trial_epoch)
         #info("Submitting PROCESSPID job with CMD:\n%s" % cmd)
         status, joboutput = subprocess.getstatusoutput(cmd)
         jobnum = joboutput.split(' ')[-1]

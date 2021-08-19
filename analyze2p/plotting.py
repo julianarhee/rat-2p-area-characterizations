@@ -373,8 +373,8 @@ def pairwise_compare_single_metric(comdf, curr_metric='avg_size',
         return ax
 
 def annotate_sig_on_paired_plot(ax, plotd, pstats, metric, lw=1.,
-                                stat='p_val', thr=0.05, offset=2, h=2,
-                                visual_areas=['V1', 'Lm', 'Li']):
+                        stat='p_val', thr=0.05, offset=2, h=2, fontsize=6,
+                        visual_areas=['V1', 'Lm', 'Li']):
     sig_areas = list(pstats[pstats[stat]<thr]['visual_area'])
     for v in sig_areas:
         vix = visual_areas.index(v)
@@ -385,7 +385,8 @@ def annotate_sig_on_paired_plot(ax, plotd, pstats, metric, lw=1.,
             x1, x2 = xticks[vix*2], xticks[(vix*2)+1]
         y, h, col = plotd[metric].max() + offset, h, 'k'
         ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
-        ax.text((x1+x2)*.5, y+h, "*", ha='center', va='bottom', color=col)
+        ax.text((x1+x2)*.5, y+h, "*", ha='center', va='bottom', color=col,
+                fontsize=fontsize)
 
     return
 
