@@ -45,7 +45,7 @@ def fit_decay(xdata, ydata, p0=None, return_inputs=False, normalize_x=True):
     # init params
     if p0 is None:
         p0 = init_decay_params(ydata) # (1, 1, 1)
-    bounds = ((-1., 0., -np.inf), (1., 3000, np.inf))
+    bounds = ((-1., 0., -np.inf), (1., 5000, np.inf))
     a_0, tau_0, c_0 = p0
     try:
         popt4, pcov4 = curve_fit(func_halflife, in_x_norm, in_y, 
@@ -67,6 +67,8 @@ def fit_decay(xdata, ydata, p0=None, return_inputs=False, normalize_x=True):
         r2 = 1 - (ss_res / ss_tot)
     except RuntimeError as e:
         print('    no fit')
+    except ValueError as e:
+        print('    val out of bounds')
 
     if return_inputs:
         return a_f, tau_f, c_f, r2, in_x, in_y
@@ -79,13 +81,14 @@ def init_decay_params(ydata):
 #     a_0 = (ydata[-1] - ydata[0])
     c_0 = ydata[-1]
     tau_0 = 1
-    a_0 = abs(ydata[0] - ydata[-1])
+    a_0 = ydata[0] #abs(ydata[0] - ydata[-1])
     p0 = (a_0, tau_0, c_0)
     return p0
 
 
 def fit_decay_on_binned(cc_, use_binned=False,
-                       metric='signal_cc', bin_column='binned_cortical_distance',
+                       metric='signal_cc', to_quartile='cortical_distance',
+                       bin_column='bin_value', normalize_x=True,
                        return_inputs=False):
     '''
     Fit exponential decay (returns half-life).
@@ -93,24 +96,33 @@ def fit_decay_on_binned(cc_, use_binned=False,
         If True, get median cell pair values for each bin, then fit. 
         Otherwise, sample within bin, but fit on raw points.
     '''
-    if use_binned:
-        xdata = np.array([xg[bin_column].mean() for xi, xg \
-                         in cc_.groupby(bin_column)])
-        ydata = np.array([xg[metric].mean() for xi, xg \
-                          in cc_.groupby(bin_column)]) 
-        normalize_x = True
-    else:
-        xdata = cc_.sort_values(by=bin_column)[bin_column].values
-        ydata = cc_.sort_values(by=bin_column)[metric].values
-        normalize_x = False
-    # ----------------
-    non_nans = np.array([int(i) for i, v in enumerate(xdata) if not np.isnan(v)])
-    if len(non_nans)==0:
-        print(cc_.head(), xdata)
-    xdata = xdata[non_nans]
-    ydata = ydata[non_nans]
 
-    p0 = init_decay_params(ydata)
+
+    if use_binned:
+        data = cc_.groupby('binned_%s' % to_quartile).mean().reset_index()      
+        #normalize_x = True
+    else:
+        data = cc_.copy()
+        #normalize_x = False
+ 
+    meanvs = cc_.groupby('binned_%s' % to_quartile).mean()\
+                .reset_index().dropna()
+    incl_bins = list(set(meanvs['binned_%s' % to_quartile].values))
+  
+    xdata = data[data['binned_%s' % to_quartile].isin(incl_bins)]\
+                .sort_values(by=to_quartile)[to_quartile].values
+    ydata = data[data['binned_%s' % to_quartile].isin(incl_bins)]\
+                .sort_values(by=to_quartile)[metric].values
+    # ----------------
+#    non_nans = np.array([int(i) for i, v in enumerate(xdata) \
+#                            if not np.isnan(v)])
+#    if len(non_nans)==0:
+#        print(cc_.head(), xdata)
+#    xdata = xdata[non_nans]
+#    ydata = ydata[non_nans]
+
+    mean_y = meanvs.sort_values(by=to_quartile)[metric].values
+    p0 = init_decay_params(mean_y)
     initv, tau, const, r2, xvals, yvals = fit_decay(xdata, ydata, 
                                             normalize_x=normalize_x,
                                             return_inputs=True, p0=p0)
@@ -122,7 +134,8 @@ def fit_decay_on_binned(cc_, use_binned=False,
         return res_
     
 def bootstrap_fitdecay(bcorrs, use_binned=False, 
-                      metric='signal_cc', bin_column='binned_cortical_distance',
+                      metric='signal_cc', to_quartile='cortical_distance',
+                      bin_column='bin_value', normalize_x=True,
                       n_iterations=500):
     '''
     Cycle thru visual areas, sample w replacement, fit decay func.
@@ -130,17 +143,20 @@ def bootstrap_fitdecay(bcorrs, use_binned=False,
     '''
     r_=[]
     for va, cc0 in bcorrs.groupby('visual_area'):
-        cnts = cc0.groupby(bin_column)['neuron_pair']\
-                  .count().reset_index()
-        filled_bins = cnts[cnts['neuron_pair']>0][bin_column].values
-        cc_ = cc0[cc0[bin_column].isin(filled_bins)].copy()
-        n_samples = cc_.groupby(bin_column).count().min().min()
+        cnts = cc0.groupby('binned_%s' % to_quartile)['neuron_pair'].count()
+        nsamples_per = dict((k, v) for k, v in zip(cnts[cnts>5].index.tolist(), 
+                                          cnts[cnts>5].values))
         for n_iter in np.arange(0, n_iterations):
-            curr_cc = cc_.groupby(bin_column).sample(n=n_samples,
-                                        random_state=n_iter, replace=True)
-            res_, xvals, yvals = fit_decay_on_binned(curr_cc, use_binned=use_binned,
+            curr_cc = pd.concat([cg.sample(nsamples_per[c], \
+                        random_state=n_iter, replace=True) \
+                        for c, cg in cc0.groupby('binned_%s' % to_quartile) \
+                        if c in nsamples_per.keys()])
+            res_, xvals, yvals = fit_decay_on_binned(curr_cc, 
+                                            use_binned=use_binned,
                                             metric=metric, 
                                             bin_column=bin_column,
+                                            to_quartile=to_quartile,
+                                            normalize_x=normalize_x,
                                             return_inputs=True)
             res_['iteration'] = n_iter
             res_['visual_area'] = va
@@ -373,10 +389,8 @@ def get_pw_cortical_distance(cc_, pos_):
 
 # Data binning
 
-def get_bins(n_bins=4, custom_bins=False, use_quartile=True, cmap='viridis'):
+def get_bins(n_bins=4, custom_bins=False, cmap='viridis'):
     '''Get generic bins and bin labels to split data up'''
-    if custom_bins:
-        use_quartile = False
     qcolor_list = sns.color_palette(cmap, n_colors=n_bins)
     # Bin into quartiles
     bins = [0, 200, 350, 400, np.inf] if custom_bins \
@@ -385,8 +399,8 @@ def get_bins(n_bins=4, custom_bins=False, use_quartile=True, cmap='viridis'):
                     else [hutils.make_ordinal(i) for i in bins[1:]]
     bin_colors = dict((k, v) for k, v in zip(bin_labels, qcolor_list))
     
-
     return bins, bin_labels, bin_colors
+
 
 def custom_bin_labels(bins):
     labels=[]

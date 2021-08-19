@@ -420,6 +420,82 @@ def image_to_poly(im):
     poly = MultiPolygon(polygons)
     return poly
 
+# --------------------------------------------------------------------
+# Receptive field shapes
+# --------------------------------------------------------------------
+def load_rfpolys(fit_desc, 
+        aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+    rf_polys=None
+    check_rfs={}
+
+    dst_dir = os.path.join(aggregate_dir, 'receptive-fields', 'dataframes')
+    poly_fpath = os.path.join(dst_dir, 'average_polys_%s.pkl' % fit_desc)
+    try:
+        with open(poly_fpath, 'rb') as f:
+            res = pkl.load(f)
+        check_rfs = res['check_rfs']
+        rf_polys = res['POLYS']
+    except Exception as e:
+        raise(e)
+
+    return rf_polys, check_rfs
+
+
+def update_rfpolys(rfdf, fit_desc, create_new=False,
+                  aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+    # Set output file
+    dst_dir = os.path.join(aggregate_dir, 'receptive-fields', 'dataframes')
+    if not os.path.exists(dst_dir):
+        os.makedirs(dst_dir)
+    poly_fpath = os.path.join(dst_dir, 'average_polys_%s.pkl' % fit_desc)
+
+    POLYS=None; check_rfs={};
+    if not create_new:
+        # Load existing   
+        POLYS, check_rfs = load_rfpolys(fit_desc, aggregate_dir=aggregate_dir)
+
+    # Process all cells in fov
+    cols = [c for c in rfdf.columns if c!='visual_area']
+    by_dkey = rfdf[cols].drop_duplicates()
+    # Add new, if needed
+    check_these={}
+    add_list=[]
+    add_POLYS=None
+    for dk, curr_rfs in by_dkey.groupby('datakey'):
+        if POLYS is not None:
+            found_cells = POLYS[(POLYS.datakey==dk)]['cell'].values
+        else:
+            found_cells=[]
+        need_ = curr_rfs[~curr_rfs['cell'].isin(found_cells)].copy()
+        if len(need_)==0:
+            continue
+        # Get the cells we need 
+        curr_polys, curr_checks = get_rf_polys(need_, check_invalid=True)
+        if len(curr_checks)>0:
+            check_these[dk]= curr_checks
+        curr_polys['datakey'] = dk
+        add_list.append(curr_polys)
+        print("    adding %s, %i" % (dk, len(curr_polys)))
+    if len(add_list)>0:
+        add_POLYS = pd.concat(add_list, axis=0)
+
+    if add_POLYS is not None: 
+        # Update
+        if POLYS is None:
+            POLYS = add_POLYS
+        else:
+            POLYS0 = POLYS.copy()
+            POLYS = pd.concat([POLYS0, add_POLYS], axis=0)
+        check_rfs.update(check_these)
+        # Save
+        res = {'check_rfs': check_rfs, 'POLYS': POLYS}
+        with open(poly_fpath, 'wb') as f:
+            pkl.dump(res, f, protocol=2)
+            
+    return POLYS, check_rfs
+
+
+
 def rf_to_screen(rid, rfs_, resolution=[1920, 1080]):
     ''' just returns mask'''
     params = ['x0', 'y0', 'fwhm_x', 'fwhm_y', 'theta']
