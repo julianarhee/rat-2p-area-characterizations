@@ -154,23 +154,27 @@ def bootstrap_fitdecay(bcorrs, use_binned=False, func='halflife',
     Cycle thru visual areas, sample w replacement, fit decay func.
     Return df of bootstrapped params.
     '''
+    cnt_grouper = ['binned_%s' % to_quartile, 'datakey'] if fit_sites \
+                    else ['binned_%s' % to_quartile]
     r_=[]
     for va, cc0 in bcorrs.groupby('visual_area'):
-        cnts = cc0.groupby('binned_%s' % to_quartile)['neuron_pair'].count()
+        cnts = cc0.groupby(cnt_grouper)['neuron_pair'].count()  
+        # How many resample per group
         nsamples_per = dict((k, v) for k, v \
-                                in zip(cnts[cnts>=min_npairs].index.tolist(), 
-                                       cnts[cnts>=min_npairs].values))
+                            in zip(cnts[cnts>min_npairs].index.tolist(),
+                                   cnts[cnts>min_npairs].values))
         for n_iter in np.arange(0, n_iterations):
-            curr_cc = pd.concat([cg.sample(nsamples_per[c], \
-                        random_state=n_iter, replace=True) \
-                        for c, cg in cc0.groupby('binned_%s' % to_quartile) \
-                        if c in nsamples_per.keys()])
+            # Sample
+            cc_ = pd.concat([cg.sample(nsamples_per[c], 
+                                 random_state=n_iter, replace=True) \
+                                 for c, cg in cc0.groupby(cnt_grouper) \
+                                 if c in nsamples_per.keys()])
             if fit_sites:
-                cc_ = curr_cc.copy()
-                curr_cc = cc_.groupby(['datakey', 'binned_%s' % to_quartile])\
-                            .median().reset_index().dropna()\
-                            .reset_index(drop=True) 
-                
+                # fov mean for visualizing
+                curr_cc = cc_.groupby(cnt_grouper).median().reset_index().dropna()
+            else:
+                curr_cc = cc_.copy()
+            # fit  
             res_, xvals, yvals = fit_decay_on_binned(curr_cc, 
                                             use_binned=use_binned, 
                                             func=func, estimator=estimator,
@@ -636,4 +640,87 @@ def plot_y_by_binned_x(means_, bin_labels, connect_fovs=False,cmap='viridis',
     pl.subplots_adjust(top=0.8, left=0.1, right=0.95, bottom=0.2)
     
     return g
+
+
+
+def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance', 
+                            metric='signal_cc', use_best_r2=False, fit_sites=True,
+                            lw=1, scatter_params=False, x_pos=-50, y_pos=-0.4,
+                            markersize=10, param_size=5,
+                            elinewidth=1, capsize=2, ylim=None,
+                            xlabel='corr. coef.', ylabel='cortical dist. (um)',
+                            visual_areas=['V1', 'Lm', 'Li'],
+                            area_colors=None):
+    '''
+    Plots 3 subplots: for each area, plot data points + fit line.
+    '''
+    x_var = 'binned_%s' % to_quartile
+    cnt_grouper = [x_var, 'datakey'] if fit_sites else [x_var]
+    # plot params
+#     scatter_params=False
+#     lw=1
+#     markersize=10
+#     param_size=5
+#     x_pos = -50
+#     y_pos=-0.4
+#     elinewidth=1
+#     capsize=2
+#     xlabel = 'corr. coef.'
+#     ylabel = 'cortical dist. (um)'
+    # ---------------------------
+    cols=['init', 'tau', 'constant', 'R2']
+    fig, axn = pl.subplots(1, 3, figsize=(8,3), sharex=True, sharey=True)
+    for va, cc_ in bcorrs.groupby('visual_area'):
+        ai=visual_areas.index(va)
+        ax=axn[ai]
+        # plot data
+        data = cc_.groupby(cnt_grouper).median()
+        xdata = data.sort_values(by=to_quartile)[to_quartile].values
+        ydata = data.sort_values(by=to_quartile)[metric].values
+        sns.scatterplot(x=to_quartile, y='signal_cc', data=data, ax=ax,
+                        s=markersize, color='k', marker='.', edgecolor=None)
+        # plot fits
+        if use_best_r2:
+            pars_ = finalres.loc[finalres[finalres.visual_area==va]\
+                                          ['R2'].idxmax(),cols]
+        else:
+            pars_ = finalres[finalres.visual_area==va][cols].median()
+        init, tau, const, r2 = pars_.init, pars_.tau, pars_.constant, pars_.R2
+        fit_y = func_halflife(xdata, init, tau, const)
+        ax.plot(xdata, fit_y, area_colors[va], lw=lw) # label='fitted line')
+        ax.set_ylabel(xlabel)
+        ax.set_xlabel(ylabel)
+        n_fovs = len(cc_['datakey'].unique())
+        
+        ax.set_title("%s: T=%i, cc=%.2f (n=%i sites)" \
+                        % (va, tau, init, n_fovs), loc='left', fontsize=6)
+        # param distns
+        paramdf = finalres[finalres.visual_area==va]
+        if scatter_params:
+            ax.scatter(x=paramdf['tau'], y=[ymin]*len(paramdf), 
+                       color=area_colors[va], s=param_size)
+            ax.scatter(x=[x_offset]*len(paramdf), y=paramdf['init'], 
+                       color=area_colors[va], s=param_size)
+        else: # just plot med. and CI
+            for par in ['tau', 'init']:
+                med = paramdf[par].median()
+                xpos = med if par=='tau' else x_pos
+                ypos = y_pos if par=='tau' else med
+                ci_lo, ci_hi = hutils.get_empirical_ci(paramdf[par].values)
+                lo_ = abs(med-ci_lo)
+                hi_ = abs(ci_hi-med)
+                err_ = np.array([[lo_,], [hi_,]])
+                xerr = err_ if par=='tau' else None
+                yerr = None if par=='tau' else err_
+                p_marker ='|' if par=='tau' else'_'
+                ax.errorbar(xpos, ypos, yerr=yerr, xerr=xerr,
+                           elinewidth=elinewidth, capsize=capsize, marker=p_marker,
+                           ecolor=area_colors[va], mec=area_colors[va])
+    if ylim is not None:
+        for ax in axn:
+            ax.set_ylim(ylim)
+    sns.despine(trim=True)
+    pl.subplots_adjust(left=0.1, right=0.95, bottom=0.2, wspace=0.3, top=0.8)
+    return fig
+
 
