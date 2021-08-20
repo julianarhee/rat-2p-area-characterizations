@@ -316,7 +316,8 @@ def pairwise_compare_single_metric(comdf, curr_metric='avg_size',
                         ax=None, marker='o', visual_areas=['V1', 'Lm', 'Li'],
                         lw=1, alpha=1., size=5,
                         xlabel_offset=-1, area_colors=None, bar_ci=95, bar_lw=0.5,
-                        return_stats=False, round_to=3, ttest=True):
+                        return_stats=False, round_to=3, ttest=True,
+                        edgecolor=('k', 'k', 'k'), facecolor=(1,1,1,0)):
 
     import analyze2p.stats as st
     assert 'datakey' in comdf.columns, "Need a sorter, 'datakey' not found."
@@ -356,11 +357,11 @@ def pairwise_compare_single_metric(comdf, curr_metric='avg_size',
     statdf = pd.concat(r_, axis=0)
 
     # Plot average
-    sns.barplot("visual_area", curr_metric, data=comdf, 
+    sns.barplot(x="visual_area", y=curr_metric, data=comdf, 
                 hue=compare_var, hue_order=[c1, c2], #zorder=0,
                 ax=ax, order=visual_areas, ci=bar_ci,
-                errcolor="k", edgecolor=('k', 'k', 'k'), 
-                facecolor=(1,1,1,0), linewidth=bar_lw)
+                errcolor="k", edgecolor=edgecolor, 
+                facecolor=facecolor, linewidth=bar_lw, zorder=-10000)
     ax.legend_.remove()
     for x in ax.get_xticks():
         ax.text(x, xlabel_offset, visual_areas[x])

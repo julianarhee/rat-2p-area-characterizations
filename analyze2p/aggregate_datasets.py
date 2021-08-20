@@ -689,79 +689,29 @@ def assign_global_cell_ids(cells0):
         cells1.loc[g.index, 'global_ix'] = global_ids
     return cells1
 
-#def assign_global_cell_id(cells):
-#    cells['global_ix'] = 0
-#    for v, g in cells.groupby(['visual_area']):
-#        cells['global_ix'].loc[g.index] = np.arange(0, g.shape[0])
-#    return cells.reset_index(drop=True)
-#
-#def global_cells(cells, remove_too_few=True, min_ncells=5,  return_counts=False):
-#    '''
-#    cells - dataframe, each row is a cell, has datakey/visual_area fields
-#
-#    Returns:
-#    
-#    roidf (dataframe)
-#        Globally-indexed rois ('dset_roi' = roi ID in dataset, 'roi': global index)
-#    
-#    roi_counters (dict)
-#        Counts of cells by area (optional)
-#
-#    '''
-#    visual_areas=cells['visual_area'].unique() #['V1', 'Lm', 'Li']
-#    print("Assigned visual areas: %s" % str(visual_areas))
-# 
-#    incl_keys = []
-#    if remove_too_few:
-#        for (v, k), g in cells.groupby(['visual_area', 'datakey']):
-#            if len(g['cell'].unique()) < min_ncells:
-#                continue
-#            incl_keys.append(k) 
-#    else:
-#        incl_keys = cells['datakey'].unique()
-# 
-#    nocells=[]; notrials=[];
-#    roi_counters = dict((v, 0) for v in visual_areas)
-#    roidf = []
-#    for (visual_area, datakey), g in cells[cells['datakey'].isin(incl_keys)].groupby(['visual_area', 'datakey']):
-#
-#        roi_counter = roi_counters[visual_area]
-#
-#        # Reindex roi ids for global
-#        roi_list = sorted(g['cell'].unique()) 
-#        nrs = len(roi_list)
-#        roi_ids = [i+roi_counter for i, r in enumerate(roi_list)]
-#      
-#        # Append to full df
-#        roi_dict = {'roi': roi_ids,
-#                   'dset_roi': roi_list,
-#                   'visual_area': [visual_area for _ in np.arange(0, nrs)],
-#                   'datakey': [datakey for _ in np.arange(0, nrs)]}
-#        if 'global_ix' in g.columns:
-#            roi_dict.update({'global_ix': g['global_ix'].values})
-#
-#        roidf.append(pd.DataFrame(roi_dict))
-#      
-#        # Update global roi id counter
-#        roi_counters[visual_area] += len(roi_ids)
-#
-#    if len(roidf)==0:
-#        if return_counts:
-#            return None, None
-#        else:
-#            return None
-#
-#    roidf = pd.concat(roidf, axis=0).reset_index(drop=True)        
-#    roidf['animalid'] = [d.split('_')[1] for d in roidf['datakey']]
-#    roidf['session'] = [d.split('_')[0] for d in roidf['datakey']]
-#    roidf['fovnum'] = [int(d.split('_')[2][3:]) for d in roidf['datakey']]
-#   
-#    if return_counts:
-#        return roidf, roi_counters
-#    else:
-#        return roidf
-#
-#
+
+def get_all_responsive_cells(cells0, NDATA):
+    '''Assigns globa cell index. Return assigned cells
+    that are also responsive (NDATA)'''
+
+    gcells = assign_global_cell_ids(cells0.copy())
+    dkey_lut = NDATA[['visual_area', 'datakey', 'cell']].drop_duplicates()
+    cells0 = pd.concat([gcells[(gcells.visual_area==va) \
+                    & (gcells.datakey==dk) 
+                    & (gcells['cell'].isin(g['cell'].unique()))]\
+                for (va, dk), g in NDATA.groupby(['visual_area', 'datakey'])])
+
+    return cells0
+
+def get_neuraldata_for_included_cells(cells0, NDATA0):
+    # Get final neuraldata
+    NDATA = pd.concat([NDATA0[(NDATA0.visual_area==va) 
+                     & (NDATA0.datakey==dk)
+                     & (NDATA0['cell'].isin(g['cell'].unique()))]\
+                    for (va, dk), g in \
+                    cells0.groupby(['visual_area', 'datakey'])])
+    return NDATA
+
 
 # ===============================================================
 # Dataset selection
@@ -1098,12 +1048,11 @@ def get_cells_by_area(sdata, create_new=False, excluded_datasets=[],
             pkl.dump(results, f, protocol=2)
 
     #print("Missing %i datasets for segmentation:" % len(missing_segmentation)) 
+    print("Segmentation: missing %i dsets" % len(missing_segmentation))
     if verbose: 
-        print("Segmentation, missing:")
         for r in missing_segmentation:
             print(r)
-    else:
-        print("Segmentation: missing %i dsets" % len(missing_segmentation))
+
     if return_missing:
         return cells, missing_segmentation
     else:

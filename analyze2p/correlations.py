@@ -33,7 +33,7 @@ def func_decay(t, a, tau, c):
     return a * np.exp(-t * tau) + c
 
 
-def fit_decay(xdata, ydata, p0=None, return_inputs=False, normalize_x=True):
+def fit_decay(xdata, ydata, p0=None, func='halflife', return_inputs=False, normalize_x=True):
     in_x = xdata.copy()
     in_y = ydata.copy()
     if normalize_x:
@@ -41,24 +41,36 @@ def fit_decay(xdata, ydata, p0=None, return_inputs=False, normalize_x=True):
     else:
         in_x_norm = in_x.copy()
 
+    if func=='halflife':
+        pfunc_ = func_halflife
+    else:
+        pfunc_ = func_tau
+
     a_f, tau_f, c_f, r2 = None, None, None, None
     # init params
     if p0 is None:
         p0 = init_decay_params(ydata) # (1, 1, 1)
-    bounds = ((-1., 0., -np.inf), (1., 5000, np.inf))
+    #tau_ = 1 #2000 / 2. # divide by 2 since corr coef range [-1, 1]
+    #a_lim = 1  
+    tau_lim = 1 if normalize_x else 1500 
+    bounds = ((-1, 0., -np.inf), (1, tau_lim, np.inf))
     a_0, tau_0, c_0 = p0
     try:
-        popt4, pcov4 = curve_fit(func_halflife, in_x_norm, in_y, 
+        popt4, pcov4 = curve_fit(pfunc_, in_x_norm, in_y, 
                                 p0=(a_0, tau_0, c_0), bounds=bounds)
         if normalize_x:
             a4, tau4, c4 = popt4
-            a_f = a4*np.exp(xdata[0]/(xdata[-1] - xdata[0]) / tau4)
+            ##a_f = a4*np.exp(xdata[0]/(xdata[-1] - xdata[0]) / tau4)
+            if func=='halflife':
+                a_f = a4*2**(xdata[0]/(xdata[-1]-xdata[0]) / tau4)
+            else:
+                a_f = a4*np.exp(xdata[0]/(xdata[-1] - xdata[0]) / tau4) 
             tau_f = (xdata[-1] - xdata[0]) * tau4
             c_f = c4
             #print(a_f, tau_f, c_f)
         else:
             a_f, tau_f, c_f = popt4
-        fitv = func_halflife(in_x, a_f, tau_f, c_f)
+        fitv = pfunc_(in_x, a_f, tau_f, c_f)
 
         # Get residual sum of squares 
         residuals = in_y - fitv
@@ -79,14 +91,14 @@ def init_decay_params(ydata):
 #     c_0 = ydata[-1]
 #     tau_0 = 1
 #     a_0 = (ydata[-1] - ydata[0])
-    c_0 = ydata[-1]
+    c_0 = ydata.min() #ydata[-1]
     tau_0 = 1
-    a_0 = ydata[0] #abs(ydata[0] - ydata[-1])
+    a_0 = abs(ydata.max() - ydata.min()) #ydata[0] #abs(ydata[0] - ydata[-1])
     p0 = (a_0, tau_0, c_0)
     return p0
 
 
-def fit_decay_on_binned(cc_, use_binned=False,
+def fit_decay_on_binned(cc_, use_binned=False, func='halflife', estimator='median',
                        metric='signal_cc', to_quartile='cortical_distance',
                        bin_column='bin_value', normalize_x=True,
                        return_inputs=False):
@@ -99,13 +111,20 @@ def fit_decay_on_binned(cc_, use_binned=False,
 
 
     if use_binned:
-        data = cc_.groupby('binned_%s' % to_quartile).mean().reset_index()      
+        if estimator=='median':
+            data = cc_.groupby('binned_%s' % to_quartile).mean().reset_index()
+        else:
+            data = cc_.groupby('binned_%s' % to_quartile).median().reset_index()
+           
         #normalize_x = True
     else:
         data = cc_.copy()
         #normalize_x = False
- 
-    meanvs = cc_.groupby('binned_%s' % to_quartile).mean()\
+    if estimator=='median':
+        meanvs = cc_.groupby('binned_%s' % to_quartile).median()\
+                .reset_index().dropna()
+    else:
+        meanvs = cc_.groupby('binned_%s' % to_quartile).mean()\
                 .reset_index().dropna()
     incl_bins = list(set(meanvs['binned_%s' % to_quartile].values))
   
@@ -114,16 +133,9 @@ def fit_decay_on_binned(cc_, use_binned=False,
     ydata = data[data['binned_%s' % to_quartile].isin(incl_bins)]\
                 .sort_values(by=to_quartile)[metric].values
     # ----------------
-#    non_nans = np.array([int(i) for i, v in enumerate(xdata) \
-#                            if not np.isnan(v)])
-#    if len(non_nans)==0:
-#        print(cc_.head(), xdata)
-#    xdata = xdata[non_nans]
-#    ydata = ydata[non_nans]
-
     mean_y = meanvs.sort_values(by=to_quartile)[metric].values
     p0 = init_decay_params(mean_y)
-    initv, tau, const, r2, xvals, yvals = fit_decay(xdata, ydata, 
+    initv, tau, const, r2, xvals, yvals = fit_decay(xdata, ydata, func=func,
                                             normalize_x=normalize_x,
                                             return_inputs=True, p0=p0)
     res_ = pd.Series({'init': initv, 'tau': tau, 'constant': const, 'R2': r2})
@@ -133,7 +145,8 @@ def fit_decay_on_binned(cc_, use_binned=False,
     else:
         return res_
     
-def bootstrap_fitdecay(bcorrs, use_binned=False, 
+def bootstrap_fitdecay(bcorrs, use_binned=False, func='halflife',
+                      estimator='median', min_npairs=5, fit_sites=False,
                       metric='signal_cc', to_quartile='cortical_distance',
                       bin_column='bin_value', normalize_x=True,
                       n_iterations=500):
@@ -144,15 +157,23 @@ def bootstrap_fitdecay(bcorrs, use_binned=False,
     r_=[]
     for va, cc0 in bcorrs.groupby('visual_area'):
         cnts = cc0.groupby('binned_%s' % to_quartile)['neuron_pair'].count()
-        nsamples_per = dict((k, v) for k, v in zip(cnts[cnts>5].index.tolist(), 
-                                          cnts[cnts>5].values))
+        nsamples_per = dict((k, v) for k, v \
+                                in zip(cnts[cnts>=min_npairs].index.tolist(), 
+                                       cnts[cnts>=min_npairs].values))
         for n_iter in np.arange(0, n_iterations):
             curr_cc = pd.concat([cg.sample(nsamples_per[c], \
                         random_state=n_iter, replace=True) \
                         for c, cg in cc0.groupby('binned_%s' % to_quartile) \
                         if c in nsamples_per.keys()])
+            if fit_sites:
+                cc_ = curr_cc.copy()
+                curr_cc = cc_.groupby(['datakey', 'binned_%s' % to_quartile])\
+                            .median().reset_index().dropna()\
+                            .reset_index(drop=True) 
+                
             res_, xvals, yvals = fit_decay_on_binned(curr_cc, 
-                                            use_binned=use_binned,
+                                            use_binned=use_binned, 
+                                            func=func, estimator=estimator,
                                             metric=metric, 
                                             bin_column=bin_column,
                                             to_quartile=to_quartile,

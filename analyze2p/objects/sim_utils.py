@@ -401,13 +401,13 @@ def params_deg_to_pixels(rfs_, pix_per_deg=16.05, resolution=[1920, 1080]):
     lin_x, lin_y = hutils.get_lin_coords(resolution=resolution[::-1])
 
     rfs_.index = rfs_['cell'].values
-    rfs_['x0_pix'] = [get_lin_match(v, lin_x, axis=1) \
+    rfs_.loc[rfs_.index, 'x0_pix'] = [get_lin_match(v, lin_x, axis=1) \
                       for v in rfs_['x0'].values]
-    rfs_['y0_pix'] = [resolution[1]-get_lin_match(v, lin_y, axis=0) \
+    rfs_.loc[rfs_.index, 'y0_pix'] = [resolution[1]-get_lin_match(v, lin_y, axis=0) \
                       for v in rfs_['y0'].values]
 
-    rfs_['fwhm_x_pix'] =  rfs_['fwhm_x'] * pix_per_deg
-    rfs_['fwhm_y_pix'] =  rfs_['fwhm_y'] * pix_per_deg
+    rfs_.loc[rfs_.index, 'fwhm_x_pix'] =  rfs_['fwhm_x'] * pix_per_deg
+    rfs_.loc[rfs_.index, 'fwhm_y_pix'] =  rfs_['fwhm_y'] * pix_per_deg
     return rfs_
 
 

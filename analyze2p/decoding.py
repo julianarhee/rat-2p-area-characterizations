@@ -53,7 +53,7 @@ pd.options.mode.chained_assignment='warn' #'raise' # 'warn'
 import analyze2p.receptive_fields.utils as rfutils
 import analyze2p.objects.sim_utils as su
 
-def get_cells_with_overlap(cells0, sdata, overlap_thr=0.5,
+def get_cells_with_overlap(cells0, sdata, overlap_thr=0.5, greater_than=False,
                 response_type='dff', do_spherical_correction=False):
 
     rfdf = get_rfdf(cells0, sdata, response_type=response_type,
@@ -64,7 +64,8 @@ def get_cells_with_overlap(cells0, sdata, overlap_thr=0.5,
                             do_spherical_correction=do_spherical_correction)
     rfpolys, _ = su.load_rfpolys(fit_desc)
  
-    cells_pass = calculate_overlaps(cells_RF, rfpolys, overlap_thr=overlap_thr)
+    cells_pass = calculate_overlaps(cells_RF, rfpolys, 
+                            overlap_thr=overlap_thr, greater_than=greater_than)
 
     cells_pass['global_ix'] = [int(cells0[(cells0.visual_area==va)
                              & (cells0.datakey==dk) 
@@ -75,8 +76,8 @@ def get_cells_with_overlap(cells0, sdata, overlap_thr=0.5,
 
     return cells_pass
 
-
-def calculate_overlaps(rfdf, rfpolys, overlap_thr=0.5, experiment='blobs', 
+def calculate_overlaps(rfdf, rfpolys, overlap_thr=0.5, greater_than=False,
+                        experiment='blobs', 
                         overlap_metric='relative_overlap', 
                         resolution=[1920, 1080]):
     '''
@@ -99,9 +100,11 @@ def calculate_overlaps(rfdf, rfpolys, overlap_thr=0.5, experiment='blobs',
             overlaps_ = su.calculate_overlaps_fov(dk, curr_rfs, 
                                 experiment=experiment, 
                                resolution=resolution)
-            min_ = overlaps_.groupby('cell')[overlap_metric]\
-                            .min().reset_index()
-            pass_ = min_[min_[overlap_metric]>=overlap_thr]['cell'].unique()
+            min_ = overlaps_.groupby('cell')[overlap_metric].min()
+            if greater_than:
+                pass_ = min_[min_>overlap_thr].index.to_numpy()
+            else:
+                pass_ = min_[min_>=overlap_thr].index.to_numpy()
             pass_rfs = curr_rfs[curr_rfs['cell'].isin(pass_)].copy()
             m_.append(pass_rfs)
         except Exception as e:
@@ -1511,19 +1514,6 @@ def shuffle_trials(ndf_z):
 # --------------------------------------------------------------------
 # BY_NCELLS
 # --------------------------------------------------------------------
-def get_all_responsive_cells(cells0, NDATA):
-    '''Assigns globa cell index. Return assigned cells
-    that are also responsive (NDATA)'''
-
-    gcells = aggr.assign_global_cell_ids(cells0.copy())
-    dkey_lut = NDATA[['visual_area', 'datakey', 'cell']].drop_duplicates()
-    cells0 = pd.concat([gcells[(gcells.visual_area==va) \
-                    & (gcells.datakey==dk) 
-                    & (gcells['cell'].isin(g['cell'].unique()))]\
-                for (va, dk), g in NDATA.groupby(['visual_area', 'datakey'])])
-
-    return cells0
-
 def decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA, 
                     sdf=None, test_type=None, results_id='results',
                     n_iterations=50, n_processes=2, break_correlations=False,
@@ -1848,7 +1838,7 @@ def decoding_analysis(dk, va, experiment,
                 'verbose': verbose}
 
     # Assign global ix to all cells
-    cells0 = get_all_responsive_cells(cells0, NDATA0)
+    cells0 = aggr.get_all_responsive_cells(cells0, NDATA0)
     if match_rfs:
         # Match cells for RF size
         print("[RF]: matching RF size (%s)." % rf_lim)
@@ -1861,12 +1851,12 @@ def decoding_analysis(dk, va, experiment,
         print("----> post:")
         print(cells0[['visual_area','datakey', 'cell']]\
                 .drop_duplicates()['visual_area'].value_counts())
-    elif overlap_thr is not None:
+    if overlap_thr is not None:
         # only include cells w overlapping stimulus
         print("[RF]: Calculating overlap with stimuli.")
         print(cells0[['visual_area','datakey','cell']]\
                 .drop_duplicates()['visual_area'].value_counts())
-        cells0 = get_cells_with_overlap(cells0, sdata, 
+        cells0 = get_cells_with_overlap(cells0, sdata, greater_than=False,
                                         overlap_thr=overlap_thr)
         print("----> post:")
         print(cells0[['visual_area','datakey', 'cell']]\
@@ -1882,14 +1872,8 @@ def decoding_analysis(dk, va, experiment,
         print("~~~ post ~~~")
         print(cells0[['visual_area','datakey', 'cell']]\
                 .drop_duplicates()['visual_area'].value_counts()) 
-
-
     # Get final neuraldata
-    NDATA = pd.concat([NDATA0[(NDATA0.visual_area==va) 
-                     & (NDATA0.datakey==dk)
-                     & (NDATA0['cell'].isin(g['cell'].unique()))]\
-                    for (va, dk), g in \
-                    cells0.groupby(['visual_area', 'datakey'])])
+    NDATA = aggr.get_neuraldata_for_included_cells(cells0, NDATA0)
 
     match_stimulus_names = experiment=='blobs'
     # ANALYSIS.
@@ -1911,7 +1895,7 @@ def decoding_analysis(dk, va, experiment,
             if experiment=='gratings' and class_name=='sf':
                 # Need to convert to int
                 sdf['sf'] = (sdf['sf']*10.).astype(int)
-            #print(va, dk, neuraldf.shape)
+            print(va, dk, neuraldf.shape)
             if int(neuraldf.shape[0])==0:
                 return None
 
@@ -2117,8 +2101,9 @@ def load_iterdf(meta, class_name, experiment=None,
         iterdf['intact'] = True
         df_ = iterdf.copy()
 
-        if test_type is None:
-            iterdf_b, missing_b = aggregate_iterated_results(meta, 
+        #if test_type is None:
+        print('    checking for break-corrs')
+        iterdf_b, missing_b = aggregate_iterated_results(meta, 
                                   class_name, experiment=experiment,
                                   analysis_type=analysis_type,                   
                                   test_type=test_type,
@@ -2127,12 +2112,12 @@ def load_iterdf(meta, class_name, experiment=None,
                                   responsive_test=responsive_test, 
                                   C_value=C_value, break_correlations=True, 
                                   match_rfs=match_rfs, overlap_thr=overlap_val)
-            missing_dict[overlap_val]['no_cc'] = missing_b
-            if iterdf_b is not None:
-                iterdf_b['intact'] = False
-                df_ = pd.concat([iterdf, iterdf_b], axis=0)
-            else:
-                df_ = iterdf.copy()
+        missing_dict[overlap_val]['no_cc'] = missing_b
+        if iterdf_b is not None:
+            iterdf_b['intact'] = False
+            df_ = pd.concat([iterdf, iterdf_b], axis=0)
+        else:
+            df_ = iterdf.copy()
 
         if df_ is not None:
             df_['overlap_thr'] = overlap_val
