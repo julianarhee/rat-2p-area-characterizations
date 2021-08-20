@@ -1567,14 +1567,20 @@ def decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA,
     with open(results_outfile, 'wb') as f:
         pkl.dump(iter_results, f, protocol=2)
 
-    cols = ['train_score', 'test_score', 'heldout_test_score', 'iteration']
+    print_cols = ['train_score', 'test_score', 'heldout_test_score', 'iteration']
     if test_type is None:
-        mean_iters = iter_results.groupby(['condition', 'n_cells']).mean().reset_index()
+        group_cols = ['condition', 'n_cells']
     else:
-        mean_iters = iter_results.groupby(['condition', 'n_cells', 'train_transform']).mean()
+        group_cols = ['condition', 'n_cells', 'train_transform']
 
-    print(mean_iters[cols])   
-    print("@@@@@@@@@ done. %s (n=%i cells) @@@@@@@@@@" % (visual_area,n_cells_sample))
+    if 'morph' in test_type:
+        print_cols.append('morphlevel')
+        group_cols.append('morphlevel')
+
+    mean_iters = iter_results.groupby(group_cols).mean().reset_index()
+
+    print(mean_iters[print_cols])   
+    print("@@@@@@@ done. %s (n=%i cells) @@@@@@@@" % (visual_area,n_cells_sample))
     print(results_outfile) 
  
     return 
@@ -1776,6 +1782,7 @@ def decoding_analysis(dk, va, experiment,
                 break_correlations=False,
                 n_cells_sample=None, drop_repeats=True, 
                 C_value=None, test_split=0.2, cv_nfolds=5, 
+                images_only=False,
                 class_name='morphlevel', class_values=None,
                 variation_name='size', variation_values=None,
                 n_train_configs=4, 
@@ -1784,10 +1791,33 @@ def decoding_analysis(dk, va, experiment,
                 rootdir='/n/coxfs01/2p-data', verbose=False,
                 aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas',
                 visual_areas=['V1', 'Lm', 'Li']): 
+    '''
+    match_rfs: (bool)
+        Limit included cells with RFs matched according to rf_lim. 
+
+    rf_lim: (str)
+        Limit included cells with RFs within specified range (default: percentile)
+        TODO: match RF size 1-to-1
+  
+    overlap_thr: (None, float)
+        Only include cells with RFs overlapping MINIMALLY by x %
+
+    do_spherical_correction: (bool)
+        Param. for which RF type to select
+
+    break_correlations: (bool)
+        Shuffle trials for each cell to break noise correlations
+
+    images_only: (bool)
+        Only include NON-fullfield stimuli (excludes lum controls or ff gratings).
+        This will exclude older dsets that don't have lum controls, 
+        or additional gratings datasets where only FF acquired. 
+    '''
     # Metadata    
     sdata0, cells0 = aggr.get_aggregate_info(visual_areas=visual_areas, 
                                             return_cells=True)
-    excluded = {'blobs': ['20190315_JC070_fov1', '20190426_JC078_fov1'],
+    excluded = {'blobs': ['20190314_JC070_fov1', 
+                          '20190426_JC078_fov1'], # '20190602_JC091_fov1'],
                 'gratings': ['20190517_JC083_fov1']
     }
     sdata = sdata0[~sdata0['datakey'].isin(excluded[experiment])].copy()
@@ -1798,8 +1828,11 @@ def decoding_analysis(dk, va, experiment,
         meta = sdata[sdata.experiment==experiment].copy()
 
     # Make sure stim configs match (if gratings)
-    if experiment=='gratings' and analysis_type=='by_ncells':
-        SDF = aggr.check_sdfs_gratings(meta['datakey'].unique())
+    if analysis_type=='by_ncells':
+        SDF = aggr.check_sdfs(meta['datakey'].unique(), experiment=experiment,
+                            rename=True, return_incorrect=False, 
+                            images_only=images_only,
+                            return_all=False)
         incl_dkeys = SDF['datakey'].unique()
         print("**Keeping %i of %i total datakeys" \
                 % (len(incl_dkeys), len(meta['datakey'].unique())))
@@ -1930,7 +1963,7 @@ def decoding_analysis(dk, va, experiment,
         # Set global output dir (since not per-FOV):
         test_str = 'default' if test_type is None else test_type
         dst_dir = os.path.join(aggregate_dir, 'decoding', 
-                                    'py3_by_ncells', class_name, test_str)
+                            'py3_by_ncells', class_name, '%s' % test_str)
         curr_results_dir = os.path.join(dst_dir, 'files')
         if not os.path.exists(curr_results_dir):
             os.makedirs(curr_results_dir)
@@ -1938,13 +1971,14 @@ def decoding_analysis(dk, va, experiment,
 
         # Save inputs
         filter_str = '__'.join(results_id.split('__')[1:4])
+        whichdata = '%s_' % va if va is not None else ''
         inputs_file = os.path.join(curr_results_dir, 
-                                    'inputcells-%s.pkl' % filter_str)
+                                'inputcells-%s%s.pkl' % (whichdata, filter_str))
         with open(inputs_file, 'wb') as f:
             pkl.dump(cells0, f, protocol=2) 
 
         # Stimuli
-        sdf = aggr.get_master_sdf(experiment, images_only=experiment=='blobs')
+        sdf = aggr.get_master_sdf(experiment, images_only=False)
         if experiment=='gratings' and class_name=='sf':
             # Need to convert to int
             sdf['sf'] = (sdf['sf']*10.).astype(int)
