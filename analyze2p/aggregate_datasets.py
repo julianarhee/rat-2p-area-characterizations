@@ -117,6 +117,10 @@ def get_stimuli(datakey, experiment, match_names=False,
                     rootdir='/n/coxfs01/2p-data', verbose=False):
     '''
     Get stimulus info for a given experiment and imaging site.
+
+    match_names: (bool)
+        Change config labels to match 'master' for specified experiment type.
+
     Returns 'sdf' (dataframe, index='config001', etc. columns=stimulus parameters).
     '''
     session, animalid, fovn = hutils.split_datakey_str(datakey)
@@ -136,7 +140,10 @@ def get_stimuli(datakey, experiment, match_names=False,
         if 'blobs' in experiment:
             sdf = traceutils.reformat_morph_values(sdf)
         if match_names:
-            sdf = match_config_names(sdf.copy())
+            sdf_o = sdf.copy()
+            updated_keys = match_config_names(sdf_o)
+            sdf = sdf_o.rename(index=updated_keys)
+
 
     except IndexError as e:
         print("(%s) No labels.npz for exp name ~%s~. Found:" \
@@ -212,27 +219,47 @@ def get_master_sdf(experiment='blobs', images_only=False):
 
 
 def check_sdfs(stim_datakeys, experiment='blobs', images_only=False, 
-                rename=True, return_incorrect=False, return_all=False):
+                rename=True, return_incorrect=False, return_all=False,
+                as_dict=False):
+    '''
+    return_all: (bool)
+        Final SDF (dict or datafram) should include even incorrect ones
 
+    return_incorrect: (bool)
+        Return list/dict of datakeys with incorrect config labels
+
+    rename: (bool)
+        Final SDF should have renamed/matching config labels.
+
+    images_only: (bool)
+        Ignore full-field stimuli in SDF (remove them).
+    '''
     wrong_configs = {
-        'blobs': ['20190314_JC070_fov1', '20190327_JC073_fov1'],
-        'gratings': []
+        'blobs': ['20190314_JC070_fov1', '20190327_JC073_fov1'], # wrong params
+        'gratings': ['20190517_JC083_fov1'] # wrong timing
     }
     diff_configs = wrong_configs[experiment]
 
     if experiment=='blobs':
-        sdfs, incorrect = check_sdfs_blobs(stim_datakeys, images_only=images_only, 
-                            rename=rename,
-                            return_incorrect=True,
-                            diff_configs=diff_configs)
-
-    elif experiment=='gratings':
-        sdfs0, incorrect = check_sdfs_gratings(stim_datakeys, return_incorrect=True,
+        sdfs0, incorrect = check_sdfs_blobs(stim_datakeys, 
+                            images_only=images_only, 
+                            rename=rename, return_incorrect=True,
+                            diff_configs=diff_configs, as_dict=as_dict,
                             return_all=True)
         if return_all:
-            sdfs = sdfs0[~sdfs0.datakey.isin(incorrect)]
-        else:
             sdfs = sdfs0.copy()
+        else:
+            incorrect_stim = list(incorrect.keys())
+            sdfs = sdfs0[~sdfs0.datakey.isin(incorrect_stim)]
+
+    elif experiment=='gratings':
+        sdfs0, incorrect = check_sdfs_gratings(stim_datakeys, 
+                            return_incorrect=True,
+                            return_all=True, as_dict=as_dict)
+        if return_all:
+            sdfs = sdfs0.copy()
+        else:
+            sdfs = sdfs0[~sdfs0.datakey.isin(incorrect)]
 
     if return_incorrect:
         return sdfs, incorrect
@@ -240,7 +267,7 @@ def check_sdfs(stim_datakeys, experiment='blobs', images_only=False,
         return sdfs
 
 
-def check_sdfs_blobs(stim_datakeys, images_only=False,
+def check_sdfs_blobs(stim_datakeys, images_only=False, return_all=False,
                 rename=True, return_incorrect=False, as_dict=False,
                 diff_configs=['20190314_JC070_fov1', '20190327_JC073_fov1'] ):
     '''
@@ -254,34 +281,51 @@ def check_sdfs_blobs(stim_datakeys, images_only=False,
     SDF={}
     renamed_configs={}
     for datakey in stim_datakeys:
-        session, animalid, fov_ = datakey.split('_')
-        fovnum = int(fov_[3:])
-        sdf = get_stimuli(datakey, experiment)
+        #session, animalid, fov_ = datakey.split('_')
+        #fovnum = int(fov_[3:])
+        sdf_o = get_stimuli(datakey, experiment, match_names=False)
+        if datakey=='20190314_JC070_fov1':
+            sdf_o = sdf_o[sdf_o['xpos']==-15] # only take the correct pos.
+        # check configs
+        updated_keys = match_config_names(sdf_o) 
+        #print(datakey, updated_keys)
+        if rename is True and updated_keys is not None:
+            print('    renaming: %s' % datakey)
+            sdf = sdf_o.rename(index=updated_keys)
+        else:
+            sdf = sdf_o.copy()
         if len(sdf['xpos'].unique())>1 or len(sdf['ypos'].unique())>1:
             print("*Warning* <%s> More than 1 pos? x: %s, y: %s" \
-                    % (datakey, str(sdf['xpos'].unique()), str(sdf['ypos'].unique())))
-        key_names = ['morphlevel', 'size']
-        updated_keys={}
-        for old_ix in sdf.index:
-            #try:
-            new_ix = sdf_master[(sdf_master[key_names] == sdf.loc[old_ix,  key_names]).all(1)].index[0]
-            updated_keys.update({old_ix: new_ix})
-        if rename: # and (datakey not in diff_configs): 
-            sdf = sdf.rename(index=updated_keys)
+                % (datakey, str(sdf['xpos'].unique()), str(sdf['ypos'].unique())))
+#        key_names = ['morphlevel', 'size']
+#        updated_keys={}
+#        for old_ix in sdf.index:
+#            new_ix = sdf_master[(sdf_master[key_names]==sdf.loc[old_ix, key_names]).all(1)].index[0]
+#            updated_keys.update({old_ix: new_ix})
+
+#        if rename: # and (datakey not in diff_configs): 
+#            sdf = sdf.rename(index=updated_keys)
+
         # Save renamed key 
-        renamed_configs[datakey] = updated_keys
+        if updated_keys is not None:
+            renamed_configs[datakey] = updated_keys
         if images_only:
             SDF[datakey] = sdf[sdf['morphlevel']!=-1].copy()
         else:
-            SDF[datakey] = sdf
-    ignore_params = ['xpos', 'ypos', 'position', 'color']
-    #if experiment != 'blobs':
-    #    ignore_params.extend(['size'])
-    compare_params = [p for p in sdf_master.columns if p not in ignore_params]
-    different_configs = renamed_configs.keys()
-    assert all([all(sdf_master[compare_params]==d[compare_params]) \
-            for k, d in SDF.items() \
-            if k not in different_configs]), "Incorrect stimuli..."
+            SDF[datakey] = sdf.copy()
+
+    if not return_all:
+        print("Checking mislabeled")
+        mislabeled_dkeys = list(renamed_configs.keys())
+        SD0 = SDF.copy()
+        SDF = dict((k, v) for k, v in SD0.items() if k in mislabeled_dkeys)
+        # double check
+        ignore_params = ['xpos', 'ypos', 'position', 'color']
+        compare_params = [p for p in sdf_master.columns if p not in ignore_params]
+        different_configs = renamed_configs.keys()
+        assert all([all(sdf_master[compare_params]==d[compare_params]) \
+                for k, d in SDF.items() \
+                if k not in different_configs]), "Incorrect stimuli..."
 
     if not as_dict:
         sdict = SDF.copy()
@@ -296,20 +340,43 @@ def check_sdfs_blobs(stim_datakeys, images_only=False,
     else:
         return SDF
 
-def match_config_names(sdf, experiment='blobs'):
+def match_config_names(sdf_o, experiment='blobs'):
+    '''
+    Make sure config labels are the same/matching to master cfgs.
+    sdf_o is the original sdf (loaded from data arrays).
+    Returns dict as LUT for {old: new}
+    '''
+    updated_keys=None
     sdf_master = get_master_sdf(experiment=experiment, images_only=False)
     key_names = ['morphlevel', 'size']
-    updated_keys={}
-    for old_ix in sdf.index:
-        # Find corresponding index in "master"
-        new_ix = sdf_master[(sdf_master[key_names]==sdf.loc[old_ix,  key_names])\
-                            .all(1)].index[0]
-        updated_keys.update({old_ix: new_ix})
-    # rename
-    sdf0 = sdf.rename(index=updated_keys)
-    # Save renamed key 
 
-    return sdf0
+    if experiment=='blobs':
+        check_params = ['morphlevel', 'size']
+    elif experiment=='gratings':
+        check_params = ['ori', 'sf', 'size', 'speed']
+
+    check_df = sdf_o[check_params].drop_duplicates()
+    # Find original config (x) and matching config in master (y)
+    merged_ = check_df.reset_index().merge(\
+                    sdf_master.reset_index(), how='left', \
+                    left_on=check_params, right_on=check_params)
+
+    if not merged_.dropna().shape[0]==sdf_master.shape[0]:
+        # Create dict
+        updated_keys = dict((k, v) for k, v \
+                        in merged_.dropna()[['index_x', 'index_y']].values)
+
+#    updated_keys={}
+#    for old_ix in sdf.index:
+#        # Find corresponding index in "master"
+#        new_ix = sdf_master[(sdf_master[key_names]==sdf.loc[old_ix,  key_names])\
+#                            .all(1)].index[0]
+#        updated_keys.update({old_ix: new_ix})
+
+    # rename
+    #sdf_new = sdf_o.rename(index=updated_keys)
+
+    return updated_keys #sdf_new
 
 def select_stimulus_configs(datakey, experiment, select_stimuli=None):
     '''
@@ -1373,20 +1440,30 @@ def load_aggregate_data(experiment, traceid='traces001',
     #### Fix config labels  
     if experiment=='blobs':
         if (rename_configs or return_configs):
-            SDF, renamed_configs = check_sdfs_blobs(MEANS.keys(),
+            SDF, renamed_config_dict = check_sdfs_blobs(MEANS.keys(),
                                           images_only=images_only, 
                                           return_incorrect=True)
             if rename_configs:
-                sdf_master = get_master_sdf(experiment='blobs',
-                                            images_only=images_only)
-                for k, cfg_lut in renamed_configs.items():
+                #sdf_master = get_master_sdf(experiment='blobs',
+                #                            images_only=images_only)
+                for k, cfg_lut in renamed_config_dict.items():
+                    incl_cfgs = list(cfg_lut.keys())
+                    data_ = MEANS[k].copy()
+                    # Only include the configs that match
+                    MEANS[k] = data_[data_['config'].isin(incl_cfgs)]
+                    print('%s: renamed configs' % k)
                     updated_cfgs = [cfg_lut[cfg] for cfg \
                                         in MEANS[k]['config']]
                     MEANS[k]['config'] = updated_cfgs
+
         if images_only is True: #Update MEANS dict
             for k, md in MEANS.items():
-                incl_configs = SDF[k].index.tolist()
+                if isinstance(SDF, dict):
+                    incl_configs = SDF[k].index.tolist()
+                else:
+                    incl_configs = SDF[SDF.datakey==k].index.tolist()
                 MEANS[k] = md[md['config'].isin(incl_configs)]
+
     elif experiment=='gratings':
         SDF, incorrect = check_sdfs_gratings(MEANS.keys(), return_incorrect=True,
                             return_all=False)
