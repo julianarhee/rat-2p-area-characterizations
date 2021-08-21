@@ -651,6 +651,10 @@ def custom_legend_markers(colors=['m', 'c'], labels=['label1', 'label2'], marker
     
     return leg_h
 
+def set_morph_xticks(ax, n_points=5):
+    ax.set_xticks(np.linspace(0, 106, n_points))
+    ax.set_xticklabels(np.linspace(0, 1, n_points))
+
 
 
 def darken_cmap(colormap='spectral', alpha=0.9, 
