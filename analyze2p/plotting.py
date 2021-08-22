@@ -638,16 +638,20 @@ def turn_off_axis_ticks(ax, despine=True):
     ax.set_xticklabels([])
     ax.set_yticklabels([])
 
-def custom_legend_markers(colors=['m', 'c'], labels=['label1', 'label2'], marker='o'):
+def custom_legend_markers(colors=['m', 'c'], labels=['label1', 'label2'], marker='o', linestyles='-', use_patch=False):
     from matplotlib.patches import Patch
     from matplotlib.lines import Line2D
 
+    if not isinstance(linestyles, (np.ndarray, list)):
+        linestyles = [linestyles]*3
+
     leg_h=[]
-    for col, label in zip(colors, labels):
-        if marker is None:
+    for col, label, style in zip(colors, labels, linestyles):
+        if use_patch:
             leg_h.append(Patch(facecolor=col, edgecolor=None, label=label))
         else: 
-            leg_h.append(Line2D([0], [0], marker=marker, color=col, label=label))
+            leg_h.append(Line2D([0], [0], marker=marker, color=col, label=label,
+                            linestyle=style))
     
     return leg_h
 
