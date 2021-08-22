@@ -98,6 +98,7 @@ def assign_sparseness(df, name='cell'):
     mt = sparseness(df['response'].values)
     return pd.Series(mt, name=df[name].unique()[0])
 
+
 def sparseness(responses):
     '''
     num = 1 - [ (sum(Ri/n)**2) / sum( ((Ri**2)/n) ) ] 
