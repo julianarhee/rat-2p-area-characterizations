@@ -35,6 +35,11 @@ import statsmodels as sm
 
 np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)       
 
+from inspect import currentframe, getframeinfo
+from pandas.core.common import SettingWithCopyError
+pd.options.mode.chained_assignment='warn' #'raise' # 'warn'
+
+
 import analyze2p.utils as hutils
 import analyze2p.extraction.rois as roiutils
 #import analyze2p.gratings.utils as utils
@@ -142,8 +147,10 @@ def get_stimuli(datakey, experiment, match_names=False,
         if match_names:
             sdf_o = sdf.copy()
             updated_keys = match_config_names(sdf_o)
-            sdf = sdf_o.rename(index=updated_keys)
-
+            if updated_keys is not None:
+                sdf = sdf_o.rename(index=updated_keys)
+            else:
+                sdf = sdf_o.copy()
 
     except IndexError as e:
         print("(%s) No labels.npz for exp name ~%s~. Found:" \
@@ -1435,7 +1442,7 @@ def load_aggregate_data(experiment, traceid='traces001',
 
     with open(data_outfile, 'rb') as f:
         MEANS = pkl.load(f, encoding='latin1')
-    print("...loading: %s" % data_outfile)
+    print("...loading: %s" % os.path.split(data_outfile)[-1]) # is DICT
 
     #### Fix config labels  
     if experiment=='blobs':
@@ -1450,11 +1457,12 @@ def load_aggregate_data(experiment, traceid='traces001',
                     incl_cfgs = list(cfg_lut.keys())
                     data_ = MEANS[k].copy()
                     # Only include the configs that match
-                    MEANS[k] = data_[data_['config'].isin(incl_cfgs)]
+                    data_incl = data_[data_['config'].isin(incl_cfgs)].copy()
                     print('%s: renamed configs' % k)
                     updated_cfgs = [cfg_lut[cfg] for cfg \
-                                        in MEANS[k]['config']]
-                    MEANS[k]['config'] = updated_cfgs
+                                        in data_incl['config']]
+                    data_incl.loc[data_incl.index, 'config'] = updated_cfgs
+                    MEANS[k] = data_incl
 
         if images_only is True: #Update MEANS dict
             for k, md in MEANS.items():
