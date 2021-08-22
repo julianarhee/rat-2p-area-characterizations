@@ -166,7 +166,10 @@ info("found %i [%s] datasets to process." % (len(dsets), experiment))
 #                               run the pipeline                               #
 ################################################################################
 basedir='/n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations'
-cmd_str = '%s/analyze2p/slurm/decoding_analysis.sbatch' % basedir
+if 'morph' in test_type:
+    cmd_str = '%s/analyze2p/slurm/decoding_analysis_morph.sbatch' % basedir
+else:
+    cmd_str = '%s/analyze2p/slurm/decoding_analysis.sbatch' % basedir
 
 # Run it
 jobids = [] # {}

@@ -41,6 +41,7 @@ import sklearn.metrics as skmetrics
 import analyze2p.aggregate_datasets as aggr
 import analyze2p.utils as hutils
 import analyze2p.plotting as pplot
+import psignifit as ps
 
 
 from inspect import currentframe, getframeinfo
@@ -68,13 +69,13 @@ def get_cells_with_overlap(cells0, sdata, overlap_thr=0.5, greater_than=False,
     cells_pass = calculate_overlaps(cells_RF, rfpolys, 
                             overlap_thr=overlap_thr, greater_than=greater_than)
 
-    cells_pass['global_ix'] = [int(cells0[(cells0.visual_area==va)
-                             & (cells0.datakey==dk) 
-                             & (cells0['cell']==rid)]['global_ix']\
-                             .unique()) for va, dk, rid \
-                             in cells_pass[['visual_area', 'datakey', 'cell']]\
-                             .values]
-
+#    cells_pass['global_ix'] = [int(cells0[(cells0.visual_area==va)
+#                             & (cells0.datakey==dk) 
+#                             & (cells0['cell']==rid)]['global_ix']\
+#                             .unique()) for va, dk, rid \
+#                             in cells_pass[['visual_area', 'datakey', 'cell']]\
+#                             .values]
+#
     return cells_pass
 
 def calculate_overlaps(rfdf, rfpolys, overlap_thr=0.5, greater_than=False,
@@ -138,15 +139,64 @@ def get_cells_with_matched_rfs(cells0, sdata,
     cells_RF = get_cells_with_rfs(cells0, rfdf)
     cells_lim, limits = limit_cells_by_rf(cells_RF, rf_lim=rf_lim,
                                 rf_metric=rf_metric)
+    # Resample matched RFs to match 1-to-1
+    cells_matched = match_each_cell_by_area(cells_lim, n_samples=None)
 
-    cells_lim['global_ix'] = [int(cells0[(cells0.visual_area==va)
-                             & (cells0.datakey==dk) 
-                             & (cells0['cell']==rid)]['global_ix']\
-                             .unique()) for va, dk, rid \
-                             in cells_lim[['visual_area', 'datakey', 'cell']]\
-                             .values]
+    return cells_matched
 
-    return cells_lim
+def find_closest(A, B, C):
+    p=len(A)
+    q=len(B)
+    r=len(C)
+    # Initialize min diff
+    diff = sys.maxsize
+    res_i=0; res_j=0; res_k=0;
+    # Travesre Array
+    i=0; j=0; k=0;
+    while(i < p and j < q and k < r):
+        # Find minimum and maximum of current three elements
+        minimum = min(A[i], min(B[j], C[k]))
+        maximum = max(A[i], max(B[j], C[k]));
+        # Update result if current diff is less than the min diff so far
+        if maximum-minimum < diff:
+            res_i = i
+            res_j = j
+            res_k = k
+            diff = maximum - minimum;
+        # We can 't get less than 0 as values are absolute
+        if diff == 0:
+            break
+        # Increment index of array with smallest value
+        if A[i] == minimum:
+            i = i+1
+        elif B[j] == minimum:
+            j = j+1
+        else:
+            k = k+1
+    return res_i, res_j, res_k
+
+def match_each_cell_by_area(cellsdf, n_samples=None):
+    cellsdf = cellsdf.reset_index(drop=True)
+    if n_samples is None:
+        n_samples = cellsdf['visual_area'].value_counts().min() 
+    A = cellsdf[cellsdf.visual_area=='V1'].copy()
+    B = cellsdf[cellsdf.visual_area=='Lm'].copy()
+    C = cellsdf[cellsdf.visual_area=='Li'].copy()
+    p_list = []
+    for i in range(n_samples):
+        c1 = np.asarray(A['fwhm_avg'].values)
+        c2 = np.asarray(B['fwhm_avg'].values)
+        c3 = np.asarray(C['fwhm_avg'].values)
+        pos = find_closest(c1, c2, c3)
+        p_list.append(A.iloc[pos[0]])
+        p_list.append(B.iloc[pos[1]])       
+        p_list.append(C.iloc[pos[2]])
+        A.drop(A.iloc[pos[0]].name, inplace=True)
+        B.drop(B.iloc[pos[1]].name, inplace=True)
+        C.drop(C.iloc[pos[2]].name, inplace=True)
+    df_ = pd.concat(p_list, axis=1).T
+    #df_['n_samples'] = n_samples
+    return df_
 
 def limit_cells_by_rf(cells_RF, rf_lim='percentile', rf_metric='fwhm_avg'):
 
@@ -189,38 +239,26 @@ def get_rfdf(cells0, sdata, response_type='dff', do_spherical_correction=False):
                                 reliable_only=False)
     # Combined rfs5/rfs10
     rfdf = rfutils.average_rfs(rfdata, keep_experiment=False) 
-#    r_list=[]
-#    for (va, dk), rdf in rfdata.groupby(['visual_area', 'datakey']):
-#        if va in ['V1', 'Lm']:
-#            df_ = rdf[rdf.experiment=='rfs'].copy()
-#        else:
-#            if 'rfs10' in rdf['experiment'].values:
-#                df_ = rdf[rdf.experiment=='rfs10'].copy()
-#        r_list.append(df_)
-#    rfdf = pd.concat(r_list).reset_index(drop=True)
+
     return rfdf
 
-def get_cells_with_rfs(CELLS, rfdf):
+def get_cells_with_rfs(cells0, rfdf):
     '''
     CELLS should be assigned + responsive cells (from NDATA)
     rfdf should only have 1 value per cell
     '''
     cells_RF = pd.concat([rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk) 
                      & (rfdf['cell'].isin(g['cell'].values))] \
-                 for (va, dk), g in CELLS.groupby(['visual_area', 'datakey'])])
+                 for (va, dk), g in cells0.groupby(['visual_area', 'datakey'])])
 
+    if 'global_ix' in cells0.columns:
+        cells_RF['global_ix'] = [int(cells0[(cells0.visual_area==va)
+                             & (cells0.datakey==dk) 
+                             & (cells0['cell']==rid)]['global_ix']\
+                             .unique()) for va, dk, rid \
+                             in cells_RF[['visual_area', 'datakey', 'cell']]\
+                             .values]
 
-#    c_list=[]
-#    for (va, dk), cg in CELLS.groupby(['visual_area', 'datakey']):
-#        rdf=rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk)].copy()
-#        common_cells = np.intersect1d(rdf['cell'].unique(), cg['cell'].unique())
-#        df_ = cg[cg['cell'].isin(common_cells)].copy()
-#        rf_ = rdf[rdf['cell'].isin(common_cells)].copy()
-#        assert df_.shape[0]==rf_.shape[0], 'Bad selection'
-#        new_ = pd.merge(df_, rf_)
-#        assert new_.shape[0]==df_.shape[0], "bad merge"
-#        c_list.append(new_)
-#    cells_RF = pd.concat(c_list, axis=0).reset_index(drop=True)
 
     return cells_RF
 
@@ -1000,8 +1038,21 @@ def train_test_morph(iter_num, curr_data, sdf, midp=53, verbose=False,
     # Aggregate 
     iterdf = pd.concat(df_list, axis=0).reset_index(drop=True)
     iterdf['iteration'] = iter_num 
-
+    
     # fit curve?
+    param_names = ['threshold', 'width', 'lambda', 'gamma', 'eta']
+    iterdf[param_names] = None
+    max_morph = float(iterdf['morphlevel'].max())
+    for cond, idf in iterdf.groupby('condition'):
+        df_ = idf[idf.morphlevel!=-1][['morphlevel', 'n_samples', 'p_chooseB']].copy()
+        df_['n_chooseB'] = df_['n_samples']*df_['p_chooseB']
+        df_['morph_percent'] = df_['morphlevel']/max_morph
+        fits = psignifit_neurometric(df_.sort_values(by='morphlevel'))
+        #print(fits) 
+        #fits = df_.groupby(df_.index).apply(psignifit_neurometric)
+        iterdf.loc[idf.index, param_names] = fits[param_names].values
+
+    iterdf[param_names] = iterdf[param_names].astype(float) 
 #    if fit_psycho:
 #        iterdf['threshold']=None
 #        iterdf['slope'] = None
@@ -1023,6 +1074,27 @@ def train_test_morph(iter_num, curr_data, sdf, midp=53, verbose=False,
 #                continue
 
     return iterdf
+
+def psignifit_neurometric(df): #, ni):
+    '''Fit data array using psignifit (same params as behavior)'''
+    fit_=None
+    param_names = ['threshold', 'width', 'lambda', 'gamma', 'eta']
+    n_params = len(param_names)
+
+    opts = dict()
+    opts['sigmoidName'] = 'gauss'
+    opts['expType'] = 'YesNo'
+    opts['confP'] = np.tile(0.95, n_params)
+
+    data = df[['morph_percent', 'n_chooseB', 'n_samples']].values
+    try:
+        res = ps.psignifit(data, opts)
+        fit_ = pd.Series(res['Fit'], index=param_names) #, name=ni)
+    except AssertionError:
+        # no fit
+        fit_ = pd.Series([None]*n_params, index=param_names)
+    
+    return fit_
 
 
 def train_test_morph_single(iter_num, curr_data, sdf, midp=53, verbose=False,
@@ -1211,6 +1283,21 @@ def train_test_morph_single(iter_num, curr_data, sdf, midp=53, verbose=False,
     iterdf = pd.concat(df_list, axis=0).reset_index(drop=True)
     iterdf['iteration'] = iter_num 
 
+    # fit curve?
+    param_names = ['threshold', 'width', 'lambda', 'gamma', 'eta']
+    iterdf[param_names] = None
+    max_morph = float(iterdf['morphlevel'].max())
+    for cond, idf in iterdf.groupby(['condition', 'train_transform', 'test_transform']):
+        df_ = idf[idf.morphlevel!=-1][['morphlevel', 'n_samples', 'p_chooseB']].copy()
+        df_['n_chooseB'] = df_['n_samples']*df_['p_chooseB'].astype(float)
+        df_['morph_percent'] = df_['morphlevel']/max_morph
+        fits = psignifit_neurometric(df_.sort_values(by='morphlevel'))
+        #print(fits) 
+        #fits = df_.groupby(df_.index).apply(psignifit_neurometric)
+        iterdf.loc[idf.index, param_names] = fits[param_names].values
+
+    iterdf[param_names] = iterdf[param_names].astype(float) 
+#
     # fit curve?
 #    if fit_psycho:
 #        iterdf['threshold']=None
@@ -1568,18 +1655,19 @@ def decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA,
     with open(results_outfile, 'wb') as f:
         pkl.dump(iter_results, f, protocol=2)
 
-    print_cols = ['train_score', 'test_score', 'heldout_test_score', 'iteration']
+    print_cols = ['n_cells', 'condition', 'train_score', 'test_score', 'heldout_test_score', 'iteration']
     if test_type is None:
         group_cols = ['condition', 'n_cells']
     else:
         group_cols = ['condition', 'n_cells', 'train_transform']
 
     if 'morph' in test_type:
-        print_cols.append('morphlevel')
-        group_cols.append('morphlevel')
+        print_cols.extend(['morphlevel', 'threshold'])
+        group_cols.extend(['morphlevel'])
 
     mean_iters = iter_results.groupby(group_cols).mean().reset_index()
-
+    #print(mean_iters.columns)
+    #print(iter_results['threshold'].unique())
     print(mean_iters[print_cols])   
     print("@@@@@@@ done. %s (n=%i cells) @@@@@@@@" % (visual_area,n_cells_sample))
     print(results_outfile) 
@@ -1822,11 +1910,7 @@ def decoding_analysis(dk, va, experiment,
                 'gratings': ['20190517_JC083_fov1']
     }
     sdata = sdata0[~sdata0['datakey'].isin(excluded[experiment])].copy()
-    if va is not None:
-        meta = sdata[(sdata.visual_area==va)
-                    & (sdata.experiment==experiment)].copy()
-    else:
-        meta = sdata[sdata.experiment==experiment].copy()
+    meta = sdata[sdata.experiment==experiment].copy()
 
     # Make sure stim configs match (if gratings)
     if analysis_type=='by_ncells':
@@ -1838,6 +1922,7 @@ def decoding_analysis(dk, va, experiment,
         print("**Keeping %i of %i total datakeys" \
                 % (len(incl_dkeys), len(meta['datakey'].unique())))
         meta = meta[meta.datakey.isin(incl_dkeys)]
+
 
     # Load all the data
     NDATA0 = aggr.load_responsive_neuraldata(experiment, meta=meta,
@@ -1906,7 +1991,10 @@ def decoding_analysis(dk, va, experiment,
         print("~~~ post ~~~")
         print(cells0[['visual_area','datakey', 'cell']]\
                 .drop_duplicates()['visual_area'].value_counts()) 
+
+
     # Get final neuraldata
+    
     NDATA = aggr.get_neuraldata_for_included_cells(cells0, NDATA0)
 
     match_stimulus_names = experiment=='blobs'
