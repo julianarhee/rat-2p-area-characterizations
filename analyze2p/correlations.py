@@ -524,6 +524,8 @@ def get_correlation_matrix(tuning_, sdf, experiment='blobs', method='spearman'):
 
 def plot_correlation_matrix(mat_, plot_rdm=True, ax=None,
                            vmin=None, vmax=None):
+    pplot.set_plot_params()
+
     if plot_rdm:
         pmat = 1-mat_
         cmap='viridis' # 0=totally same, 2+ more dissimilar
@@ -554,6 +556,8 @@ def plot_quartile_dists_FOV(cc_, metric='signal_cc', to_quartile='cortical_dista
                             plot_median=True, extrema_only=True, ax=None,
                             legend=True, cumulative=False, element='bars', fill=True,
                             lw=1, common_norm=True, common_bins=True):
+    pplot.set_plot_params()
+
     if bin_labels is None:
         bin_labels = sorted(cc_['binned_%s' % to_quartile].unique(), \
                             key=hutils.natural_keys)
@@ -593,6 +597,7 @@ def plot_quartile_dists_by_area(bcorrs, bin_labels, bin_colors,
                         extrema_only=True, plot_median=True,
                         visual_areas=['V1', 'Lm', 'Li']): 
     '''Plot distns of 1st and last quartiles for metric X'''
+    pplot.set_plot_params()
 
     # Plot metric X for top and bottom quartiles
     if extrema_only:
@@ -623,6 +628,7 @@ def plot_y_by_binned_x(means_, bin_labels, connect_fovs=False,cmap='viridis',
                        metric='signal_cc', to_quartile='cortical_distance',
                        size=3, visual_areas=['V1', 'Lm', 'Li']):
     '''Bar plot (medians) showing individual FOV as dots'''
+    pplot.set_plot_params()
 
     bw_bin_colors = dict((k, [0.7]*3) for k in bin_labels)
     g = sns.FacetGrid(data=means_, col='visual_area', col_order=visual_areas,
@@ -654,6 +660,8 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
     '''
     Plots 3 subplots: for each area, plot data points + fit line.
     '''
+    pplot.set_plot_params()
+
     x_var = 'binned_%s' % to_quartile
     cnt_grouper = [x_var, 'datakey'] if fit_sites else [x_var]
     # plot params
