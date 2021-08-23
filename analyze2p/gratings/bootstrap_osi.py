@@ -170,7 +170,7 @@ def load_tuning_results(datakey='', run_name='gratings', traceid='traces001',
 
         missing_ = os.path.exists(results_fpath) is False
 
-        if 'nonori_configs' not in fitparams.keys():
+        if fitparams is not None and 'nonori_configs' not in fitparams.keys():
             sdf = aggr.get_stimuli(datakey, 'gratings')
             nonori_params = get_non_ori_params(sdf)
             if 'nonori_params' in fitparams.keys():
@@ -488,9 +488,10 @@ def bootstrap_fit_by_config(roi_df, sdf=None, statdf=None,
         for ckey, cfg_ in stimdf.groupby(['sf', 'size', 'speed']):
             currcfgs = cfg_.sort_values(by='ori').index.tolist()
             # Idenfify cells that are responsive before fitting cond.
-            responsive = len(np.where(statdf[roi].loc[currcfgs]>=min_nframes_above)[0])>=min_cfgs_above
-            if filter_configs and not responsive:
-                continue
+            if filter_configs:
+                responsive = len(np.where(statdf[roi].loc[currcfgs]>=min_nframes_above)[0])>=min_cfgs_above
+                if not responsive:
+                    continue
 
             # Get all trials of current cfgs (cols=configs, rows=trial reps)
             rdf = roi_df[roi_df['config'].isin(currcfgs)][[roi, 'config']]
@@ -842,11 +843,10 @@ def get_tuning(datakey, run_name, return_iters=False,
                                         datakey=datakey,
                                         traceid_dir=traceid_dir,
                                         fit_desc=fit_desc, verbose=verbose)
-            assert 'nonori_params' in fitparams.keys()
-            assert bootresults is not None, \
-                        "Unable to load tuning: %s" % fit_desc
+            assert fitparams is not None, "None returned"
+            assert 'nonori_params' in fitparams.keys(), "Wrong results"
         except Exception as e:
-            traceback.print_exc()
+            #traceback.print_exc()
             do_fits = True
     else:
         do_fits=True
@@ -875,9 +875,12 @@ def get_tuning(datakey, run_name, return_iters=False,
             if responsive_test == 'nstds':
                 statdf = roistats['nframes_above']
             else:
-                print("%s -- not implemented for gratings...")
+                #roi_list = [r for r, res in rstats.items() if res['pval'] < responsive_thr]
+                #print("%s -- not implemented for gratings..." % responsive_test)
                 statdf = None
-    
+   
+        print("*%s* -- %i of %i cells responsive" % (responsive_test, len(roi_list), nrois_total))
+ 
         # Load raw data, calculate metrics 
         raw_traces, labels, sdf, run_info = traceutils.load_dataset(data_fpath, 
                                                 trace_type='corrected')
