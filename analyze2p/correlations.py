@@ -249,26 +249,66 @@ def trial_averaged_responses(zscored, sdf, params=['ori', 'sf', 'size', 'speed']
     return tuning_
 
 
-def get_ccdist(neuraldf, return_zscored=False, curr_cfgs=None, curr_cells=None):
-    '''
-    Calculate pairwise correlation coefs and also add distance. 
+#def get_ccdist(neuraldf, return_zscored=False, curr_cfgs=None, curr_cells=None):
+#    '''
+#    Calculate pairwise correlation coefs and also add distance. 
+#    '''
+#    if curr_cfgs is None:
+#        curr_cfgs = neuraldf['config'].unique()
+#    if curr_cells is None:
+#        curr_cells = neuraldf['cell'].unique()
+#    # Dont do zscore within-condition
+#    corrs, zscored = calculate_corrs(neuraldf, do_zscore=False, return_zscored=True,
+#                                     curr_cells=curr_cells, curr_cfgs=curr_cfgs)
+#    # Add cortical distances
+#    wpos = aggr.add_roi_positions(neuraldf.copy())
+#    roi_pos = wpos[['cell', 'ml_pos', 'ap_pos']].drop_duplicates().copy()
+#    ccdist = get_pw_cortical_distance(corrs, roi_pos)
+#
+#    if return_zscored:
+#        return ccdist, zscored
+#    else:
+#        return ccdist
+
+
+def get_roi_pos_and_rfs(neuraldf, curr_rfs=None):
+    wpos = aggr.add_roi_positions(neuraldf.copy())
+    roi_pos = wpos[['cell', 'ml_pos', 'ap_pos']].drop_duplicates().copy()
+
+    if curr_rfs is not None:    
+        has_rfs = np.intersect1d(roi_pos['cell'].unique(), curr_rfs['cell'].unique())
+        pos_ = roi_pos[roi_pos.cell.isin(has_rfs)].copy()
+        rfs_ = curr_rfs[curr_rfs.cell.isin(has_rfs)].copy()
+        roidf = pd.merge(pos_, rfs_)
+    else:
+        roidf = roi_pos.copy()
+
+    return roidf
+
+def get_ccdist(neuraldf, roidf, return_zscored=False, curr_cfgs=None,
+                xcoord='ml_pos', ycoord='ap_pos', label='cortical_distance'):
+    ''' 
+    roidf should be 1 row per cell -- must contan xcoord, ycoord info
+    Do get_roi_pos_and_rfs() for ROIDF.
     '''
     if curr_cfgs is None:
         curr_cfgs = neuraldf['config'].unique()
-    if curr_cells is None:
-        curr_cells = neuraldf['cell'].unique()
-    # Dont do zscore within-condition
-    corrs, zscored = calculate_corrs(neuraldf, do_zscore=False, return_zscored=True,
-                                     curr_cells=curr_cells, curr_cfgs=curr_cfgs)
-    # Add cortical distances
-    wpos = aggr.add_roi_positions(neuraldf.copy())
-    roi_pos = wpos[['cell', 'ml_pos', 'ap_pos']].drop_duplicates().copy()
-    ccdist = get_pw_cortical_distance(corrs, roi_pos)
+    #if curr_cells is None:
+    #    curr_cells = neuraldf['cell'].unique()
+    curr_cells = np.intersect1d(neuraldf['cell'].unique(), roidf['cell'].unique())
 
+    # Dont do zscore within-condition
+    corrs, zscored = calculate_corrs(neuraldf, do_zscore=True, return_zscored=True,
+                                     curr_cells=curr_cells, curr_cfgs=curr_cfgs)
+   
+    # Add distance 
+    ccdist = get_pw_distance(corrs, roidf, xcoord=xcoord, ycoord=ycoord, label=label)
+    
     if return_zscored:
         return ccdist, zscored
     else:
         return ccdist
+
 
 def calculate_corrs(ndf, do_zscore=True, return_zscored=False, 
                     curr_cells=None, curr_cfgs=None):
@@ -386,7 +426,29 @@ def melt_square_matrix(df, metric_name='value', add_values={}, include_diagonal=
 
     return df
 
-def get_pw_cortical_distance(cc_, pos_):
+#def get_pw_cortical_distance(cc_, pos_):
+#    # Get current FOV rfdata and add position info to sigcorrs df
+#    cc_['cell_1'] = cc_['cell_1'].astype(int)
+#    cc_['cell_2'] = cc_['cell_2'].astype(int)
+#
+#    r1 = cc_['cell_1'].unique()
+#    r2 = cc_['cell_2'].unique()
+#    crois_ = np.union1d(r1, r2)
+#    #assert len([r for r in crois_ if r not in pos_.index.tolist()])==0, \
+#    #    "[%s, %s]: incorrect roi indexing in RFDATA" % (va, dk)
+#    if 'cell' in pos_.columns:
+#        pos_.index = pos_['cell'].values
+#    # Coords of cell1 in pair, in order
+#    coords1 = np.array(pos_.loc[cc_['cell_1'].values][['ml_pos', 'ap_pos']])
+#    # Coords of cell2 in pair 
+#    coords2 = np.array(pos_.loc[cc_['cell_2'].values][['ml_pos', 'ap_pos']])
+#    # Get dists, in order of appearance
+#    dists = [np.linalg.norm(c1-c2) for c1, c2 in zip(coords1, coords2)]
+#    cc_['cortical_distance'] = dists
+#    
+#    return cc_
+
+def get_pw_distance(cc_, pos_, xcoord='ml_pos', ycoord='ap_pos', label='cortical_distance'):
     # Get current FOV rfdata and add position info to sigcorrs df
     cc_['cell_1'] = cc_['cell_1'].astype(int)
     cc_['cell_2'] = cc_['cell_2'].astype(int)
@@ -399,13 +461,20 @@ def get_pw_cortical_distance(cc_, pos_):
     if 'cell' in pos_.columns:
         pos_.index = pos_['cell'].values
     # Coords of cell1 in pair, in order
-    coords1 = np.array(pos_.loc[cc_['cell_1'].values][['ml_pos', 'ap_pos']])
+    coords1 = np.array(pos_.loc[cc_['cell_1'].values][[xcoord, ycoord]])
     # Coords of cell2 in pair 
-    coords2 = np.array(pos_.loc[cc_['cell_2'].values][['ml_pos', 'ap_pos']])
+    coords2 = np.array(pos_.loc[cc_['cell_2'].values][[xcoord, ycoord]])
     # Get dists, in order of appearance
     dists = [np.linalg.norm(c1-c2) for c1, c2 in zip(coords1, coords2)]
-    cc_['cortical_distance'] = dists
-    
+    cc_[label] = dists
+   
+    if label!='cortical_distance':
+        coords1 = np.array(pos_.loc[cc_['cell_1'].values][['ml_pos', 'ap_pos']])
+        coords2 = np.array(pos_.loc[cc_['cell_2'].values][['ml_pos', 'ap_pos']])
+        dists_c = [np.linalg.norm(c1-c2) for c1, c2 in zip(coords1, coords2)]
+        cc_['cortical_distance'] = dists_c
+
+
     return cc_
 
 
@@ -654,7 +723,7 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
                             lw=1, scatter_params=False, x_pos=-50, y_pos=-0.4,
                             markersize=10, param_size=5,
                             elinewidth=1, capsize=2, ylim=None,
-                            xlabel='corr. coef.', ylabel='cortical dist. (um)',
+                            ylabel='corr. coef.', xlabel='cortical dist. (um)',
                             visual_areas=['V1', 'Lm', 'Li'],
                             area_colors=None):
     '''
@@ -677,7 +746,8 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
 #     ylabel = 'cortical dist. (um)'
     # ---------------------------
     cols=['init', 'tau', 'constant', 'R2']
-    fig, axn = pl.subplots(1, 3, figsize=(8,3), sharex=True, sharey=True)
+    fig, axn = pl.subplots(1, 3, figsize=(7,2.5), sharex=True, sharey=True, dpi=150)
+
     for va, cc_ in bcorrs.groupby('visual_area'):
         ai=visual_areas.index(va)
         ax=axn[ai]
@@ -685,23 +755,35 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
         data = cc_.groupby(cnt_grouper).median()
         xdata = data.sort_values(by=to_quartile)[to_quartile].values
         ydata = data.sort_values(by=to_quartile)[metric].values
-        sns.scatterplot(x=to_quartile, y='signal_cc', data=data, ax=ax,
+        sns.scatterplot(x=to_quartile, y=metric, data=data, ax=ax,
                         s=markersize, color='k', marker='.', edgecolor=None)
+                        #jitter=False)
         # plot fits
         if use_best_r2:
             pars_ = finalres.loc[finalres[finalres.visual_area==va]\
                                           ['R2'].idxmax(),cols]
         else:
             pars_ = finalres[finalres.visual_area==va][cols].median()
+        
         init, tau, const, r2 = pars_.init, pars_.tau, pars_.constant, pars_.R2
         fit_y = func_halflife(xdata, init, tau, const)
         ax.plot(xdata, fit_y, area_colors[va], lw=lw) # label='fitted line')
-        ax.set_ylabel(xlabel)
-        ax.set_xlabel(ylabel)
+        ax.set_ylabel(ylabel)
+        ax.set_xlabel(xlabel)
         n_fovs = len(cc_['datakey'].unique())
+        ax.set_box_aspect(0.8)
+
+        pars_m = finalres[finalres.visual_area==va][cols].median()
+        init_med, tau_med = pars_m.init, pars_m.tau
+        pars_sd = finalres[finalres.visual_area==va][cols].std()
+        init_sd, tau_sd = pars_sd.init, pars_sd.tau
+        res_str = 'tau=%.2f+/-%.2f\ncc0=%.2f+/-%.2f' %  (tau_med, tau_sd, init_med, init_sd)
+
+        #ax.plot(0, 0, color=None, lw=0, label=res_str)
+        #ax.legend(bbox_to_anchor=(x_pos, 1), loc='upper left', frameon=False, fontsize=6)
         
-        ax.set_title("%s: T=%i, cc=%.2f (n=%i sites)" \
-                        % (va, tau, init, n_fovs), loc='left', fontsize=6)
+        ax.set_title("%s (n=%i sites)\n%s" % (va,  n_fovs, res_str), loc='left', fontsize=6)
+
         # param distns
         paramdf = finalres[finalres.visual_area==va]
         if scatter_params:
@@ -728,7 +810,7 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
         for ax in axn:
             ax.set_ylim(ylim)
     sns.despine(trim=True)
-    pl.subplots_adjust(left=0.1, right=0.95, bottom=0.2, wspace=0.3, top=0.8)
+    pl.subplots_adjust(left=0.1, right=0.8, bottom=0.25, wspace=0.2, top=0.8)
     return fig
 
 

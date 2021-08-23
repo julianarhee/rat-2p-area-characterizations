@@ -226,7 +226,8 @@ def get_quartile_limits(cells_RF, rf_metric='fwhm_avg', whis=1.5):
     return limit_lower, limit_upper
 
 
-def get_rfdf(cells0, sdata, response_type='dff', do_spherical_correction=False):
+def get_rfdf(cells0, sdata, response_type='dff', do_spherical_correction=False,
+            reliable_only=False, pass_criterion='all'):
     '''Combines all RF fit params, returns AVERAGE of >1 experiment'''
     # Get cells and metadata
     assigned_cells, rf_meta = aggr.select_assigned_cells(cells0, sdata, 
@@ -236,7 +237,7 @@ def get_rfdf(cells0, sdata, response_type='dff', do_spherical_correction=False):
                                 do_spherical_correction=do_spherical_correction)
     rfdata = rfutils.aggregate_rfdata(rf_meta, assigned_cells, 
                                 fit_desc=rf_fit_desc,
-                                reliable_only=False)
+                                reliable_only=reliable_only, pass_criterion=pass_criterion)
     # Combined rfs5/rfs10
     rfdf = rfutils.average_rfs(rfdata, keep_experiment=False) 
 

@@ -747,7 +747,14 @@ def load_matching_fit_results(animalid, session, fov, traceid='traces001',
 def get_reliable_fits(pass_cis, pass_criterion='all', single=False):
     '''
     Only return cells with measured PARAM within 95% CI (based on bootstrap fits)
-    pass_cis:  gives the CI range
+    pass_cis:  gives the CI range (df)
+    pass_criterion: (str)
+        all:  ALL fit params must be within CI (can be weird for theta)
+        most: most fit params must be within CI
+        any:  any 1 must pass
+        size: only check size params
+        position:  only check position params (x, y)
+    
     '''
     if single is True:
         keep_rids = [i for i in pass_cis.index.tolist() \
@@ -780,12 +787,28 @@ def get_reliable_fits(pass_cis, pass_criterion='all', single=False):
 
     return reliable_rois
 
+
+
+def load_rf_fits(dk, experiment='rfs', fit_desc=None):
+    rfdf_ = None
+    try:
+        fit_results, fit_params = load_fit_results(dk, experiment=experiment,
+                                                           fit_desc=fit_desc)
+        rfit_df = rfits_to_df(fit_results, fit_params=fit_params,
+                            scale_sigma=fit_params['scale_sigma'], 
+                            sigma_scale=fit_params['sigma_scale'])
+        rfdf_ = rfit_df[rfit_df['r2']>0.5]
+    except Exception as e:
+        return rfdf_
+
+    return rfdf_
  
+
 def cycle_and_load(rfmeta, cells0, is_neuropil=False,
                     fit_desc=None, traceid='traces001', 
                     fit_thr=0.5, scale_sigma=True, sigma_scale=2.35, 
                     verbose=False, 
-                    response_type='dff', reliable_only=True,
+                    response_type='dff', reliable_only=True, pass_criterion='all',
                     rootdir='/n/coxfs01/2p-data', return_missing=False):
     '''
     Combines fit_results.pkl(fit from data) and evaluation_results.pkl (evaluated fits via bootstrap)
@@ -804,19 +827,14 @@ def cycle_and_load(rfmeta, cells0, is_neuropil=False,
         rfname = exp if int(session)>=20190511 else 'gratings'
         fit_rois=[]
         try:
-            fit_results, fit_params = load_fit_results(dk, experiment=rfname,
-                                                       fit_desc=fit_desc)
-            if fit_results is None:
+            rfit_df = load_rf_fits(dk, experiment=rfname, fit_desc=fit_desc)
+            if rfit_df is None:
                 no_fits.append((va, dk))
                 continue
         except Exception as e:
             raise e
 
-        scale_sigma = fit_params['scale_sigma']
-        sigma_scale = fit_params['sigma_scale']
-        rfit_df = rfits_to_df(fit_results, fit_params=fit_params,
-                        scale_sigma=scale_sigma, 
-                        sigma_scale=sigma_scale)
+        rfit_df = load_rf_fits(dk, experiment=rfname, fit_desc=fit_desc)
         fit_rois = rfit_df[rfit_df['r2']>fit_thr].index.tolist()
         if len(fit_rois)==0:
             continue
@@ -827,7 +845,7 @@ def cycle_and_load(rfmeta, cells0, is_neuropil=False,
         reliable_rois=[]
         if reliable_only:      
             try: #### Load eval results 
-                eval_results, eval_params = load_eval_results(datakey,
+                eval_results, eval_params = load_eval_results(dk,
                                                 experiment=rfname, 
                                                 traceid=traceid, 
                                                 fit_desc=fit_desc)   
@@ -836,7 +854,7 @@ def cycle_and_load(rfmeta, cells0, is_neuropil=False,
                     continue
                 # check if all params within 95% CI
                 reliable_rois = get_reliable_fits(eval_results['pass_cis'],
-                                                         pass_criterion='all')
+                                                         pass_criterion=pass_criterion)
             except Exception as e: 
                 raise e
 
@@ -986,8 +1004,8 @@ def get_fit_dpaths(dsets, traceid='traces001', fit_desc=None,
 
 def aggregate_rfdata(rf_dsets, assigned_cells, traceid='traces001', 
                         fit_desc='fit-2dgaus_dff-no-cutoff', 
-                        reliable_only=True, verbose=False, 
-                        return_missing=False):
+                        reliable_only=True, pass_criterion='all',
+                        verbose=False,return_missing=False):
     # Gets all results for provided datakeys (sdata, for rfs/rfs10)
     # Aggregates results for the datakeys
     # assigned_cells:  cells assigned by visual area
@@ -996,7 +1014,7 @@ def aggregate_rfdata(rf_dsets, assigned_cells, traceid='traces001',
     rfmeta, no_fits = get_fit_dpaths(rf_dsets, traceid=traceid, 
                                     fit_desc=fit_desc)
     rfdf, no_fit, no_eval = cycle_and_load(rfmeta, assigned_cells, 
-                            reliable_only=reliable_only,
+                            reliable_only=reliable_only, pass_criterion=pass_criterion,
                             fit_desc=fit_desc, traceid=traceid, 
                             verbose=verbose, return_missing=True)
     rfdf = rfdf.reset_index(drop=True)
