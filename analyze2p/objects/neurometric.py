@@ -14,7 +14,11 @@ import scipy as sp
 import itertools
 import matplotlib as mpl
 from matplotlib.lines import Line2D
-import py3utils as p3
+#import py3utils as p3
+import analyze2p.utils as hutils
+import analyze2p.aggregate_datasets as aggr
+
+import analyze2p.plotting as pplot
 
 np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)       
 
@@ -84,7 +88,7 @@ def load_fitparams(dk, roi_list=None, allow_negative=True, param='morphlevel',
 # #####################################################################
 def get_tracedir_from_datakey(datakey, experiment='blobs', 
                     rootdir='/n/coxfs01/2p-data', traceid='traces001'):
-    session, animalid, fovn = p3.split_datakey_str(datakey)
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
     darray_dirs = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_zoom2p0x' % fovn,
                             'combined_%s_static' % experiment, 'traces', 
                              '%s*' % traceid, 'data_arrays', 'np_subtracted.npz'))
@@ -169,9 +173,17 @@ def load_aggregate_AUC( param='morphlevel', midp=53, allow_negative=True,
 
 from psignifit import getSigmoidHandle as getSig
 
-def default_options():
+def default_options(population=False):
 
-    options = {'expType': '2AFC',
+    if population:
+        options={'expType': 'YesNo',
+                 'sigmoidName': 'gauss',
+                 'threshPC': 0.5}
+        fh = getSig.getSigmoidHandle(options)
+        options.update({'sigmoidHandle': fh})
+
+    else:
+        options = {'expType': '2AFC',
                'sigmoidName': 'gauss',
                'threshPC': 0.5}
     
@@ -201,17 +213,20 @@ def fit_sigmoid(fit, fh, xmin=0, xmax=106, npoints=50):
     
     return xv, fv
 
-def get_fit_values(fparams, fh, xmin=0, xmax=106, npoints=50):
+def get_fit_values(fparams, fh, xmin=0, xmax=106, npoints=50,
+    add_cols= ['visual_area', 'datakey', 'cell', 'size', 'Eff']):
     '''
     Create dict of fit values (interpolated) for easier plotting by conditions
     '''
-    if isinstance(fparams, pd.DataFrame):
+    if isinstance(fparams, (pd.DataFrame, pd.Series)):
         parnames = ['threshold', 'width', 'lambda', 'gamma','eta']
         fit, = fparams[parnames].values
     else:
         fit = fparams
+
+    #print(fit)
     x, v = fit_sigmoid(fit, fh, xmin=xmin, xmax=xmax, npoints=npoints)
-    add_cols= ['visual_area', 'datakey', 'cell', 'size', 'Eff']
+    #add_cols= ['visual_area', 'datakey', 'cell', 'size', 'Eff']
     if 'arousal' in fparams.columns:
         add_cols.extend(['arousal', 'true_labels'])
         
@@ -443,7 +458,7 @@ def get_auc_AB(rdf, param='morphlevel', n_crit=50,
                 .groupby(['object'])['response'].mean().argmax()
     pref_obj = objects[max_ix]
     Eff = class_a if pref_obj=='A' else  class_b
-    rdf = p3.equal_counts_df(rdf, equalize_by='config')
+    rdf = aggr.equal_counts_df(rdf, equalize_by='config')
 
     p_hits, p_fas, resp_cfgs, counts = split_signal_distns(rdf, param=param, n_crit=n_crit, 
                                                         include_ref=include_ref, Eff=Eff)
@@ -475,7 +490,8 @@ def get_auc_AB(rdf, param='morphlevel', n_crit=50,
     
 
 def plot_auc_for_cell(rdf, param='morphlevel', class_a=0, class_b=106, n_crit=50, include_ref=True, cmap='RdBu'):
-    
+    pplot.set_plot_params()
+
     means = rdf[rdf.morphlevel.isin([class_a, class_b])].groupby(['object']).mean()
     print(means)
     # Get Eff/Ineff

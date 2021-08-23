@@ -2335,6 +2335,7 @@ def plot_score_v_ncells_color_X(finaldf, sample_sizes, ax=None,
     '''
     Plot test score vs n_cells for each visual area.
     '''
+    pplot.set_plot_params()
     if ax is None:
         fig, ax = pl.subplots(figsize=(4,4), dpi=dpi)
     sns.lineplot(x='n_cells', y=metric, data=finaldf, ax=ax,
@@ -2343,7 +2344,8 @@ def plot_score_v_ncells_color_X(finaldf, sample_sizes, ax=None,
             err_style='bars', hue=hue_name, palette=palette, ci='sd') 
 
     if legend:
-        ax.legend(bbox_to_anchor=(1,1), loc='upper left', frameon=False)
+        leg = ax.legend(bbox_to_anchor=(1,1), loc='upper left', frameon=False)
+        leg._legend_box.align='left'
         ax.set_xticks(sample_sizes)
     else:
         ax.legend_.remove()    
@@ -2351,15 +2353,18 @@ def plot_score_v_ncells_color_X(finaldf, sample_sizes, ax=None,
 # morph plotting
 def plot_pchooseb_by_area(plotd, metric='p_chooseB', area_colors=None, ax=None):
     '''plot neurometric curves, color by visual_area'''
+    pplot.set_plot_params()
     if area_colors is None:
         visual_areas, area_colors = pplot.set_threecolor_palette()
     if ax is None:
         fig, ax = pl.subplots()
     sns.lineplot(x='morphlevel', y=metric, ax=ax, 
-                data=plotd[plotd.morphlevel!=-1], 
+                data=plotd[plotd.morphlevel!=-1], style='condition',
                 hue='visual_area', err_style='bars', ci='sd', 
                 palette=area_colors, err_kws={'lw': 1}, lw=1)
-    ax.legend(bbox_to_anchor=(1., 1.1), loc='upper left', frameon=False)
+    leg = ax.legend(bbox_to_anchor=(1., 1.1), loc='upper left', frameon=False)
+    leg._legend_box.align = "left"
+
     ax.axhline(y=0.5, ls=':', lw=0.5, color='k')
     ax.set_ylim([0, 1])
     pplot.set_morph_xticks(ax) 
@@ -2368,16 +2373,19 @@ def plot_pchooseb_by_area(plotd, metric='p_chooseB', area_colors=None, ax=None):
     return ax
 
  
-
-def plot_pchooseb_lum_by_area(plotd, metric='p_chooseB', ax=None, color=0.8,
+def plot_pchooseb_lum_by_area(plotd, metric='p_chooseB', ax=None, colors=0.8,
                               visual_areas=['V1', 'Lm', 'Li']):
     '''plot pchooseB for LUMINANCE cond (morphlevel=-1)'''
+    if not isinstance(colors, dict):
+        colors=[colors]*0.8
+
+    pplot.set_plot_params()
     if ax is None:
         fig, ax = pl.subplots()
 
-    sns.barplot(x='visual_area', y=metric, ax=ax, 
+    sns.barplot(x='visual_area', y=metric, ax=ax,  hue='condition',
                 data=plotd[plotd.morphlevel==-1], ci='sd', 
-                order=visual_areas, color=[color]*3, errwidth=0.5)
+                order=visual_areas, palette=colors, errwidth=0.5)
     ax.set_title('FF luminance')
     ax.set_aspect(6, anchor='C')
     ax.set_xlabel('')

@@ -23,7 +23,8 @@ import pylab as pl
 import matplotlib as mpl
 import scipy.stats as spstats
 
-
+import pingouin as pg
+import analyze2p.plotting as pplot
 
 def get_x_curves_at_best_y(df, x='morphlevel', y='size', normalize=False):
     '''Get <size> tuning curves at best <morphlevel>, for ex.'''
@@ -91,6 +92,7 @@ def size_tolerance(responses):
 
     normed_tuning = responses/float(max(responses))
     ST = np.mean(normed_tuning[normed_tuning<1.])
+
     return ST
 
 
@@ -137,7 +139,7 @@ def assign_lum_ix(df, at_best_other=True):
 
 def get_lum_corr(rd):
     '''Get size tuning curve (at best morph) and 
-    luminance tuning curve (same as size-tuning but for morphlevel=-1).
+    luminance tuning curve (i.e., size-tuning curve @ morphlevel=-1).
     Calculate correlation coefficient between size- and luminance-tuning curves.
     '''
     lumr = get_x_curves_at_best_y(rd[rd.morphlevel==-1], 
@@ -147,11 +149,49 @@ def get_lum_corr(rd):
     r_, p_ = spstats.pearsonr(sizr['response'].values, lumr['response'].values)
     
     #pd.Series(mt, name=df_['cell'].unique()[0])
-    df = pd.DataFrame({'lum_cc': r_, 'lum_p': p_}, 
-                        index=[rd['cell'].unique()[0]])
+    df = pd.Series({'lum_size_cc': r_, 'lum_size_pval': p_})
 
     return df
 
+
+# plotting
+def stripplot_metric_by_area(plotdf, metric='morph_sel', markersize=1,
+                area_colors=None, posthoc='fdr_bh', 
+                y_loc=1.01, offset=0.01, ylim=(0, 1.03), aspect=4,
+                sig_fontsize=6, sig_lw=0.25, errwidth=0.5, scale=1, 
+                jitter=True, return_stats=False, plot_means=True,
+                visual_areas=['V1', 'Lm', 'Li'], fig=None, ax=None):
+
+    pplot.set_plot_params()
+
+    if ax is None:
+        fig, ax = pl.subplots( figsize=(2,2), dpi=150)
+
+    #for ai, metric in enumerate(plot_params):
+    sns.stripplot(x='visual_area', y=metric, data=plotdf, ax=ax,
+                hue='visual_area', palette=area_colors, order=visual_areas, 
+                size=markersize, zorder=-10000, jitter=jitter)
+    if plot_means:
+        sns.pointplot(x='visual_area', y=metric, data=plotdf, ax=ax,
+                    color='k', order=visual_areas, scale=scale,
+                    hue='visual_area', estimator=np.median,
+                    markers='_', errwidth=errwidth, zorder=10000, ci='sd')
+    sts = pg.pairwise_ttests(data=plotdf, dv=metric, between='visual_area', 
+                  parametric=False, padjust=posthoc, effsize='eta-square')
+    pplot.annotate_multicomp_by_area(ax, sts, y_loc=y_loc, offset=offset, 
+                                         fontsize=sig_fontsize, lw=sig_lw)
+    ax.legend_.remove()
+    ax.set_ylim(ylim)
+    sns.despine(bottom=True, trim=True)
+    ax.tick_params(which='both', axis='x', size=0)
+    ax.set_xlabel('')
+    pl.subplots_adjust(left=0.05, right=0.95, bottom=0.2, top=0.8)
+    ax.set_aspect(aspect)
+
+    if return_stats:
+        return fig, sts
+    else:
+        return fig
 
 # wrappers
 

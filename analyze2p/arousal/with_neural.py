@@ -151,7 +151,7 @@ def split_by_arousal(nmetrics, pmetrics, n_cuts=3,
     p_high['arousal'] = 'high'
     splitpupil = pd.concat([p_low, p_high], axis=0)
 
-    # Now, split neural
+    # Now, Zscore responses, and then split neural
     ndf = ndf.reset_index(drop=True)
     zscored_ = aggr.get_zscored_from_ndf(ndf)
     ndf_z = aggr.unstacked_neuraldf_to_stacked(zscored_)

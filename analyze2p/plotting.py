@@ -69,7 +69,9 @@ def set_plot_params(lw_axes=0.25, labelsize=6, color='k', dpi=100):
     #### Plot params
     pl.rcParams['font.size'] = labelsize
     #pl.rcParams['text.usetex'] = True
-    
+
+    pl.rcParams["axes.titlesize"] = labelsize+2
+  
     pl.rcParams["axes.labelsize"] = labelsize
     pl.rcParams["axes.linewidth"] = lw_axes
     pl.rcParams["xtick.labelsize"] = labelsize
@@ -78,14 +80,15 @@ def set_plot_params(lw_axes=0.25, labelsize=6, color='k', dpi=100):
     pl.rcParams['xtick.minor.width'] = lw_axes
     pl.rcParams['ytick.major.width'] = lw_axes
     pl.rcParams['ytick.minor.width'] = lw_axes
-    pl.rcParams['legend.fontsize'] = labelsize
     
+    pl.rcParams['legend.fontsize'] = labelsize
+    pl.rcParams['legend.title_fontsize'] = labelsize+2
+ 
     pl.rcParams['figure.figsize'] = (5, 4)
     pl.rcParams['figure.dpi'] = dpi
     pl.rcParams['savefig.dpi'] = dpi
     pl.rcParams['svg.fonttype'] = 'none' #: path
-        
-    
+            
     for param in ['xtick.color', 'ytick.color', 'axes.labelcolor', 'axes.edgecolor']:
         pl.rcParams[param] = color
 
@@ -638,20 +641,22 @@ def turn_off_axis_ticks(ax, despine=True):
     ax.set_xticklabels([])
     ax.set_yticklabels([])
 
-def custom_legend_markers(colors=['m', 'c'], labels=['label1', 'label2'], marker='o', linestyles='-', use_patch=False):
+def custom_legend_markers(colors=['m', 'c'], labels=['label1', 'label2'], markers='o', linestyles='-', use_patch=False, lw=0.5):
     from matplotlib.patches import Patch
     from matplotlib.lines import Line2D
 
     if not isinstance(linestyles, (np.ndarray, list)):
         linestyles = [linestyles]*3
+    if not isinstance(markers, (np.ndarray, list)):
+        markers = [markers]*3
 
     leg_h=[]
-    for col, label, style in zip(colors, labels, linestyles):
+    for col, label, style, marker in zip(colors, labels, linestyles, markers):
         if use_patch:
             leg_h.append(Patch(facecolor=col, edgecolor=None, label=label))
         else: 
             leg_h.append(Line2D([0], [0], marker=marker, color=col, label=label,
-                            linestyle=style))
+                            linestyle=style, lw=lw))
     
     return leg_h
 

@@ -170,7 +170,7 @@ def get_stimuli(datakey, experiment, match_names=False,
 
 def check_sdfs_gratings(dkey_list, experiment='gratings',
                     return_incorrect=False, return_all=False, 
-                    verbose=False):
+                    verbose=False, as_dict=False):
     exclude_=[] 
     #['20190602_JC091_fov1', '20190525_JC084_fov1', '20190522_JC084_fov1']
     # ^Need to re-aggregate these for gratings, exclude for now
@@ -200,6 +200,12 @@ def check_sdfs_gratings(dkey_list, experiment='gratings',
         sdf['datakey'] = dk
         s_.append(sdf)
     SDF = pd.concat(s_, axis=0)
+
+    if as_dict:
+        SDF0 = SDF.copy()
+        SDF={}
+        for dk, sd in SDF0.groupby('datakey'):
+            SDF[dk] = sd
 
     if return_incorrect:
         return SDF, incorrect
@@ -906,7 +912,11 @@ def load_frame_labels(datakey, experiment, traceid='traces001',
                         '%s*' % traceid, 'data_arrays', 'labels.npz'))[0]
     l = np.load(fname, allow_pickle=True)
     labels = pd.DataFrame(data=l['labels_data'], columns=l['labels_columns'])
-    labels = hutils.convert_columns_byte_to_str(labels)
+    #print(labels.head())    
+    try: 
+        labels = hutils.convert_columns_byte_to_str(labels)
+    except (UnicodeDecodeError, AttributeError):
+        pass
 
     return labels
 
