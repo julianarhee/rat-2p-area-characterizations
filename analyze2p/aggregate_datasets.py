@@ -988,14 +988,19 @@ def load_corrected_dff_traces(animalid, session, fov, experiment='blobs', tracei
     if return_traces:
         if return_labels:
             labels = pd.DataFrame(data=dset['labels_data'],columns=dset['labels_columns'])
-            labels = hutils.convert_columns_byte_to_str(labels)
-
+            try: 
+                labels = hutils.convert_columns_byte_to_str(labels)
+            except (UnicodeDecodeError, AttributeError):
+                pass
             return dff, labels
         else:
             return dff
     else:
         labels = pd.DataFrame(data=dset['labels_data'],columns=dset['labels_columns'])
-        labels = hutils.convert_columns_byte_to_str(labels)
+        try: 
+            labels = hutils.convert_columns_byte_to_str(labels)
+        except (UnicodeDecodeError, AttributeError):
+            pass
         dfmat = traces_to_trials(dff, labels, epoch=epoch, metric=metric)
         return dfmat
 
@@ -1107,9 +1112,10 @@ def get_cells_by_area(sdata, create_new=False, excluded_datasets=[],
             except Exception as e:
                 if verbose:
                     print("... no seg. %s (%s)" % (datakey, retinorun))
-                    print(e)
+                    traceback.print_exc()
                 missing_segmentation.append((datakey, retinorun))
                 continue 
+
             for varea, rlist in roi_assignments.items():
                 if hutils.isnumber(varea):
                     continue  
@@ -1121,8 +1127,9 @@ def get_cells_by_area(sdata, create_new=False, excluded_datasets=[],
                             'datakey': datakey}
                 tmpd = hutils.add_meta_to_df(tmpd, metainfo)
                 if verbose:
-                    print('    %s (%s): got %i cells' % (dk, varea, len(tmpd)))
+                    print('    %s (%s): got %i cells' % (datakey, varea, len(tmpd)))
                 d_.append(tmpd)
+
         cells = pd.concat(d_, axis=0).reset_index(drop=True)
         cells = cells[~cells['datakey'].isin(excluded_datasets)]
        
@@ -1820,7 +1827,10 @@ def load_run_info(animalid, session, fov, run, traceid='traces001',
     # Stimulus / condition info
     labels = pd.DataFrame(data=labels_dset['labels_data'], 
                           columns=labels_dset['labels_columns'])
-    labels = hutils.convert_columns_byte_to_str(labels)
+    try: 
+        labels = hutils.convert_columns_byte_to_str(labels)
+    except (UnicodeDecodeError, AttributeError):
+        pass
 
     sdf = pd.DataFrame(labels_dset['sconfigs'][()]).T
     if 'blobs' in labels_fpath: #self.experiment_type:
@@ -1997,12 +2007,14 @@ def get_responsive_cells(datakey, run=None, traceid='traces001',
     else:
         stats_fpath = glob.glob(os.path.join(stat_dir, 'roc_result*.pkl'))
 
+    print("found stats:\n", stats_fpath)
+
     # Check if test=nstds and need to make
-    if responsive_test=='nstds' and len(stats_fpath)==0:
-        print("Running NSTDS")
+    if len(stats_fpath)==0:
+        print("No stats, calculating now")
         create_new=True
 
-    if create_new and run!='retino': #(('gratings' in run) or ('blobs' in run)):
+    if responsive_test=='nstds' and create_new and run!='retino': 
         print("... calculating responsive, might take awhile (%s)" % (datakey))
         try:
             if responsive_test=='ROC':
@@ -2017,7 +2029,6 @@ def get_responsive_cells(datakey, run=None, traceid='traces001',
                             #response_type=response_type, 
                             n_processes=n_processes, rootdir=rootdir, 
                             create_new=True)
-
             print('... finished responsivity test (%s)' % (datakey))
         except Exception as e:
             traceback.print_exc()
@@ -2037,7 +2048,6 @@ def get_responsive_cells(datakey, run=None, traceid='traces001',
             if verbose:
                 print("... loading stats")
             rstats = pkl.load(f, encoding='latin1')
-        # print("...loaded")        
         if responsive_test == 'ROC':
             roi_list = [r for r, res in rstats.items() if res['pval'] < responsive_thr]
             nrois_total = len(rstats.keys())

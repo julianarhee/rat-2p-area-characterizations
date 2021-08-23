@@ -13,6 +13,7 @@ import glob
 import json
 import imutils
 import h5py
+import copy
 import tifffile as tf
 import _pickle as pkl
 import numpy as np
@@ -179,7 +180,23 @@ def load_roi_assignments(animalid, session, fov, retinorun='retino_run1',
             "Assignment results not found: %s" % results_fpath
     with open(results_fpath, 'r') as f:
         roi_assignments = json.load(f)
-   
+ 
+    # Check keys
+    good_keys = [] 
+    all_keys = copy.copy(list(roi_assignments.keys()))
+    for k in all_keys:
+        if isinstance(k, str):
+            correct_k = k.capitalize()
+            good_keys.append(correct_k)
+        roi_assignments[correct_k] = copy.copy(roi_assignments[k])
+
+    bad_keys = [k for k in list(roi_assignments.keys()) if k not in good_keys]
+    for k in bad_keys:
+        roi_assignments.pop(k)
+    if len(bad_keys)>0:
+        with open(results_fpath, 'w') as f:
+            json.dump(roi_assignments, f, indent=4)
+
     return roi_assignments #, roi_masks_labeled
 
 

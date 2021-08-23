@@ -345,6 +345,9 @@ def load_dataset(soma_fpath, trace_type='dff', is_neuropil=False,
     Loads all the roi traces and labels.
     If want to load corrected NP traces, set flag is_neuropil.
     To load raw NP traces, set trace_type='neuropil' and is_neuropil=False.
+
+    Returns:  traces, labels, sdf, run_info
+
     '''
     traces=None
     labels=None
@@ -374,7 +377,10 @@ def load_dataset(soma_fpath, trace_type='dff', is_neuropil=False,
                             encoding='latin1') 
             labels = pd.DataFrame(data=labels_dset['labels_data'], 
                                   columns=labels_dset['labels_columns'])
-            labels = hutils.convert_columns_byte_to_str(labels)
+            try: 
+                labels = hutils.convert_columns_byte_to_str(labels)
+            except (UnicodeDecodeError, AttributeError):
+                pass
             sdf = pd.DataFrame(labels_dset['sconfigs'][()]).T.sort_index()
             if 'blobs' in data_fpath: 
                 sdf = reformat_morph_values(sdf)

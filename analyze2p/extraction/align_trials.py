@@ -50,23 +50,24 @@ def extract_options(options):
                       help="pre-stim amount in sec (default: 1.0)")
     parser.add_option('-P', '--iti-post', action='store', dest='iti_post', default=1.0, 
                       help="post-stim amount in sec (default: 1.0)")
-    parser.add_option('--plot', action='store_true', dest='plot_psth', default=False, 
-                      help="set flat to plot psths (specify row, col, hue)")
-    parser.add_option('-r', '--rows', action='store', dest='rows',
-                          default=None, help='Transform to plot along ROWS (only relevant if >2 trans_types)')
-    parser.add_option('-c', '--columns', action='store', dest='columns',
-                          default=None, help='Transform to plot along COLUMNS')
-    parser.add_option('-H', '--hue', action='store', dest='subplot_hue',
-                          default=None, help='Transform to plot by HUE within each subplot')
-    parser.add_option('-d', '--response', action='store', dest='response_type',
-                          default='dff', help='Traces to plot (default: dff)')
-    parser.add_option('-f', '--filetype', action='store', dest='filetype',
-                          default='svg', help='File type for images [default: svg]')
-    parser.add_option('--resp-test', action='store', dest='responsive_test',
-                          default='nstds', help='Responsive test or plotting rois [default: nstds]')
-    parser.add_option('--resp-thr', action='store', dest='responsive_thr',
-                          default=10, help='Responsive test or plotting rois [default: 10]')
 
+#    parser.add_option('--plot', action='store_true', dest='plot_psth', default=False, 
+#                      help="set flat to plot psths (specify row, col, hue)")
+#    parser.add_option('-r', '--rows', action='store', dest='rows',
+#                          default=None, help='Transform to plot along ROWS (only relevant if >2 trans_types)')
+#    parser.add_option('-c', '--columns', action='store', dest='columns',
+#                          default=None, help='Transform to plot along COLUMNS')
+#    parser.add_option('-H', '--hue', action='store', dest='subplot_hue',
+#                          default=None, help='Transform to plot by HUE within each subplot')
+#    parser.add_option('-d', '--response', action='store', dest='response_type',
+#                          default='dff', help='Traces to plot (default: dff)')
+#    parser.add_option('-f', '--filetype', action='store', dest='filetype',
+#                          default='svg', help='File type for images [default: svg]')
+#    parser.add_option('--resp-test', action='store', dest='responsive_test',
+#                          default='nstds', help='Responsive test or plotting rois [default: nstds]')
+#    parser.add_option('--resp-thr', action='store', dest='responsive_thr',
+#                          default=10, help='Responsive test or plotting rois [default: 10]')
+#
     (options, args) = parser.parse_args(options)
 
     return options
@@ -980,7 +981,8 @@ def main(options):
     iti_pre = float(opts.iti_pre)
     iti_post = float(opts.iti_post)
     rootdir = opts.rootdir
-    plot_psth = opts.plot_psth    
+
+    #plot_psth = opts.plot_psth    
   
     datakey = opts.datakey
 
@@ -993,22 +995,22 @@ def main(options):
     remake_dataframes(datakey, experiment, traceid, rootdir=rootdir)
     print("Aligned traces!") 
    
-    if plot_psth:
-        print("3. Plotting")
-        row_str = opts.rows
-        col_str = opts.columns
-        hue_str = opts.subplot_hue
-        response_type = opts.response_type
-        file_type = opts.filetype
-        responsive_test=opts.responsive_test
-        responsive_thr=opts.responsive_thr
-
-        plot_opts = ['-i', datakey, '-t', traceid, 
-                     '-R', 'combined_%s_static' % experiment, 
-                     '--shade', '-r', row_str, '-c', col_str, '-H', hue_str, '-d', response_type, '-f', file_type,
-                    '--responsive', '--test', responsive_test, '--thr', responsive_thr]
-        #make_clean_psths(plot_opts) 
-   
+#    if plot_psth:
+#        print("3. Plotting")
+#        row_str = opts.rows
+#        col_str = opts.columns
+#        hue_str = opts.subplot_hue
+#        response_type = opts.response_type
+#        file_type = opts.filetype
+#        responsive_test=opts.responsive_test
+#        responsive_thr=opts.responsive_thr
+#
+#        plot_opts = ['-i', datakey, '-t', traceid, 
+#                     '-R', 'combined_%s_static' % experiment, 
+#                     '--shade', '-r', row_str, '-c', col_str, '-H', hue_str, '-d', response_type, '-f', file_type,
+#                    '--responsive', '--test', responsive_test, '--thr', responsive_thr]
+#        #make_clean_psths(plot_opts) 
+#   
    
 #%% 
 if __name__ == '__main__':
