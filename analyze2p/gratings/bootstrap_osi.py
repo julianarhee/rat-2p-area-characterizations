@@ -313,6 +313,8 @@ def do_fit(responsedf, n_intervals_interp=3):
     response_pref=None; response_null=None; theta_pref=None; 
     sigma=None; response_offset=None;
     asi_t=None; dsi_t=None;
+    circvar_asi_t=None; circvar_dsi_t=None;
+
 
     # interpolate values
     tested_oris = responsedf.index.tolist()
@@ -469,7 +471,7 @@ def bootstrap_fit_by_config(roi_df, sdf=None, statdf=None,
     if create_new:
         response_type=params['response_type']
         n_bootstrap_iters=params['n_bootstrap_iters']
-        n_resamples=params['n_resamples']
+        #n_resamples=params['n_resamples']
         n_intervals_interp=params['n_intervals_interp']
         min_cfgs_above=params['min_cfgs_above']
         min_nframes_above=params['min_nframes_above']
@@ -501,6 +503,7 @@ def bootstrap_fit_by_config(roi_df, sdf=None, statdf=None,
             datadict = {'responses': responses_df, 'tested_values': tested_oris}
             
             # Bootstrap distN of responses (rand w replacement):
+            n_resamples = responses_df.shape[0]
             bootdf_tmp = pd.concat([responses_df.sample(n_resamples, replace=True)\
                             .mean(axis=0) \
                             for ni in range(n_bootstrap_iters)], axis=1)
@@ -559,23 +562,12 @@ def load_roi_fits(roi, fitparams):
 
 
 def bootstrap_osi_mp(rdf_list, sdf, statdf=None, params=None, n_processes=1, create_new=False):
-#                    response_type='dff',
-#                    n_bootstrap_iters=1000, n_resamples=20, 
-#                    n_intervals_interp=3, min_cfgs_above=2, min_nframes_above=10, n_processes=1):
-#
     #### Define multiprocessing worker
     terminating = mp.Event()    
     def worker(iter_list, sdf, statdf, params, create_new, out_q):
-                #n_bootstrap_iters, n_resamples, n_intervals_interp,
-                #min_cfgs_above, min_nframes_above, out_q):
         bootr = {}        
         for roi_df in iter_list: 
             roi_results = bootstrap_fit_by_config(roi_df, sdf=sdf, statdf=statdf, params=params, create_new=create_new)
-#                                    n_bootstrap_iters=n_bootstrap_iters, 
-#                                    n_resamples=n_resamples,
-#                                    n_intervals_interp=n_intervals_interp, 
-#                                    min_cfgs_above=min_cfgs_above, 
-#                                    min_nframes_above=min_nframes_above)
             bootr.update(roi_results)
         out_q.put(bootr)
         
@@ -588,9 +580,6 @@ def bootstrap_osi_mp(rdf_list, sdf, statdf=None, params=None, n_processes=1, cre
             p = mp.Process(target=worker,
                         args=(rdf_list[chunksize * i:chunksize * (i + 1)],
                         sdf, statdf, params, create_new, out_q)) 
-#                           n_bootstrap_iters, n_resamples, 
-#                           n_intervals_interp, min_cfgs_above, min_nframes_above, 
-#                           out_q))
             #print(os.getpid())
             print(p.name, p._identity)
 
@@ -622,10 +611,6 @@ def bootstrap_osi_mp(rdf_list, sdf, statdf=None, params=None, n_processes=1, cre
 
 def pool_bootstrap(rdf_list, sdf, statdf=None, params=None, 
                     n_processes=1, create_new=False):
-#                   statdf=None, response_type='dff',
-#                    n_bootstrap_iters=1000, n_resamples=20, 
-#                    n_intervals_interp=3, min_cfgs_above=1, min_nframes_above=10,
-#                    n_processes=1):
 #
     bootresults = {}
     results = None
@@ -636,12 +621,6 @@ def pool_bootstrap(rdf_list, sdf, statdf=None, params=None,
         results = pool.map_async(partial(bootstrap_fit_by_config, 
                                 sdf=sdf, statdf=statdf, params=params, 
                                 create_new=create_new), rdf_list).get(999999999)
-#                                   response_type=response_type, 
-#                                   n_bootstrap_iters=n_bootstrap_iters,
-#                                   n_resamples=n_resamples,
-#                                   n_intervals_interp=n_intervals_interp,
-#                                   min_cfgs_above=min_cfgs_above,
-#                                   min_nframes_above=min_nframes_above), rdf_list).get(99999999)
 
     except KeyboardInterrupt:
         print("**interupt")
@@ -751,7 +730,7 @@ def plot_tuning_fits(roi, bootr, df_traces, labels, sdf, trace_type='dff'):
     
 #%%
 def get_params_dict(response_type='dff', trial_epoch='stimulus',
-                   n_bootstrap_iters=1000, n_resamples=20, n_intervals_interp=3,
+                   n_bootstrap_iters=1000, n_intervals_interp=3,
                    responsive_test='nstds', responsive_thr=10, n_stds=2.5,
                    min_cfgs_above=1, min_nframes_above=10, nonori_params=None):
  
@@ -763,7 +742,6 @@ def get_params_dict(response_type='dff', trial_epoch='stimulus',
                     if responsive_test is not None else None,
         'n_stds': n_stds if responsive_test=='nstds' else None,
         'n_bootstrap_iters': n_bootstrap_iters,
-        'n_resamples': n_resamples,
         'n_intervals_interp': n_intervals_interp,
         'min_cfgs_above': min_cfgs_above,
         'min_nframes_above': min_nframes_above 
@@ -776,7 +754,7 @@ def get_params_dict(response_type='dff', trial_epoch='stimulus',
 def get_tuning(datakey, run_name, return_iters=False,
                traceid='traces001', roi_list=None, statdf=None,
                response_type='dff', trial_epoch='stimulus',
-               n_bootstrap_iters=1000, n_resamples=20, n_intervals_interp=3,
+               n_bootstrap_iters=1000, n_intervals_interp=3,
                make_plots=True, responsive_test='nstds', responsive_thr=10, n_stds=2.5,
                create_new=False, redo_cell=False, fmt='svg',
                rootdir='/n/coxfs01/2p-data', n_processes=1,
@@ -817,7 +795,6 @@ def get_tuning(datakey, run_name, return_iters=False,
                                 responsive_test=responsive_test, 
                                 n_stds=n_stds, responsive_thr=responsive_thr, 
                                 n_bootstrap_iters=n_bootstrap_iters, 
-                                n_resamples=n_resamples, 
                                 rootdir=rootdir)
     traceid_dir =  fitdir.split('/tuning/')[0] 
     data_fpath = os.path.join(traceid_dir, 'data_arrays', 'np_subtracted.npz')
@@ -926,7 +903,6 @@ def get_tuning(datakey, run_name, return_iters=False,
         fitparams = get_params_dict(response_type=response_type, 
                                     trial_epoch=trial_epoch,
                                     n_bootstrap_iters=int(n_bootstrap_iters), 
-                                    n_resamples = int(n_resamples),
                                     n_intervals_interp=int(n_intervals_interp),
                                     responsive_test=responsive_test, 
                                     responsive_thr=responsive_thr, n_stds=n_stds,
@@ -1684,7 +1660,7 @@ def polar_plots_all_configs(rmetrics_all_cfgs, bootresults, fitparams, gof_thr=0
 # DATA AGGREGATION
 def aggregate_ori_fits(CELLS, traceid='traces001', fit_desc=None,
                        response_type='dff', responsive_test='nstds', responsive_thr=10.,
-                       n_bootstrap_iters=1000, n_resamples=20, verbose=False,
+                       n_bootstrap_iters=1000,  verbose=False,
                        return_missing=False, rootdir='/n/coxfs01/2p-data'):
     '''
     assigned_cells:  dataframe w/ assigned cells of dsets that have gratings
@@ -1694,7 +1670,7 @@ def aggregate_ori_fits(CELLS, traceid='traces001', fit_desc=None,
                             responsive_test=responsive_test, 
                             n_stds=n_stds, responsive_thr=responsive_thr, 
                             n_bootstrap_iters=n_bootstrap_iters, 
-                            n_resamples=n_resamples)
+                            )
     gdata=None
     no_fits=[]; missing_fits=[];
     g_list=[];
@@ -1787,9 +1763,9 @@ def extract_options(options):
     parser.add_option('-b', '--iter', action='store', dest='n_bootstrap_iters', 
                     default=1000, 
                      help="N bootstrap iterations (default: 1000)")
-    parser.add_option('-k', '--samples', action='store', dest='n_resamples', 
-                    default=20, 
-                      help="N trials to sample w/ replacement (default: 20)")
+    #parser.add_option('-k', '--samples', action='store', dest='n_resamples', 
+    #                default=20, 
+    #                  help="N trials to sample w/ replacement (default: 20)")
     parser.add_option('-p', '--interp', action='store', dest='n_intervals_interp', 
                     default=3, 
                       help="N intervals to interp between tested angles (default: 3)")
@@ -1843,7 +1819,7 @@ def extract_options(options):
 def fit_and_evaluate(datakey, traceid='traces001', 
                         response_type='dff', trial_epoch='stimulus',
                         responsive_test='ROC', responsive_thr=0.05, n_stds=2.5,
-                        n_bootstrap_iters=1000, n_resamples=20,
+                        n_bootstrap_iters=1000, 
                         min_cfgs_above=2, min_nframes_above=10, 
                         n_intervals_interp=3, 
                         goodness_thr = 0.66,
@@ -1861,7 +1837,7 @@ def fit_and_evaluate(datakey, traceid='traces001',
                                          response_type=response_type, 
                                          trial_epoch=trial_epoch,
                                          n_bootstrap_iters=int(n_bootstrap_iters), 
-                                         n_resamples = int(n_resamples),
+                                         #n_resamples = int(n_resamples),
                                          n_intervals_interp=int(n_intervals_interp),
                                          responsive_test=responsive_test, 
                                          responsive_thr=responsive_thr, n_stds=n_stds,
@@ -1910,7 +1886,7 @@ def main(options):
     trial_epoch = opts.trial_epoch
 
     n_bootstrap_iters = int(opts.n_bootstrap_iters)
-    n_resamples = int(opts.n_resamples)
+    #n_resamples = int(opts.n_resamples)
     n_intervals_interp = int(opts.n_intervals_interp)
     responsive_test = opts.responsive_test
     responsive_thr = float(opts.responsive_thr)
@@ -1930,7 +1906,7 @@ def main(options):
                                              response_type=response_type, 
                                              trial_epoch=trial_epoch,
                                              n_bootstrap_iters=n_bootstrap_iters, 
-                                             n_resamples=n_resamples,
+                                             #n_resamples=n_resamples,
                                              n_intervals_interp=n_intervals_interp,
                                              responsive_test=responsive_test, 
                                              responsive_thr=responsive_thr, 

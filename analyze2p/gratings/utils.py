@@ -17,19 +17,19 @@ from analyze2p import utils as hutils
 
 def get_fit_desc(response_type='dff', responsive_test=None, 
                  responsive_thr=10, n_stds=2.5,
-                 n_bootstrap_iters=1000, n_resamples=20):
+                 n_bootstrap_iters=1000):# , n_resamples=20):
     '''
     Set standardized naming scheme for ori_fit_desc
     '''
     if responsive_test is None:
-        fit_desc = 'fit-%s_all-cells_boot-%i-resample-%i' \
-                        % (response_type, n_bootstrap_iters, n_resamples) 
+        fit_desc = 'fit-%s_all-cells_boot-%i' \
+                        % (response_type, n_bootstrap_iters) 
     elif responsive_test == 'nstds':
-        fit_desc = 'fit-%s_responsive-%s-%.2f-thr%.2f_boot-%i-resample-%i' \
-                        % (response_type, responsive_test, n_stds, responsive_thr, n_bootstrap_iters, n_resamples)
+        fit_desc = 'fit-%s_responsive-%s-%.2f-thr%.2f_boot-%i' \
+                        % (response_type, responsive_test, n_stds, responsive_thr, n_bootstrap_iters)
     else:
-        fit_desc = 'fit-%s_responsive-%s-thr%.2f_boot-%i-resample-%i' \
-                        % (response_type, responsive_test, responsive_thr, n_bootstrap_iters, n_resamples)
+        fit_desc = 'fit-%s_responsive-%s-thr%.2f_boot-%i' \
+                        % (response_type, responsive_test, responsive_thr, n_bootstrap_iters)
 
     return fit_desc
 
@@ -67,7 +67,7 @@ def get_fit_dir(datakey, traceid='traces001', fit_desc=None, verbose=False,
 def create_fit_dir(datakey, run_name='gratings', 
                    traceid='traces001', response_type='dff', n_stds=2.5,
                    responsive_test=None, responsive_thr=0.05,
-                   n_bootstrap_iters=1000, n_resamples=20,
+                   n_bootstrap_iters=1000, 
                    rootdir='/n/coxfs01/2p-data', traceid_dir=None):
 
     # Get RF dir for current fit type
@@ -75,8 +75,7 @@ def create_fit_dir(datakey, run_name='gratings',
 
     fit_desc = get_fit_desc(response_type=response_type, responsive_test=responsive_test, 
                             n_stds=n_stds,
-                            responsive_thr=responsive_thr, n_bootstrap_iters=n_bootstrap_iters,
-                            n_resamples=n_resamples)
+                            responsive_thr=responsive_thr, n_bootstrap_iters=n_bootstrap_iters)
     session, animalid, fovnum = hutils.split_datakey_str(datakey)
     try:
         traceid_dirs = glob.glob(os.path.join(rootdir, animalid, session, 
@@ -313,7 +312,7 @@ def get_good_fits(bootresults, fitparams, gof_thr=0.66, verbose=True):
 
 def aggregate_ori_fits(CELLS, traceid='traces001', fit_desc=None,
                        response_type='dff', responsive_test='nstds', responsive_thr=10.,
-                       n_bootstrap_iters=1000, n_resamples=20, verbose=False,
+                       n_bootstrap_iters=1000, verbose=False,
                        return_missing=False, rootdir='/n/coxfs01/2p-data'):
     '''
     assigned_cells:  dataframe w/ assigned cells of dsets that have gratings
@@ -322,8 +321,7 @@ def aggregate_ori_fits(CELLS, traceid='traces001', fit_desc=None,
         fit_desc = get_fit_desc(response_type=response_type, 
                             responsive_test=responsive_test, 
                             n_stds=n_stds, responsive_thr=responsive_thr, 
-                            n_bootstrap_iters=n_bootstrap_iters, 
-                            n_resamples=n_resamples)
+                            n_bootstrap_iters=n_bootstrap_iters)
     gdata=None
     no_fits=[]; g_list=[];
     for (va, dk), g in CELLS.groupby(['visual_area', 'datakey']):

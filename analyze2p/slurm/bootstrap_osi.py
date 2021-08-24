@@ -25,7 +25,7 @@ parser.add_argument('-R', '--resp-test', dest='responsive_test', action='store',
 parser.add_argument('-r', '--resp-thr', dest='responsive_thr', action='store', default=15, help='Responsive test (default=15)')
 
 
-parser.add_argument('-v', '--area', dest='visual_area', action='store', default=None, help='Visual area to process (default, all)')
+parser.add_argument('-V', '--area', dest='visual_area', action='store', default=None, help='Visual area to process (default, all)')
 
 parser.add_argument('-k', '--datakeys', nargs='*', dest='included_datakeys', action='append', help='Use like: -k DKEY DKEY DKEY')
 #parser.add_argument('-i', '--animalids', nargs='*', dest='animalids', action='append', help='Use like: -k DKEY DKEY DKEY')
@@ -146,8 +146,8 @@ for (datakey), g in dsets.groupby(['datakey']):
     mtag = '%s_%s_%s' % (experiment, datakey, visual_area) 
     #
     cmd = "sbatch --job-name={procid}.{mtag} \
-            -o '{logdir}/{procid}.{mtag}.out' \
-            -e '{logdir}/{procid}.{mtag}.err' \
+            -o '{logdir}/osi.{procid}.{mtag}.out' \
+            -e '{logdir}/osi.{procid}.{mtag}.err' \
     /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/slurm/bootstrap_osi.sbatch \
     {datakey} {traceid} {rtest} {rthr} {redo}".format(
         procid=piper, mtag=mtag, logdir=logdir,

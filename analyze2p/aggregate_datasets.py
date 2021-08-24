@@ -1880,6 +1880,7 @@ def load_traces(datakey, experiment, traceid='traces001',
 
 def process_traces(raw_traces, labels, trace_type='zscore', 
                     response_type='zscore', trial_epoch='stimulus',
+                    return_baseline=False,
                     nframes_post_onset=None):
     '''
     Calculate raw traces into dff traces (or zscore) and calculate trial metrics
@@ -1936,6 +1937,7 @@ def process_traces(raw_traces, labels, trace_type='zscore',
 
     traces_list = []
     metrics_list = []
+    base_list=[]
     #snrs_list = []
     for (trial, cfg), tmat in labels.groupby(['trial', 'config']):
 
@@ -1952,7 +1954,7 @@ def process_traces(raw_traces, labels, trace_type='zscore',
             curr_traces = pd.DataFrame(raw_).subtract(bas_mean)\
                             .divide(bas_mean, axis='columns')
         else:
-            curr_traces = pd.DataFrame(raw_).subtract(bas_mean)
+            curr_traces = pd.DataFrame(raw_) #.subtract(bas_mean)
 
         # Also get zscore (single value) for each trial:
         if response_type=='zscore':
@@ -1969,14 +1971,23 @@ def process_traces(raw_traces, labels, trace_type='zscore',
         traces_list.append(curr_traces) 
         curr_metrics['config'] = cfg
         metrics_list.append(curr_metrics)
+        if return_baseline:
+            base_list.append(bas_mean)
 
     processed_traces = pd.concat(traces_list, axis=0)
     trial_metrics = pd.concat(metrics_list, axis=1).T 
+
     # cols=rois, rows = trials
     roi_list = raw_traces.columns.tolist()
     trial_metrics[roi_list] = trial_metrics[roi_list].astype(float)
 
-    return processed_traces, trial_metrics 
+    if return_baseline:
+        trial_bas = pd.concat(base_list, axis=1).T
+        trial_bas[roi_list] = trial_bas[roi_list].astype(float)
+
+        return processed_traces, trial_metrics, trial_bas
+    else:
+        return processed_traces, trial_metrics 
 
 
 
