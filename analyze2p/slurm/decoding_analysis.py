@@ -166,7 +166,9 @@ info("found %i [%s] datasets to process." % (len(dsets), experiment))
 #                               run the pipeline                               #
 ################################################################################
 basedir='/n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations'
-if 'morph' in test_type:
+if test_type=='morph_single':
+    cmd_str = '%s/analyze2p/slurm/decoding_analysis_morph_single.sbatch' % basedir
+elif test_type=='morph':
     cmd_str = '%s/analyze2p/slurm/decoding_analysis_morph.sbatch' % basedir
 else:
     cmd_str = '%s/analyze2p/slurm/decoding_analysis.sbatch' % basedir
