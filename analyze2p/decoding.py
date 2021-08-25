@@ -83,7 +83,7 @@ def calculate_overlaps(rfdf, rfpolys, overlap_thr=0.5, greater_than=False,
                         overlap_metric='relative_overlap', 
                         resolution=[1920, 1080]):
     '''
-    cycle thru all rf datasets, calculate overlaps.
+    cycle thru all rf datasets, calculate overlaps with blob stimuli
     returns MIN overlap value for each cell.
     '''
     m_=[]

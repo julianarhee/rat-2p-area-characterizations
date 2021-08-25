@@ -617,6 +617,9 @@ def choose_best_fov(which_fovs, criterion='max', colname='cell'):
     else:
         max_loc = np.where(which_fovs[colname]==which_fovs[colname].min())[0]
 
+    if len(max_loc)>1:
+        #print(max_loc)
+        max_loc = [max_loc[-1]]
     return max_loc
 
 
@@ -708,6 +711,7 @@ def select_best_fovs(counts_by_fov, criterion='max', colname='cell'):
                     # Find which has most cells
                     max_loc = choose_best_fov(which_fovs, criterion=criterion, colname=colname)
                     #max_loc = np.where(which_fovs['cell']==which_fovs['cell'].max())[0]
+                    #print(max_loc, which_fovs)
                     incl_dsets.append(which_fovs.iloc[max_loc])
                 else:
                     # THere are no repeats, so just format, then append df data
@@ -2124,7 +2128,7 @@ def calculate_nframes_above_nstds(animalid, session, fov, run=None,
         ncells_total = traces.shape[-1]        
         # Calculate N frames 
         framesdf = pd.concat([find_n_responsive_frames(traces[roi], labels, 
-                                n_stds=n_stds) for roi in range(ncells_total)], axis=1)
+                                n_stds=n_stds) for roi in np.arange(0, ncells_total)], axis=1)
         results = {'nframes_above': framesdf, 'nstds': n_stds}
         # Save    
         with open(results_fpath, 'wb') as f:

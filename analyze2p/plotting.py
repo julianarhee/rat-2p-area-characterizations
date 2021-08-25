@@ -317,8 +317,9 @@ def pairwise_compare_single_metric(comdf, curr_metric='avg_size',
                         c1='rfs', c2='rfs10', compare_var='experiment',
                         c1_label=None, c2_label=None,
                         ax=None, marker='o', visual_areas=['V1', 'Lm', 'Li'],
-                        lw=1, alpha=1., size=5,
+                        lw=1, alpha=1., size=5, mean_plot='bar',
                         xlabel_offset=-1, area_colors=None, bar_ci=95, bar_lw=0.5,
+                        point_marker='_', point_scale=1,  
                         return_stats=False, round_to=3, ttest=True,
                         edgecolor=('k', 'k', 'k'), facecolor=(1,1,1,0)):
 
@@ -360,11 +361,20 @@ def pairwise_compare_single_metric(comdf, curr_metric='avg_size',
     statdf = pd.concat(r_, axis=0)
 
     # Plot average
-    sns.barplot(x="visual_area", y=curr_metric, data=comdf, 
-                hue=compare_var, hue_order=[c1, c2], #zorder=0,
-                ax=ax, order=visual_areas, ci=bar_ci,
-                errcolor="k", edgecolor=edgecolor, 
-                facecolor=facecolor, linewidth=bar_lw, zorder=-10000)
+    if mean_plot=='bar':
+        sns.barplot(x="visual_area", y=curr_metric, data=comdf, 
+                    hue=compare_var, hue_order=[c1, c2], #zorder=0,
+                    ax=ax, order=visual_areas, ci=bar_ci,
+                    errcolor="k", edgecolor=edgecolor, 
+                    facecolor=facecolor, linewidth=bar_lw, zorder=-10000)
+    else:
+        sns.pointplot(x="visual_area", y=curr_metric, data=comdf, 
+                    hue=compare_var, hue_order=[c1, c2], #zorder=0,
+                    palette={c1: edgecolor, c2: edgecolor},
+                    ax=ax, order=visual_areas, ci=bar_ci, join=False, dodge=0.5,
+                    errcolor='k', linewidth=bar_lw, zorder=-10000, errwidth=bar_lw,
+                    markers=point_marker, scale=point_scale)
+
     ax.legend_.remove()
     for x in ax.get_xticks():
         ax.text(x, xlabel_offset, visual_areas[x])
