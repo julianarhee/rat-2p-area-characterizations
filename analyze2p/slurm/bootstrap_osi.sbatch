@@ -6,7 +6,7 @@
 #SBATCH -n 4 # one core
 #SBATCH -N 1 # on one node
 #SBATCH -t 0-02:00 # Running time of 3 hours
-#SBATCH --mem 8192 #70656 # Memory request of 70 GB (set to 98304 if exceed lim)
+#SBATCH --mem 16384 #70656 # Memory request of 70 GB (set to 98304 if exceed lim)
 #SBATCH -o osi_%A_%a.out # Standard output
 #SBATCH -e osi_%A_%a.err # Standard error
 #SBATCH --mail-type=FAIL
@@ -39,10 +39,10 @@ echo "REDO: ${REDOCELL}"
 #
 if [[ ${REDOCELL} == "True" ]]; then
     echo "REDOING all cells"
-    python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/gratings/bootstrap_osi.py -t $TRACEID -R $RTEST -r $RTHR -i $DATAKEY -n 8 -b 500 -d dff -c 1 --new --plots --redo-cell
+    python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/gratings/bootstrap_osi.py -t $TRACEID -R $RTEST -r $RTHR -i $DATAKEY -b 500 -d dff -c 1 --new --plots --redo-cell -n 4
 else
     echo "NO redo"
-    python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/gratings/bootstrap_osi.py -t $TRACEID -R $RTEST -r $RTHR -i $DATAKEY -n 8 -b 500 -d dff -c 1 --new --plots
+    python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/gratings/bootstrap_osi.py -t $TRACEID -R $RTEST -r $RTHR -i $DATAKEY -b 500 -d dff -c 1 --new --plots -n 4
 fi
  
  

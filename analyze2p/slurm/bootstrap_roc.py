@@ -43,10 +43,8 @@ def fatal(error_str):
     sys.exit(1)
 
 
-def load_metadata(experiment, responsive_test='nstds', responsive_thr=10.,
-                  rootdir='/n/coxfs01/2p-data', visual_area=None,
-                  aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas',
-                  traceid='traces001'):
+def load_metadata(experiment, visual_area=None,
+                  aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     #from analyze2p.aggregate_datasets import get_aggregate_info 
     #sdata = aggr.get_aggregate_info(traceid=traceid) #, fov_type=fov_type, state=state)
     sdata_fpath = os.path.join(aggregate_dir, 'dataset_info_assigned.pkl')
@@ -61,7 +59,6 @@ def load_metadata(experiment, responsive_test='nstds', responsive_thr=10.,
     return sdata_exp
 
 
-
 # -----------------------------------------------------------------
 # ARGS
 # -----------------------------------------------------------------
@@ -73,6 +70,18 @@ email = args.email
 visual_area = None if args.visual_area in ['None', None] else args.visual_area
 traceid = args.traceid
 
+dsets = load_metadata(experiment, visual_area=visual_area)
+included_datakeys = args.included_datakeys
+if included_datakeys is not None:
+    included_datakeys=included_datakeys[0]
+    print("dkeys:", included_datakeys)
+    #['20190614_jc091_fov1', '20190602_jc091_fov1', '20190609_jc099_fov1']
+    if len(included_datakeys) > 0:
+        print(included_datakeys)
+        dsets = dsets[dsets['datakey'].isin(included_datakeys)]
+if len(dsets)==0:
+    fatal("no fovs found.")
+info("found %i [%s] datasets to process." % (len(dsets), experiment))
 
 #####################################################################
 #                          find XID files                           #
@@ -84,7 +93,13 @@ traceid = args.traceid
 # identified unambiguously
 piper = uuid.uuid4()
 piper = str(piper)[0:4]
-logdir = 'LOG__roc_%s_%s' % (str(visual_area), experiment) 
+
+if len(included_datakeys)==1:
+    logdir = 'LOG_roc_%s_%s' % (experiment, included_datakeys[0]) 
+else:
+    logdir = 'LOG_roc_%s_%s' % (experiment, str(visual_area)) 
+
+
 if not os.path.exists(logdir):
     os.mkdir(logdir)
 
@@ -102,41 +117,18 @@ sys.stdout = open('%s/INFO_%s_%s.txt' % (logdir, piper, experiment), 'w')
 ################################################################################
 #                               run the pipeline                               #
 ################################################################################
-
+cmd = '/n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/slurm/bootstrap_roc.sbatch'
 jobids=[]
-dsets = load_metadata(experiment, visual_area=visual_area)
-
-included_datakeys = args.included_datakeys
-#animalids = args.animalids
-
-if included_datakeys is not None:
-    included_datakeys=included_datakeys[0]
-    print("dkeys:", included_datakeys)
-    #['20190614_jc091_fov1', '20190602_jc091_fov1', '20190609_jc099_fov1']
-    if len(included_datakeys) > 0:
-        print(included_datakeys)
-        dsets = dsets[dsets['datakey'].isin(included_datakeys)]
-
-#elif animalids is not None:
-#    animalids=animalids[0]
-#    if len(animalids) > 0:
-#        print("animalids:", animalids)
-#        dsets = dsets[dsets['animalid'].isin(animalids)]
-
-if len(dsets)==0:
-    fatal("no fovs found.")
-info("found %i [%s] datasets to process." % (len(dsets), experiment))
 
 # Run it
 for datakey, g in dsets.groupby(['datakey']):
     mtag = '%s_%s_%s' % (experiment, datakey, visual_area) 
     #
-    cmd = "sbatch --job-name={procid}.{mtag} \
+    cmd = "sbatch --job-name=ROC.{procid}.{mtag} \
             -o '{logdir}/ROC.{procid}.{mtag}.out' \
             -e '{logdir}/ROC.{procid}.{mtag}.err' \
-    /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/slurm/bootstrap_roc.sbatch \
-    {datakey} {exp} {traceid}".format(
-        procid=piper, mtag=mtag, logdir=logdir,
+            {cmd} {datakey} {exp} {traceid}".format(
+        procid=piper, mtag=mtag, logdir=logdir, cmd=cmd,
         datakey=datakey, exp=experiment, traceid=traceid) 
     #
     status, joboutput = subprocess.getstatusoutput(cmd)
