@@ -302,7 +302,7 @@ def interp_values(response_vector, n_intervals=3, as_series=False,
         return resps_interp
 
 
-def do_fit(responsedf, n_intervals_interp=3):
+def do_fit(responsedf, n_intervals_interp=3, check_offset=False):
     '''
     responsedf = Series
         index : tested_oris
@@ -315,6 +315,8 @@ def do_fit(responsedf, n_intervals_interp=3):
     asi_t=None; dsi_t=None;
     circvar_asi_t=None; circvar_dsi_t=None;
 
+    if check_offset and responsedf.min()<0:
+        responsedf -= responsedf.min()
 
     # interpolate values
     tested_oris = responsedf.index.tolist()
@@ -509,10 +511,12 @@ def bootstrap_fit_by_config(roi_df, sdf=None, statdf=None,
                             for ni in range(n_bootstrap_iters)], axis=1)
             bootdf_tmp.index = [sdf['ori'][c] for c in bootdf_tmp.index]
             #bootdf = np.abs((bootdf_tmp - bootdf_tmp.mean())) 
-            bootdf = (bootdf_tmp-bootdf_tmp.min()) #- (bootdf_tmp-bootdf_tmp.mean()).min()
+            #if bootdf_tmp.min()<0:
+            #    bootdf = (bootdf_tmp-bootdf_tmp.min()) #- (bootdf_tmp-bootdf_tmp.mean()).min()
+            bootdf = bootdf_tmp.copy()
 
             # Find init params for tuning fits and set fit constraints:
-            fitp = bootdf.apply(do_fit, args=[n_intervals_interp], axis=0) 
+            fitp = bootdf.apply(do_fit, args=[n_intervals_interp, True], axis=0) 
             fitdict=None;
             if fitp.dropna().shape[0]>0:
                 # Get fits
@@ -615,12 +619,13 @@ def pool_bootstrap(rdf_list, sdf, statdf=None, params=None,
     bootresults = {}
     results = None
     terminating = mp.Event()        
-    pool = mp.get_context("spawn").Pool(initializer=initializer, initargs=(terminating, ), processes=n_processes)
-    #with get_context("spawn").Pool(initializer=initializer, initargs=(terminating,), processes=n_processes):
+    #pool = mp.get_context("spawn")
+    pool = mp.Pool(initializer=initializer, 
+                                        initargs=(terminating, ), processes=n_processes)
     try:
         results = pool.map_async(partial(bootstrap_fit_by_config, 
                                 sdf=sdf, statdf=statdf, params=params, 
-                                create_new=create_new), rdf_list).get(999999999)
+                                create_new=create_new), rdf_list).get() #999999999)
 
     except KeyboardInterrupt:
         print("**interupt")
