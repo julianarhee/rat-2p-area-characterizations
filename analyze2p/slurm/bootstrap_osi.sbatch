@@ -6,7 +6,7 @@
 #SBATCH -n 4 # one core
 #SBATCH -N 1 # on one node
 #SBATCH -t 0-02:00 # Running time of 3 hours
-#SBATCH --mem 16384 #70656 # Memory request of 70 GB (set to 98304 if exceed lim)
+#SBATCH --mem 8192 #70656 # Memory request of 70 GB (set to 98304 if exceed lim)
 #SBATCH -o osi_%A_%a.out # Standard output
 #SBATCH -e osi_%A_%a.err # Standard error
 #SBATCH --mail-type=FAIL

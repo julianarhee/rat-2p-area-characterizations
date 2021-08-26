@@ -890,7 +890,7 @@ def get_tuning(datakey, run_name, return_iters=False,
                         not in existing]
         # Get cells to fit 
         print("... Fitting %i rois (n=%i procs):" \
-                        % (len(roi_list), n_processes), roi_list)
+                        % (len(roi_list), n_processes))
         if 'trial' not in metrics.columns:
             metrics['trial'] = metrics.index.tolist() 
         roidf_list = [metrics[[roi, 'config', 'trial']] for roi in roi_list]

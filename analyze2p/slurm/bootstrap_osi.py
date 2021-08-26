@@ -81,7 +81,8 @@ redo_cell = args.redo_cell
 
 # Get datasets to run
 dsets = load_metadata(experiment, visual_area=visual_area)
-included_datakeys = args.included_datakeys
+included_datakeys = None if args.included_datakeys in ['None', None] else args.included_datakeys
+
 if included_datakeys is not None:
     included_datakeys=included_datakeys[0]
     print("dkeys:", included_datakeys)
@@ -104,7 +105,7 @@ info("found %i [%s] datasets to process." % (len(dsets), experiment))
 piper = uuid.uuid4()
 piper = str(piper)[0:4]
 
-if len(included_datakeys)==1:
+if included_datakeys is not None and len(included_datakeys)==1:
     logdir = 'LOG_osi_%s_%s' % (responsive_test, included_datakeys[0]) 
 else:
     logdir = 'LOG_osi_%s_%s' % (responsive_test, str(visual_area)) 
@@ -130,7 +131,7 @@ sys.stdout = open('%s/INFO_%s.txt' % (logdir, piper), 'w')
 # -----------------------------------------------------------------
 # PER FOV 
 # -----------------------------------------------------------------
-cmd = '/n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/slurm/bootstrap_osi.sbatch'
+cmd_str = '/n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/slurm/bootstrap_osi.sbatch'
 
 jobids=[]
 # Run it
@@ -143,7 +144,7 @@ for (datakey), g in dsets.groupby(['datakey']):
             -e '{logdir}/osi.{procid}.{mtag}.err' \
             {cmd} {datakey} {traceid} {rtest} {rthr} {redo}".format(
         procid=piper, mtag=mtag, logdir=logdir,
-        cmd=cmd, datakey=datakey, traceid=traceid, 
+        cmd=cmd_str, datakey=datakey, traceid=traceid, 
         rtest=responsive_test, rthr=responsive_thr, redo=redo_cell)
     #
     status, joboutput = subprocess.getstatusoutput(cmd)
