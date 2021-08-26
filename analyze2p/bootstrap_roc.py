@@ -16,6 +16,7 @@ import math
 import time
 import itertools
 import json
+import traceback
 
 import matplotlib as mpl
 mpl.use('agg')
@@ -381,7 +382,7 @@ def bootstrap_roc_func(datakey, traceid, experiment, trace_type='corrected',
 
     # Get cells to fit 
     print("... Fitting %i rois (n=%i procs):" \
-                    % (len(roi_list), n_processes), roi_list)
+                    % (len(roi_list), n_processes))
     if 'trial' not in metrics.columns:
         metrics['trial'] = metrics.index.tolist() 
 
@@ -406,33 +407,47 @@ def bootstrap_roc_func(datakey, traceid, experiment, trace_type='corrected',
     end_t = time.time() - start_t
     print("--> Elapsed time: {0:.2f}sec".format(end_t))
 
-    fmts = ['pkl', 'json']
+    fmts = ['json', 'pkl']
     
     for fmt in fmts:
         results_outfile = os.path.join(roc_dir, 'roc_results.%s' % fmt)
-        if fmt == 'pkl':
-            # First load existing:
-            if os.path.exists(results_outfile):
-                with open(results_outfile, 'rb') as f:
-                    all_results = pkl.load(f)
-                all_results.update(results)
-            else:
-                all_results = results.copy()
+        try:
+            if fmt == 'pkl':
+                # First load existing:
+                if os.path.exists(results_outfile):
+                    with open(results_outfile, 'rb') as f:
+                        all_results = pkl.load(f, encoding='latin1')
+                    all_results.update(results)
+                else:
+                    all_results = results.copy()
+                with open(results_outfile, 'wb') as f:
+                    pkl.dump(all_results, f, protocol=2)
 
-            with open(results_outfile, 'wb') as f:
-                pkl.dump(all_results, f, protocol=2)
+            elif fmt == 'json':
+                if os.path.exists(results_outfile):
+                    with open(results_outfile, 'r') as f:
+                        all_results = json.load(f)
+                    all_results.update(results)
+                else:
+                    all_results = results.copy()
 
-        elif fmt == 'json':
-            if os.path.exists(results_outfile):
-                with open(results_outfile, 'r') as f:
-                    all_results = json.load(f)
-                all_results.update(results)
-            else:
-                all_results = results.copy()
 
-            with open(results_outfile, 'w') as f:
-                json.dump(all_results, f, sort_keys=True, indent=4)
-                
+                d= all_results.copy()
+                for k, v in d.items():
+                    if isinstance(k, np.int64):
+                        print('is key')
+                    for kv, vv in v.items():
+                        if isinstance(vv, np.int64):
+                            print("is value")
+
+                all_results = dict((int(k), v) for k,v in d.items())
+                with open(results_outfile, 'w') as f:
+                    json.dump(all_results, f, sort_keys=True, indent=4)
+
+        except Exception as e:
+            print("err: %s" % fmt)
+            traceback.print_exc()
+            #continue    
     print("-- saved results to: %s" % results_outfile)
     
     thr_rois = [r for r, res in all_results.items() if res['pval'] < 0.05]

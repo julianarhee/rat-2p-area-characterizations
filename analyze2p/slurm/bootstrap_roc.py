@@ -117,7 +117,7 @@ sys.stdout = open('%s/INFO_%s_%s.txt' % (logdir, piper, experiment), 'w')
 ################################################################################
 #                               run the pipeline                               #
 ################################################################################
-cmd = '/n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/slurm/bootstrap_roc.sbatch'
+cmd_str = '/n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/slurm/bootstrap_roc.sbatch'
 jobids=[]
 
 # Run it
@@ -128,7 +128,7 @@ for datakey, g in dsets.groupby(['datakey']):
             -o '{logdir}/ROC.{procid}.{mtag}.out' \
             -e '{logdir}/ROC.{procid}.{mtag}.err' \
             {cmd} {datakey} {exp} {traceid}".format(
-        procid=piper, mtag=mtag, logdir=logdir, cmd=cmd,
+        procid=piper, mtag=mtag, logdir=logdir, cmd=cmd_str,
         datakey=datakey, exp=experiment, traceid=traceid) 
     #
     status, joboutput = subprocess.getstatusoutput(cmd)
