@@ -1023,7 +1023,7 @@ def traces_to_trials(traces, labels, epoch='stimulus', metric='mean', n_on=None)
         baseline: avg over baseline period
 
     '''
-    print(labels.columns)
+    #print(labels.columns)
     s_on = int(labels['stim_on_frame'].mean())
     if epoch=='stimulus':
         n_on = int(labels['nframes_on'].mean()) 

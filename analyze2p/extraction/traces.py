@@ -273,6 +273,12 @@ def process_and_save_traces(trace_type='dff',
     # Stimulus / condition info
     labels = pd.DataFrame(data=dset['labels_data'], 
                           columns=dset['labels_columns'])
+    try: 
+        labels = hutils.convert_columns_byte_to_str(labels)
+    except (UnicodeDecodeError, AttributeError):
+        pass
+
+    #
     sdf = pd.DataFrame(dset['sconfigs'][()]).T
     if 'blobs' in soma_fpath: #self.experiment_type:
         sdf = reformat_morph_values(sdf)
