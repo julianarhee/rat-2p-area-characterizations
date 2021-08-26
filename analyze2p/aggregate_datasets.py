@@ -1390,7 +1390,7 @@ def get_aggregate_data(experiment, meta=None, traceid='traces001',
             print("... skipping: %s" % visual_area)
             continue
         if datakey not in MEANS.keys(): #['datakey'].values:
-            print("... not in exp: %s" % datakey)
+            print("... not in aggr MEANS dict: %s" % datakey)
             continue
         # Get neuradf for these cells only
         neuraldf = get_neuraldf_for_cells_in_area(curr_c, MEANS, 
