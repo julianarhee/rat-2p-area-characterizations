@@ -282,7 +282,8 @@ def check_sdfs(stim_datakeys, experiment='blobs', images_only=False,
 
 def check_sdfs_blobs(stim_datakeys, images_only=False, return_all=False,
                 rename=True, return_incorrect=False, as_dict=False,
-                diff_configs=['20190314_JC070_fov1', '20190327_JC073_fov1'] ):
+                diff_configs=['20190314_JC070_fov1', '20190327_JC073_fov1'],
+                verbose=False):
     '''
     Checks config names and reutrn master dict of all stimconfig dataframes
     Notes: only tested with blobs, and renaming only works with blobs.
@@ -303,7 +304,8 @@ def check_sdfs_blobs(stim_datakeys, images_only=False, return_all=False,
         updated_keys = match_config_names(sdf_o) 
         #print(datakey, updated_keys)
         if rename is True and updated_keys is not None:
-            print('    renaming: %s' % datakey)
+            if verbose:
+                print('    renaming: %s' % datakey)
             sdf = sdf_o.rename(index=updated_keys)
         else:
             sdf = sdf_o.copy()
@@ -1166,10 +1168,12 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
         try:
             assert os.path.exists(sdata_fpath), \
                         "Path does not exist: %s" % sdata_fpath
+            # Load old assignment meta info
             with open(sdata_fpath, 'rb') as f:
                 sdata = pkl.load(f, encoding='latin1')
             assert sdata is not None and isinstance(sdata, pd.DataFrame), \
                                         "Bad metadata loading, creating new"
+            # Get cells based on assignment info
             if return_cells:
                 cells, missing_seg = get_cells_by_area(sdata, create_new=False,
                                                     return_missing=True)
@@ -1180,14 +1184,17 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
             create_new=True
 
     if create_new:
+        # First load UNASSIGNED meta info
         print("Loading old...")
         unassigned_fp = os.path.join(aggregate_dir, 'dataset_info.pkl') 
         with open(unassigned_fp, 'rb') as f:
             sdata = pkl.load(f, encoding='latin1')
+        # Assign cells
         cells, missing_seg = get_cells_by_area(sdata, create_new=create_new,
                                             return_missing=True)
         cells = cells[cells.visual_area.isin(visual_areas)]
 
+        # Create new ASSIGNED metadata from segmentations
         d_=[]
         all_ = cells[['visual_area', 'datakey', 'fov']]\
                         .drop_duplicates().reset_index(drop=True)
@@ -1440,7 +1447,7 @@ def load_aggregate_data(experiment, traceid='traces001',
                     response_type='dff', epoch='stimulus', 
                     responsive_test='ROC', responsive_thr=0.05, n_stds=0.0,
                     rename_configs=True, equalize_now=False, zscore_now=False,
-                    return_configs=False, images_only=False, 
+                    return_configs=False, images_only=False, verbose=False,
             diff_configs = ['20190327_JC073_fov1', '20190314_JC070_fov1'], # 20190426_JC078 (LM, backlight)
             aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     '''
@@ -1470,7 +1477,7 @@ def load_aggregate_data(experiment, traceid='traces001',
         if (rename_configs or return_configs):
             SDF, renamed_config_dict = check_sdfs_blobs(MEANS.keys(),
                                           images_only=images_only, 
-                                          return_incorrect=True)
+                                          return_incorrect=True, verbose=verbose)
             if rename_configs:
                 #sdf_master = get_master_sdf(experiment='blobs',
                 #                            images_only=images_only)
@@ -1479,7 +1486,7 @@ def load_aggregate_data(experiment, traceid='traces001',
                     data_ = MEANS[k].copy()
                     # Only include the configs that match
                     data_incl = data_[data_['config'].isin(incl_cfgs)].copy()
-                    print('%s: renamed configs' % k)
+                    #print('%s: renamed configs' % k)
                     updated_cfgs = [cfg_lut[cfg] for cfg \
                                         in data_incl['config']]
                     data_incl.loc[data_incl.index, 'config'] = updated_cfgs
@@ -1495,7 +1502,7 @@ def load_aggregate_data(experiment, traceid='traces001',
 
     elif experiment=='gratings':
         SDF, incorrect = check_sdfs_gratings(MEANS.keys(), return_incorrect=True,
-                            return_all=False)
+                            return_all=False, verbose=verbose)
         
     if equalize_now:
         # Get equal counts
