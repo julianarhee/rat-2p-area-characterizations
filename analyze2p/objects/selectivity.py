@@ -165,56 +165,6 @@ def get_lum_corr(rd):
 
 
 # plotting
-def stripplot_metric_by_area(plotdf, metric='morph_sel', markersize=1,
-                area_colors=None, posthoc='fdr_bh', 
-                y_loc=1.01, offset=0.01, ylim=(0, 1.03), aspect=4,
-                sig_fontsize=6, sig_lw=0.25, errwidth=0.5, scale=1, 
-                jitter=True, return_stats=False, plot_means=True,
-                mean_style='point', mean_type='median',
-                visual_areas=['V1', 'Lm', 'Li'], fig=None, ax=None):
-
-    if mean_type=='median':
-        estimator = np.median
-    else:
-        estimator = np.mean
-
-    pplot.set_plot_params()
-    print(ylim)
-    if ax is None:
-        fig, ax = pl.subplots( figsize=(2,2), dpi=150)
-
-    #for ai, metric in enumerate(plot_params):
-    sns.stripplot(x='visual_area', y=metric, data=plotdf, ax=ax,
-                hue='visual_area', palette=area_colors, order=visual_areas, 
-                size=markersize, zorder=-10000, jitter=jitter)
-    if plot_means:
-        if mean_style=='point':
-            sns.pointplot(x='visual_area', y=metric, data=plotdf, ax=ax,
-                        color='k', order=visual_areas, scale=scale,
-                        hue='visual_area', estimator=estimator,
-                        markers='_', errwidth=errwidth, zorder=10000, ci='sd')
-        else:
-            sns.barplot(x='visual_area', y=metric, data=plotdf, ax=ax,
-                   order=visual_areas, color=[0.8]*3, ecolor='w', ci=None,
-                   zorder=-1000000, estimator=estimator)
-
-    sts = pg.pairwise_ttests(data=plotdf, dv=metric, between='visual_area', 
-                  parametric=False, padjust=posthoc, effsize='eta-square')
-    pplot.annotate_multicomp_by_area(ax, sts, y_loc=y_loc, offset=offset, 
-                                         fontsize=sig_fontsize, lw=sig_lw)
-    ax.legend_.remove()
-    ax.set_ylim(ylim)
-    sns.despine(bottom=True, trim=True, ax=ax)
-    ax.tick_params(which='both', axis='x', size=0)
-    ax.set_xlabel('')
-    pl.subplots_adjust(left=0.05, right=0.95, bottom=0.2, top=0.8)
-    ax.set_aspect(aspect)
-
-    if return_stats:
-        return fig, sts
-    else:
-        return fig
-
 # CALCULATING
 def count_fraction_luminance_preferring(NDATA_all, NDATA_im):
     cnts_all= aggr.count_n_cells(NDATA_all, name='n_cells').reset_index(drop=True)

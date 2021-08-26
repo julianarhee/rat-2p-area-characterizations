@@ -22,6 +22,7 @@ mpl.use('agg')
 from matplotlib.lines import Line2D
 #import statsmodels as sm
 #import statsmodels.api as sm # put this in Nb
+import pingouin as pg
 
 from .stats import do_mannwhitney
 
@@ -751,4 +752,72 @@ def adjust_image_contrast(img, clip_limit=2.0, tile_size=10):#(10,10)):
     eq = clahe.apply(img8)
 
     return eq
+
+
+
+
+# Experiment-specific plotting funca
+def stripplot_metric_by_area(plotdf, metric='morph_sel', markersize=1,
+                area_colors=None, posthoc='fdr_bh', 
+                y_loc=1.01, offset=0.01, ylim=(0, 1.03), aspect=4,
+                sig_fontsize=6, sig_lw=0.25, errwidth=0.5, scale=1, 
+                jitter=True, return_stats=False, plot_means=True,
+                mean_style='point', mean_type='median',
+                visual_areas=['V1', 'Lm', 'Li'], fig=None, ax=None):
+
+    if mean_type=='median':
+        estimator = np.median
+    else:
+        estimator = np.mean
+
+    #pplot.set_plot_params()
+    #print(ylim)
+    if ax is None:
+        fig, ax = pl.subplots( figsize=(2,2), dpi=150)
+
+    #for ai, metric in enumerate(plot_params):
+    sns.stripplot(x='visual_area', y=metric, data=plotdf, ax=ax,
+                hue='visual_area', palette=area_colors, order=visual_areas, 
+                size=markersize, zorder=-10000, jitter=jitter)
+    if plot_means:
+        if mean_style=='point':
+            sns.pointplot(x='visual_area', y=metric, data=plotdf, ax=ax,
+                        color='k', order=visual_areas, scale=scale,
+                        hue='visual_area', estimator=estimator,
+                        markers='_', errwidth=errwidth, zorder=10000, ci='sd')
+        else:
+            sns.barplot(x='visual_area', y=metric, data=plotdf, ax=ax,
+                   order=visual_areas, color=[0.8]*3, ecolor='w', ci=None,
+                   zorder=-1000000, estimator=estimator)
+
+    sts = pg.pairwise_ttests(data=plotdf, dv=metric, between='visual_area', 
+                  parametric=False, padjust=posthoc, effsize='eta-square')
+    annotate_multicomp_by_area(ax, sts, y_loc=y_loc, offset=offset, 
+                                         fontsize=sig_fontsize, lw=sig_lw)
+    ax.legend_.remove()
+    ax.set_ylim(ylim)
+    sns.despine(bottom=True, trim=True, ax=ax)
+    ax.tick_params(which='both', axis='x', size=0)
+    ax.set_xlabel('')
+    pl.subplots_adjust(left=0.05, right=0.95, bottom=0.2, top=0.8)
+    ax.set_aspect(aspect)
+
+    if return_stats:
+        return fig, sts
+    else:
+        return fig
+
+
+
+def polar_ticks_gratings(ax, ylim=0.13, ytick_lim=0.1, n_yticks=3):
+    ax.set_ylim([0, ylim])
+    ax.set_yticks(np.linspace(0, ytick_lim, n_yticks))
+    ax.set_yticklabels(['' if i<(n_yticks-1) else ytick_lim for i in np.arange(0, n_yticks)])
+    #(np.linspace(0, 0.1, 2))
+    ax.set_theta_zero_location("N")
+    ax.set_rlabel_position(45)
+    ori_names = np.arange(0, 360, 45) #np.rad2deg(xticks)
+    replace_ori_labels(ori_names, ax=ax, 
+                    xybox=(0, 0), yloc=ax.get_ylim()[-1]*1.1, zoom=0.12, polar=True)
+
 
