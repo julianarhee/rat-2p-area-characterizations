@@ -762,7 +762,7 @@ def stripplot_metric_by_area(plotdf, metric='morph_sel', markersize=1,
                 y_loc=1.01, offset=0.01, ylim=(0, 1.03), aspect=4,
                 sig_fontsize=6, sig_lw=0.25, errwidth=0.5, scale=1, 
                 jitter=True, return_stats=False, plot_means=True,
-                mean_style='point', mean_type='median',
+                mean_style='point', mean_type='median',axis_offset=2,
                 visual_areas=['V1', 'Lm', 'Li'], fig=None, ax=None):
 
     if mean_type=='median':
@@ -795,12 +795,13 @@ def stripplot_metric_by_area(plotdf, metric='morph_sel', markersize=1,
     annotate_multicomp_by_area(ax, sts, y_loc=y_loc, offset=offset, 
                                          fontsize=sig_fontsize, lw=sig_lw)
     ax.legend_.remove()
-    ax.set_ylim(ylim)
-    sns.despine(bottom=True, trim=True, ax=ax)
+    if ylim is not None:
+        ax.set_ylim(ylim)
+    sns.despine(bottom=True, trim=True, ax=ax, offset=axis_offset)
     ax.tick_params(which='both', axis='x', size=0)
     ax.set_xlabel('')
     pl.subplots_adjust(left=0.05, right=0.95, bottom=0.2, top=0.8)
-    ax.set_aspect(aspect)
+    ax.set_box_aspect(aspect)
 
     if return_stats:
         return fig, sts
