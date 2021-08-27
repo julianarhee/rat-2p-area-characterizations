@@ -58,9 +58,9 @@ import analyze2p.objects.sim_utils as su
 def get_cells_with_overlap(cells0, sdata, overlap_thr=0.5, greater_than=False,
                 response_type='dff', do_spherical_correction=False):
 
-    rfdf = get_rfdf(cells0, sdata, response_type=response_type,
+    cells_RF = get_rfdf(cells0, sdata, response_type=response_type,
                     do_spherical_correction=do_spherical_correction)
-    cells_RF = get_cells_with_rfs(cells0, rfdf)
+    #cells_RF = get_cells_with_rfs(cells0, rfdf)
 
     fit_desc = rfutils.get_fit_desc(response_type=response_type,
                             do_spherical_correction=do_spherical_correction)
@@ -134,9 +134,9 @@ def get_cells_with_matched_rfs(cells0, sdata,
         tuple/array:  use specified (lower, upper) bounds 
     '''
  
-    rfdf = get_rfdf(cells0, sdata, response_type=response_type,
+    cells_RF = get_rfdf(cells0, sdata, response_type=response_type,
                     do_spherical_correction=do_spherical_correction)
-    cells_RF = get_cells_with_rfs(cells0, rfdf)
+    #cells_RF = get_cells_with_rfs(cells0, rfdf)
     cells_lim, limits = limit_cells_by_rf(cells_RF, rf_lim=rf_lim,
                                 rf_metric=rf_metric)
     # Resample matched RFs to match 1-to-1
