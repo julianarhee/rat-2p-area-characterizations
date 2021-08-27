@@ -167,25 +167,30 @@ def get_lum_corr(rd):
 # plotting
 # CALCULATING
 def count_fraction_luminance_preferring(NDATA_all, NDATA_im):
-    cnts_all= aggr.count_n_cells(NDATA_all, name='n_cells').reset_index(drop=True)
-    cnts_im = aggr.count_n_cells(NDATA_im, name='n_cells').reset_index(drop=True)
-    cnts_all['stimuli'] = 'all'
-    cnts_im['stimuli'] ='images'
-    assert cnts_all.shape[0]==cnts_im.shape[0]
-    cnts = pd.concat([cnts_all, cnts_im], axis=0, ignore_index=True)
+#    cnts_all= aggr.count_n_cells(NDATA_all, name='n_cells') #.reset_index(drop=True)
+#    cnts_im = aggr.count_n_cells(NDATA_im, name='n_cells') #.reset_index(drop=True)
+#    cnts_all['stimuli'] = 'all'
+#    cnts_im['stimuli'] ='images'
+    #assert cnts_all.shape[0]==cnts_im.shape[0]
+    #cnts = pd.concat([cnts_all, cnts_im], axis=0, ignore_index=True)
+    cnts_all= aggr.count_n_cells(NDATA_all, name='n_all', reset_index=False)
+    cnts_im = aggr.count_n_cells(NDATA_im, name='n_images', reset_index=False)
+    cnts = pd.merge(cnts_all, cnts_im, how='outer', left_index=True, right_index=True)
+    cnts = cnts.fillna(value=0)
+    cnts = cnts.reset_index()
 
     for va, g in cnts.groupby('visual_area'):
         dk_lut = dict((k, i) for i, k in enumerate(sorted(g['datakey'].unique())))
         cnts.loc[g.index, 'site_num'] = [dk_lut[k] for k in g['datakey'].values]
 
     c_=[]
-    for (va, dk), g in cnts.groupby('visual_area'):
-        all_c = g[g.stimuli=='all']['n_cells']
-        im_c = g[g.stimuli=='images']['n_cells']
-        curr_ = g[['visual_area', 'datakey', 'site_num']]\
-                    .drop_duplicates().copy().sort_values(by=['datakey', 'site_num'])
-        curr_['n_all'] = all_c.values
-        curr_['n_images'] = im_c.values
+    for (va, dk), curr_ in cnts.groupby('visual_area'):
+        #all_c = g[g.stimuli=='all']['n_cells']
+        #im_c = g[g.stimuli=='images']['n_cells']
+        #curr_ = g[['visual_area', 'datakey', 'site_num']]\
+        #            .drop_duplicates().copy().sort_values(by=['datakey', 'site_num'])
+        #curr_['n_all'] = all_c.values
+        #curr_['n_images'] = im_c.values
         curr_['pref_object'] = curr_['n_images']/curr_['n_all']
         curr_['n_luminance'] = curr_['n_all'] -  curr_['n_images']
         curr_['pref_object'] = curr_['n_images']/curr_['n_all']
@@ -194,12 +199,25 @@ def count_fraction_luminance_preferring(NDATA_all, NDATA_im):
     cnt_each = pd.concat(c_, axis=0, ignore_index=True)
 
 
-    lum_cnts = cnts[cnts.stimuli=='all']['n_cells'].values - cnts[cnts.stimuli=='images']['n_cells'].values
-    sh_copy = cnts[cnts.stimuli=='all'].copy().reset_index(drop=True)
-    sh_copy['stimuli'] = 'luminance'
-    sh_copy['n_cells'] = lum_cnts
-    totals = pd.concat([cnts, sh_copy], axis=0, ignore_index=True)
-        
+#    lum_cnts = cnts['n_all'].values - cnts['n_images'].values
+#    sh_copy = cnts.copy().reset_index(drop=True)
+#    sh_copy['stimuli'] = 'luminance'
+#    sh_copy['n_cells'] = lum_cnts
+#    totals = pd.concat([cnts, sh_copy], axis=0, ignore_index=True)
+#        
+    d_=[]
+    for va, vg in cnt_each.groupby('visual_area'):
+        df1 = vg[['visual_area', 'datakey', 'site_num', 'n_luminance']].copy()\
+                .rename(columns={'n_luminance': 'n_cells'})
+        df1['stimuli'] = 'luminance'    
+        df2 = vg[['visual_area', 'datakey', 'site_num', 'n_images']].copy()\
+                .rename(columns={'n_images': 'n_cells'})
+        df2['stimuli'] = 'images'
+        df_ = pd.concat([df1, df2], axis=0, ignore_index=True)
+        d_.append(df_)
+    totals = pd.concat(d_, axis=0)
+
+
     return totals, cnt_each
 
 
@@ -365,7 +383,7 @@ def aggregate_cell_metrics(NDATA, offset_type='none', lcorrection='none',
         if dk in exclude:
             continue
         sdf = aggr.get_stimuli(dk, experiment=experiment, match_names=True)
-        if -1 not in sdf['morphlevel'].values:
+        if -1 not in sdf['morphlevel'].values and lcorrection!='none':
             print("    skippping, %s, %s (no lum)" % (va, dk))
             continue
         configs = sdf.index.tolist()

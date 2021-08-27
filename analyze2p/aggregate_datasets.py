@@ -140,7 +140,7 @@ def get_stimuli(datakey, experiment, match_names=False,
                             'FOV%i_*' % fovn,
                             'combined_%s_static' % experiment_name, \
                             'traces/traces*', 'data_arrays', 'labels.npz'))[0]
-        dset = np.load(dset_path, allow_pickle=True)
+        dset = np.load(dset_path, allow_pickle=True, encoding='latin1')
         sdf = pd.DataFrame(dset['sconfigs'][()]).T
         if 'blobs' in experiment:
             sdf = traceutils.reformat_morph_values(sdf)
@@ -561,11 +561,16 @@ def count_n_total(assigned_cells, u_dkeys):
 
     return n_total
 
-def count_n_cells(NDATA, name='n_cells'):
-    counts = NDATA[['visual_area', 'datakey','cell']].drop_duplicates()\
-            .groupby(['visual_area', 'datakey']).count().reset_index()\
-            .rename(columns={'cell': name})
- 
+def count_n_cells(NDATA, name='n_cells', reset_index=True):
+    if reset_index:
+        counts = NDATA[['visual_area', 'datakey','cell']].drop_duplicates()\
+                .groupby(['visual_area', 'datakey']).count().reset_index()\
+                .rename(columns={'cell': name})
+    else:
+        counts = NDATA[['visual_area', 'datakey','cell']].drop_duplicates()\
+                .groupby(['visual_area', 'datakey']).count()\
+                .rename(columns={'cell': name})
+
     return counts
 
 def get_best_fit(CELLS, resp_desc, traceid='traces001', metric='gof'):
@@ -916,7 +921,7 @@ def load_frame_labels(datakey, experiment, traceid='traces001',
     fname = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovnum,
                         'combined_%s_static' % experiment, 'traces', 
                         '%s*' % traceid, 'data_arrays', 'labels.npz'))[0]
-    l = np.load(fname, allow_pickle=True)
+    l = np.load(fname, allow_pickle=True, encoding='latin1')
     labels = pd.DataFrame(data=l['labels_data'], columns=l['labels_columns'])
     #print(labels.head())    
     try: 
@@ -981,11 +986,11 @@ def load_corrected_dff_traces(animalid, session, fov, experiment='blobs', tracei
     soma_fpath = glob.glob(os.path.join(rootdir, animalid, session, fov,
                                     '*%s_static' % (experiment), 'traces', '%s*' % traceid,
                                     'data_arrays', 'np_subtracted.npz'))[0]
-    dset = np.load(soma_fpath, allow_pickle=True)
+    dset = np.load(soma_fpath, allow_pickle=True, encoding='latin1')
     Fc = pd.DataFrame(dset['data']) # np_subtracted:  Np-corrected trace, with baseline subtracted
 
     # Load raw (pre-neuropil subtraction)
-    raw = np.load(soma_fpath.replace('np_subtracted', 'raw'), allow_pickle=True)
+    raw = np.load(soma_fpath.replace('np_subtracted', 'raw'), allow_pickle=True, encoding='latin1')
     F0_raw = pd.DataFrame(raw['f0'])
 
     # Calculate df/f
@@ -1601,9 +1606,12 @@ def get_neuraldf_for_cells_in_area(cells, MEANS, datakey=None, visual_area=None)
 def get_neuraldf(datakey, experiment, traceid='traces001', 
                    response_type='dff', epoch='stimulus',
                    responsive_test='ROC', responsive_thr=0.05, n_stds=2.5, 
-                   create_new=False, redo_stats=False, n_processes=1,
+                   redo_fov=False, redo_stats=False, n_processes=1,
                    rootdir='/n/coxfs01/2p-data'):
     '''
+    create_new: (bool)
+        Set to recreate processed dataframes
+
     epoch options
         stimulus: use full stimulus period
         baseline: average over baseline period
@@ -1633,22 +1641,22 @@ def get_neuraldf(datakey, experiment, traceid='traces001',
                                             epoch=epoch)
     ndf_fpath = os.path.join(statdir, '%s.pkl' % data_desc_base)
     
-    create_new = redo_stats is True
-    if not create_new:
+    #create_new = redo_fov is True
+    if not redo_fov:
         try:
             with open(ndf_fpath, 'rb') as f:
                 mean_responses = pkl.load(f, encoding='latin1')
         except Exception as e:
             print(e)
             print("Unable to get neuraldf. Creating now.")
-            create_new=True
+            redo_fov=True
 
-    if create_new:
+    if redo_fov or redo_stats:
         # Load traces
         if response_type=='dff0':
             meanr = load_corrected_dff_traces(animalid, session, 'FOV%i_zoom2p0x' % fovnum, 
                                     experiment=experiment_name, traceid=traceid,
-                                  return_traces=False, epoch=epoch, metric='mean') 
+                                    return_traces=False, epoch=epoch, metric='mean') 
             tmp_desc_base = create_dataframe_name(traceid=traceid, 
                                             response_type='dff', 
                                             responsive_test=responsive_test,
@@ -1668,6 +1676,7 @@ def get_neuraldf(datakey, experiment, traceid='traces001',
                                               responsive_test=responsive_test, 
                                               responsive_thr=responsive_thr, 
                                               n_stds=n_stds,
+                                              redo_fov=redo_fov,
                                               redo_stats=redo_stats, 
                                               n_processes=n_processes)
             if traces is None:
@@ -1675,7 +1684,7 @@ def get_neuraldf(datakey, experiment, traceid='traces001',
             # Calculate mean trial metric
             metric = 'zscore' if response_type=='zscore' else 'mean'
             mean_responses = traces_to_trials(traces, labels, epoch=epoch, 
-                    metric=response_type)
+                                                metric=response_type)
 
         # save
         with open(ndf_fpath, 'wb') as f:
@@ -1855,7 +1864,7 @@ def load_run_info(animalid, session, fov, run, traceid='traces001',
 def load_traces(datakey, experiment, traceid='traces001',
                 response_type='dff', 
                 responsive_test='ROC', responsive_thr=0.05, n_stds=2.5,
-                redo_stats=False, n_processes=1, 
+                redo_fov=False, redo_stats=False, n_processes=1, 
                 rootdir='/n/coxfs01/2p-data'):
     '''
     redo_stats: use carefully, will re-run responsivity test if True
@@ -1869,7 +1878,8 @@ def load_traces(datakey, experiment, traceid='traces001',
                                     'data_arrays', 'np_subtracted.npz'))[0]
  
     # Load experiment neural data
-    traces, labels, sdf, run_info = traceutils.load_dataset(soma_fpath, trace_type=response_type,create_new=False)
+    traces, labels, sdf, run_info = traceutils.load_dataset(soma_fpath, 
+                                        trace_type=response_type,create_new=redo_fov)
 
     # Get responsive cells
     if responsive_test is not None:
@@ -2222,7 +2232,7 @@ def aggregate_and_save(experiment, traceid='traces001',
                                 response_type=response_type, epoch=epoch,
                                 responsive_test=responsive_test, 
                                 responsive_thr=responsive_thr, n_stds=n_stds,
-                                create_new=redo_fov, redo_stats=any([redo_fov, redo_stats]))          
+                                redo_fov=redo_fov, redo_stats=redo_stats) 
             if mean_responses is None:
                 print("NO stats, rerun: %s" % datakey)
                 no_stats.append(datakey)

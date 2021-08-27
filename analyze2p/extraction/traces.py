@@ -251,14 +251,18 @@ def reformat_morph_values(sdf, verbose=False):
     return sdf
 
 
-def process_and_save_traces(trace_type='dff',
+def process_and_save_traces(trace_type='dff', add_offset=True, save=True,
                             animalid=None, session=None, fov=None, 
                             experiment=None, traceid='traces001',
                             soma_fpath=None,
                             rootdir='/n/coxfs01/2p-data'):
     '''Process raw traces (SOMA ONLY), and calculate dff'''
 
-    print("... processing + saving data arrays (%s)." % trace_type)
+    if save:
+        print("... processing + saving data arrays (%s)." % trace_type)
+    else:
+        print("... processing data arrays, no save (%s)." % trace_type)
+
     assert (animalid is None and soma_fpath is not None) or (soma_fpath is None and animalid is not None), "Must specify either dataset params (animalid, session, etc.) OR soma_fpath to data arrays."
 
     if soma_fpath is None:
@@ -268,7 +272,7 @@ def process_and_save_traces(trace_type='dff',
                                 '*%s%s*' % (experiment, search_str), 
                                 'traces', '%s*' % traceid, 
                                 'data_arrays', 'np_subtracted.npz'))[0]
-    dset = np.load(soma_fpath, allow_pickle=True)
+    dset = np.load(soma_fpath, allow_pickle=True, encoding='latin1')
     
     # Stimulus / condition info
     labels = pd.DataFrame(data=dset['labels_data'], 
@@ -286,30 +290,40 @@ def process_and_save_traces(trace_type='dff',
 
     xdata_df = pd.DataFrame(dset['data'][:]) # neuropil-subtracted & detrended
     F0 = pd.DataFrame(dset['f0'][:]).mean().mean() # detrended offset
-    
-    #% Add baseline offset back into raw traces:
-    neuropil_fpath = soma_fpath.replace('np_subtracted', 'neuropil')
-    npdata = np.load(neuropil_fpath, allow_pickle=True)
-    neuropil_f0 = np.nanmean(np.nanmean(pd.DataFrame(npdata['f0'][:])))
-    neuropil_df = pd.DataFrame(npdata['data'][:]) 
-    add_np_offsets = list(np.nanmean(neuropil_df, axis=0)) 
-    print("    adding NP offset (NP f0 offset: %.2f)" % neuropil_f0)
+    #add_offsets = list(np.nanmean(dset['f0'][:], axis=0))
+ 
+    if add_offset:
+        #% Add baseline offset back into raw traces:
+#        neuropil_fpath = soma_fpath.replace('np_subtracted', 'neuropil')
+#        npdata = np.load(neuropil_fpath, allow_pickle=True)
+#        neuropil_f0 = np.nanmean(np.nanmean(pd.DataFrame(npdata['f0'][:])))
+#        neuropil_df = pd.DataFrame(npdata['data'][:]) 
+#        add_offsets = list(np.nanmean(neuropil_df, axis=0)) 
+#        print("    adding NP offset (NP f0 offset: %.2f)" % neuropil_f0)
 
-    # # Also add raw 
-    raw_fpath = soma_fpath.replace('np_subtracted', 'raw')
-    rawdata = np.load(raw_fpath, allow_pickle=True)
-    raw_f0 = np.nanmean(np.nanmean(pd.DataFrame(rawdata['f0'][:])))
-    raw_df = pd.DataFrame(rawdata['data'][:])
-    print("    adding raw offset (raw f0 offset: %.2f)" % raw_f0)
+        # # Also add raw 
+        raw_fpath = soma_fpath.replace('np_subtracted', 'raw')
+        rawdata = np.load(raw_fpath, allow_pickle=True)
+        raw_f0 = np.nanmean(np.nanmean(pd.DataFrame(rawdata['f0'][:])))
+        raw_df = pd.DataFrame(rawdata['data'][:])
+        add_offsets = list(np.nanmean(raw_df, axis=0))
+        print("    adding raw offset (raw f0 offset: %.2f)" % raw_f0)
 
-    raw_traces = xdata_df + add_np_offsets + raw_f0 
-    #+ neuropil_f0 + raw_f0 # list(np.nanmean(raw_df, axis=0)) #.T + F0
+        raw_traces = xdata_df + add_offsets + F0 # + raw_f0 
+        #+ neuropil_f0 + raw_f0 # list(np.nanmean(raw_df, axis=0)) #.T + F0
 
-    # SAVE
-    data_dir = os.path.split(soma_fpath)[0]
-    data_fpath = os.path.join(data_dir, 'corrected.npz')
-    print("... Saving corrected data (%s)" %  os.path.split(data_fpath)[-1])
-    np.savez(data_fpath, data=raw_traces.values)
+        #raw_traces = xdata_df + F0 #add_offsets
+        print("    adding raw offset (raw f0 offset: %.2f)" % F0)
+   
+    else:
+        raw_traces = xdata_df.copy()
+
+    if save:
+        # SAVE
+        data_dir = os.path.split(soma_fpath)[0]
+        data_fpath = os.path.join(data_dir, 'corrected.npz')
+        print("... Saving corrected data (%s)" %  os.path.split(data_fpath)[-1])
+        np.savez(data_fpath, data=raw_traces.values)
   
     # Process dff/df/etc.
     stim_on_frame = labels['stim_on_frame'].unique()[0]
@@ -318,24 +332,23 @@ def process_and_save_traces(trace_type='dff',
     for k, g in labels.groupby(['trial']):
         tmat = raw_traces.loc[g.index]
         bas_mean = np.nanmean(tmat[0:stim_on_frame], axis=0)
-        
         #if trace_type == 'dff':
         tmat_dff = (tmat - bas_mean) / bas_mean
         tmp_dff.append(tmat_dff)
-
         #elif trace_type == 'df':
         tmat_df = (tmat - bas_mean)
         tmp_df.append(tmat_df)
-
     dff_traces = pd.concat(tmp_dff, axis=0) 
-    data_fpath = os.path.join(data_dir, 'dff.npz')
-    print("... Saving dff data (%s)" %  os.path.split(data_fpath)[-1])
-    np.savez(data_fpath, data=dff_traces.values)
-
     df_traces = pd.concat(tmp_df, axis=0) 
-    data_fpath = os.path.join(data_dir, 'df.npz')
-    print("... Saving df data (%s)" %  os.path.split(data_fpath)[-1])
-    np.savez(data_fpath, data=df_traces.values)
+
+    if save:
+        data_fpath = os.path.join(data_dir, 'dff.npz')
+        print("... Saving dff data (%s)" %  os.path.split(data_fpath)[-1])
+        np.savez(data_fpath, data=dff_traces.values)
+
+        data_fpath = os.path.join(data_dir, 'df.npz')
+        print("... Saving df data (%s)" %  os.path.split(data_fpath)[-1])
+        np.savez(data_fpath, data=df_traces.values)
 
     if trace_type=='dff':
         return dff_traces, labels, sdf, run_info
@@ -346,7 +359,7 @@ def process_and_save_traces(trace_type='dff',
 
 
 def load_dataset(soma_fpath, trace_type='dff', is_neuropil=False,
-                add_offset=True, make_equal=False, create_new=False):
+                add_offset=True, make_equal=False, create_new=False, save=True):
     '''
     Loads all the roi traces and labels.
     If want to load corrected NP traces, set flag is_neuropil.
@@ -365,7 +378,8 @@ def load_dataset(soma_fpath, trace_type='dff', is_neuropil=False,
             # Process data and save
             traces, labels, sdf, run_info = process_and_save_traces(
                                                     trace_type=trace_type,
-                                                    soma_fpath=soma_fpath
+                                                    soma_fpath=soma_fpath,
+                                                    add_offset=add_offset, save=save
             )
         else:
             if is_neuropil:
@@ -377,10 +391,9 @@ def load_dataset(soma_fpath, trace_type='dff', is_neuropil=False,
                 traces = pd.DataFrame(traces_dset['data'][:]) 
 
             # Stimulus / condition info
-            labels_fpath = data_fpath.replace(\
-                            '%s.npz' % trace_type, 'labels.npz')
+            labels_fpath = data_fpath.replace(trace_type, 'labels')
             labels_dset = np.load(labels_fpath, allow_pickle=True, 
-                            encoding='latin1') 
+                                  encoding='latin1') 
             labels = pd.DataFrame(data=labels_dset['labels_data'], 
                                   columns=labels_dset['labels_columns'])
             try: 

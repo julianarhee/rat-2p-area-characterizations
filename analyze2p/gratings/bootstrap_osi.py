@@ -864,8 +864,9 @@ def get_tuning(datakey, run_name, return_iters=False,
         print("*%s* -- %i of %i cells responsive" % (responsive_test, len(roi_list), nrois_total))
  
         # Load raw data, calculate metrics 
+        add_offset=True
         raw_traces, labels, sdf, run_info = traceutils.load_dataset(data_fpath, 
-                                                trace_type='corrected')
+                                                trace_type='corrected', add_offset=add_offset)
         dff_traces, metrics = aggr.process_traces(raw_traces, labels, 
                                     trace_type='dff', 
                                     response_type=response_type, 
