@@ -606,6 +606,9 @@ def drop_repeats(counts, criterion='max', colname='cell'):
     '''
     From df of counts (N cells per datakey), drop repeats by criterion.
     criterion: takes "max" (or whatever func) along column <colname>
+    Returns:
+    u_dkeys: (list)
+        Unique datasets per area, each element is tuple(va, dk).
     '''
     counts = hutils.split_datakey(counts)
     unique_dsets = select_best_fovs(counts, criterion=criterion, colname=colname)
@@ -1068,7 +1071,9 @@ def traces_to_trials(traces, labels, epoch='stimulus', metric='mean', n_on=None)
 
 
 
-
+# --------------------------------------------------------------------
+# Aggregating functions
+# --------------------------------------------------------------------
 
 def get_cells_by_area(sdata, create_new=False, excluded_datasets=[], 
                 return_missing=False, verbose=False,
