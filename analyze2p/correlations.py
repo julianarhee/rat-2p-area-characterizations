@@ -449,6 +449,11 @@ def melt_square_matrix(df, metric_name='value', add_values={}, include_diagonal=
 #    return cc_
 
 def get_pw_distance(cc_, pos_, xcoord='ml_pos', ycoord='ap_pos', label='cortical_distance'):
+    '''Given DF of pairwise calcs (cc_), calculate corresponding cells' POS diff
+    using pos_. xcoord and ycoord must be columns in pos_.
+
+    Returns cc_ with position diffs.
+    '''
     # Get current FOV rfdata and add position info to sigcorrs df
     cc_['cell_1'] = cc_['cell_1'].astype(int)
     cc_['cell_2'] = cc_['cell_2'].astype(int)
@@ -476,6 +481,20 @@ def get_pw_distance(cc_, pos_, xcoord='ml_pos', ycoord='ap_pos', label='cortical
 
 
     return cc_
+
+def do_pairwise_diffs_melt(df_, metric_name='morph_sel', include_diagonal=False):
+    '''Calculate DIFFERENCE in metric_name for all pairs of cells'''
+
+    pairwise_diffs = pd.DataFrame(abs(df_[metric_name].values \
+                                  - df_[metric_name].values[:, None]), 
+                              columns=df_['cell'].values, index=df_['cell'].values)
+
+    diffs = melt_square_matrix(pairwise_diffs, metric_name=metric_name)
+    diffs = diffs.rename(columns={'row': 'cell_1', 'col': 'cell_2'})
+    diffs[['cell_1', 'cell_2']] = diffs[['cell_1', 'cell_2']].astype(int)
+    diffs['neuron_pair'] = ['%i_%i' % (c1, c2) for \
+                         c1, c2 in diffs[['cell_1', 'cell_2']].values]
+    return diffs
 
 
 
