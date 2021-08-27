@@ -14,6 +14,8 @@ import pandas as pd
 import scipy.stats as spstats
 
 from analyze2p import utils as hutils
+import analyze2p.extraction.traces as traceutils
+import analyze2p.aggregate_datasets as aggr
 
 def get_fit_desc(response_type='dff', responsive_test=None, 
                  responsive_thr=10, n_stds=2.5,
@@ -384,4 +386,176 @@ def plot_tuning_polar_roi(curr_oris, curr_resps, curr_sems=None, response_type='
 
 
     return fig, ax
+
+
+# NON ORI PARAMS 
+def calculate_nonori_index(meanr, sdf, offset='minsub', at_best_ori=True,
+                    param_list=['sf', 'size', 'speed']):
+    '''
+    Calculate pref index for SF, SIZE, SPEED.
+    meanr: (pd.Series)
+        Average response vec to all configs
+    offset: str or None ('none', 'minsub', 'rectify')
+        How to deal with negative values
+    at_best_ori: (bool)
+        Only calculate metric at best/most responsive ori 
+    Returns:
+    ixs: (pd.Series) NEG prefers lower, POS prefers higher
+    '''
+    if meanr.min()<0 and offset not in ['none', None]:
+        if offset=='minsub':
+            meanr -= meanr.min()
+        elif offset=='rectify':
+            meanr[meanr<0] = 0
+
+    if at_best_ori:
+        meanr_c = meanr.copy()
+        meanr_c.index = sdf.loc[meanr.index]['ori'].values
+        best_ori = meanr_c.groupby(meanr_c.index).mean().idxmax()
+        sdf_= sdf[sdf['ori']==best_ori].copy()
+    else:
+        sdf_ = sdf.copy()
+        best_ori='all'
+    ixs={}
+    for par in param_list:
+        v_lo, v_hi = sdf_[par].unique().min(), sdf_[par].unique().max()
+        resp_lo = meanr.loc[sdf_[sdf_[par]==v_lo].index].mean()
+        resp_hi = meanr.loc[sdf_[sdf_[par]==v_hi].index].mean()
+        val = (resp_hi - resp_lo) / (resp_hi+resp_lo)
+        ixs.update({par: val})
+    ixs.update({'ori': best_ori})
+    
+    return pd.Series(ixs)
+
+def check_null(iterd, col_order=['sf', 'size', 'speed'], ci=95):
+    '''
+    Given bootstrapped metrics for sf, size, speed, do 2-tailed test for rejecting null,
+    i.e., greater or less than 0 or nah.
+    '''
+    reject_or_no={}
+    lo_ = np.percentile(iterd[col_order], (100-ci)/2, axis=0)
+    hi_ = np.percentile(iterd[col_order], ci+((100-ci)/2), axis=0)
+    paramcis = [(l, h) for l, h in zip(lo_, hi_)]
+    for par, ci_ in zip(col_order, paramcis):
+        reject_null = ~(ci_[0] < 0 < ci_[1])
+        reject_or_no.update({par: reject_null})
+        
+    d1 = pd.DataFrame(iterd.median(axis=0), columns=['value'])
+    d2 = pd.DataFrame(reject_or_no, index=['reject_null']).T
+    df_ = pd.merge(d1, d2, left_index=True, right_index=True)
+    df_.index.name = 'param'
+    return df_
+
+def count_preference_metrics(test, param_list=['sf', 'size', 'speed']):
+    '''
+    Count all the values and metrics for nonori bootstrap results
+    for each param, returns n_pass, n_total, fraction preferring the LOW vs HIGH, etc.
+
+    '''
+    pref_df=None
+    pass_ = test[test.reject_null].copy()
+    p_=[]
+    for par in param_list:
+        n_pass = pass_[pass_.index.get_level_values('param')==par].shape[0]
+        n_total = test.shape[0]
+        #frac = n_pass/n_total
+        # low vs high preference
+        pref_lo = pass_[(pass_.index.get_level_values('param')==par) \
+                      & (pass_['value']<0)]
+        pref_hi = pass_[(pass_.index.get_level_values('param')==par) \
+                      & (pass_['value']>0)]
+        n_pref_lo = pref_lo.shape[0]
+        n_pref_hi = pref_hi.shape[0]
+        #frac_hi = n_pref_hi/n_pass
+        #frac_lo = n_pref_lo/n_pass
+        prefs_ = pd.DataFrame({'n_pass': n_pass, 'n_total': n_total,
+                               'n_pref_low': n_pref_lo, 'n_pref_high': n_pref_hi},
+                                index=[par])
+                               #'frac_pref': frac, 
+                               #'frac_pref_low': frac_lo, 'frac_pref_high': frac_hi,
+        prefs_['param'] = par
+        p_.append(prefs_)
+    pref_df = pd.concat(p_, axis=0, ignore_index=True)
+    return pref_df
+
+def bootstrap_nonori_index(roi_resp, sdf, n_iterations=100, ci=95, 
+                           at_best_ori=True, offset='minsub',
+                           param_list=['sf', 'size', 'speed']):
+
+    '''
+    Do bootstrap estimation of nonori params. 
+
+    roi_resp: (pd.DataFrame)
+        roi df from NDATA (stacked). Should have columns: cell, config
+    sdf:  (pd.DataFrame)
+        stimconfig df for current roi's datakey
+
+    Returns:
+    
+    res_: (pd.DataFrame)
+        Multiindex: (cell, param) -- params listed in param_list
+        Columns:  'value' and 'reject_null' (True if should reject null)
+         
+    '''
+    if at_best_ori:
+        param_list.append('ori')
+    trialdf = pd.concat([pd.Series(g['response'], name=c)\
+                                      .reset_index(drop=True)\
+                              for c, g in roi_resp.groupby(['config'])], axis=1)
+    n_resamples = trialdf.shape[0]
+    iterd = pd.concat([calculate_nonori_index(\
+                    trialdf.sample(n_resamples, replace=True).mean(axis=0), sdf,\
+                    param_list=param_list, offset=offset)\
+                    for _ in range(n_iterations)], axis=1).T
+    res_ = check_null(iterd, col_order=param_list, ci=ci)
+    res_['cell'] = int(roi_resp['cell'].unique())
+
+    return res_
+
+def fit_nonori_params(va, dk, responsive_test='ROC', responsive_thr=0.05,
+                      trial_epoch='stimulus', n_iterations=100,
+                      param_list=['sf', 'size', 'speed'], offset='minsub',
+                      n_bootstrap_iters=500, ci=95, at_best_ori=True,
+                      response_type='dff', traceid='traces001', n_processes=1,
+                      visual_areas=['V1', 'Lm', 'Li']):
+    # Get fit dir
+    ori_fit_desc = get_fit_desc(response_type=response_type,
+                            responsive_test=responsive_test, 
+                            responsive_thr=responsive_thr, 
+                            n_bootstrap_iters=n_bootstrap_iters)
+    traceid_dir = traceutils.get_traceid_dir(dk, 'gratings', traceid='traces001')
+    fitdirs = glob.glob(os.path.join(traceid_dir, 'tuning*', ori_fit_desc))
+    if len(fitdirs)==0:
+        print("no fits: %s" % dk)
+        return None
+    # outfile
+    fitdir=fitdirs[0]
+    tmp_fov_outfile = os.path.join(fitdir, 'results_nonori_params.pkl')
+    
+    # Get cells in area
+    sdata, cells0 = aggr.get_aggregate_info(visual_areas=visual_areas, 
+                                            return_cells=True)
+    curr_cells = cells0[(cells0.visual_area==va) & (cells0.datakey==dk)]
+    # Get stimuli
+    sdf = aggr.get_stimuli(dk, experiment='gratings')
+    # Get neuraldata
+    ndf_wide = aggr.get_neuraldf(dk, experiment='gratings', traceid=traceid,
+                       epoch=trial_epoch, response_type=response_type,
+                       responsive_test=responsive_test, responsive_thr=responsive_thr)
+    ndf_long = pd.melt(ndf_wide, id_vars=['config'], 
+                  var_name='cell', value_name='response')
+    all_cells = curr_cells['cell'].unique()
+    ndf = ndf_long[ndf_long['cell'].isin(all_cells)]
+    
+    # Get preference index for all cells in FOV that pass
+    ixs_ = ndf.groupby('cell').apply(bootstrap_nonori_index,\
+                             sdf, param_list=param_list, offset=offset, at_best_ori=at_best_ori,
+                             n_iterations=n_iterations, ci=ci)
+    # Save iter results
+    with open(tmp_fov_outfile, 'wb') as f:
+        pkl.dump(ixs_, f, protocol=2)
+    print("   saved.")
+    
+    return ixs_
+
 
