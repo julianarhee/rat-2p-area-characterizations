@@ -454,10 +454,10 @@ def count_preference_metrics(test, param_list=['sf', 'size', 'speed']):
     '''
     pref_df=None
     pass_ = test[test.reject_null].copy()
+    n_total = len(test['cell'].unique()) #.shape[0]
     p_=[]
     for par in param_list:
         n_pass = pass_[pass_.index.get_level_values('param')==par].shape[0]
-        n_total = test.shape[0]
         #frac = n_pass/n_total
         # low vs high preference
         pref_lo = pass_[(pass_.index.get_level_values('param')==par) \

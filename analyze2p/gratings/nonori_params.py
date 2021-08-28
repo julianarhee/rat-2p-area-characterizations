@@ -11,7 +11,7 @@ import sys
 import optparse
 import copy
 import traceback
-
+import _pickle as pkl
 
 import numpy as np
 import pandas as pd
@@ -69,12 +69,14 @@ def bootstrap_params(dk, responsive_test='ROC', responsive_thr=0.05,
 #                             n_iterations=n_iterations, ci=ci)
 #
 #
+    print(resdf.head())
+
     # Save iter results
     with open(tmp_fov_outfile, 'wb') as f:
-        pkl.dump(ixs_, f, protocol=2)
+        pkl.dump(resdf, f, protocol=2)
     print("   saved: %s" % tmp_fov_outfile)
     
-    return ixs_
+    return resdf
 
 
 def initializer(terminating_):
