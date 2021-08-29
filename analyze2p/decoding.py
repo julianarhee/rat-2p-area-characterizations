@@ -2232,22 +2232,23 @@ def load_iterdf(meta, class_name, experiment=None,
         df_ = iterdf.copy()
 
         #if test_type is None:
-        print('    checking for break-corrs')
-        iterdf_b, missing_b = aggregate_iterated_results(meta, 
-                                  class_name, experiment=experiment,
-                                  analysis_type=analysis_type,                   
-                                  test_type=test_type,
-                                  traceid=traceid,
-                                  trial_epoch=trial_epoch, 
-                                  responsive_test=responsive_test, 
-                                  C_value=C_value, break_correlations=True, 
-                                  match_rfs=match_rfs, overlap_thr=overlap_val)
-        missing_dict[overlap_val]['no_cc'] = missing_b
-        if iterdf_b is not None:
-            iterdf_b['intact'] = False
-            df_ = pd.concat([iterdf, iterdf_b], axis=0)
-        else:
-            df_ = iterdf.copy()
+        if analysis_type=='by_fov':
+            print('    checking for break-corrs')
+            iterdf_b, missing_b = aggregate_iterated_results(meta, 
+                                      class_name, experiment=experiment,
+                                      analysis_type=analysis_type,                   
+                                      test_type=test_type,
+                                      traceid=traceid,
+                                      trial_epoch=trial_epoch, 
+                                      responsive_test=responsive_test, 
+                                      C_value=C_value, break_correlations=True, 
+                                      match_rfs=match_rfs, overlap_thr=overlap_val)
+            missing_dict[overlap_val]['no_cc'] = missing_b
+            if iterdf_b is not None:
+                iterdf_b['intact'] = False
+                df_ = pd.concat([iterdf, iterdf_b], axis=0)
+            else:
+                df_ = iterdf.copy()
 
         if df_ is not None:
             df_['overlap_thr'] = overlap_val
