@@ -1,28 +1,49 @@
 import os
 import psignifit as ps
 import glob
-# import pickle as pkl
-import dill as pkl
+import re
+# import dill as pkl
+import _pickle as pkl
 import numpy as np
 import pylab as pl
 import seaborn as sns
 import scipy.stats as spstats
 import pandas as pd
-import importlib
 
 import scipy as sp
 import itertools
 import matplotlib as mpl
 from matplotlib.lines import Line2D
-#import py3utils as p3
+
 import analyze2p.utils as hutils
 import analyze2p.aggregate_datasets as aggr
-
 import analyze2p.plotting as pplot
+
+from psignifit import getSigmoidHandle as getSig
 
 np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)       
 
-import re
+
+# --------------------------------------------------------------------
+# Behavior functions
+# --------------------------------------------------------------------
+
+def load_animal_fits(animalid, prefix='fits_L23', 
+            fit_dir='/n/coxfs01/behavior-data/threeport/processed/morphs/fits'):
+
+    fn = glob.glob(os.path.join(fit_dir, '%s*_%s.pkl' % (prefix, animalid)))[0]
+    with open(fn, 'rb') as f:
+        res = pkl.load(f)
+    res['options']['sigmoidHandle'] = getSig.getSigmoidHandle(res['options'])
+    
+    return res
+
+
+
+
+# --------------------------------------------------------------------
+# Single neuron functions
+# --------------------------------------------------------------------
 
 def get_rid_from_str(s, ndec=3):
     #print(re.findall(r"rid\d{%s}" % ndec, s)[0][3:])
@@ -80,8 +101,7 @@ def load_fitparams(dk, roi_list=None, allow_negative=True, param='morphlevel',
             return roifits, missing
         else:
             return roifits
-    
-    
+     
     
 # #####################################################################
 # Data sourcing
@@ -171,11 +191,10 @@ def load_aggregate_AUC( param='morphlevel', midp=53, allow_negative=True,
 # Fitting, plotting
 # #####################################################################
 
-from psignifit import getSigmoidHandle as getSig
 
-def default_options(population=False):
+def default_options(yesno=False):
 
-    if population:
+    if yesno:
         options={'expType': 'YesNo',
                  'sigmoidName': 'gauss',
                  'threshPC': 0.5}

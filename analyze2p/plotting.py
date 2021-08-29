@@ -261,9 +261,10 @@ def crop_legend_labels(ax, n_hues, start_ix=0,  bbox_to_anchor=(1.05, 1), loc='u
     leg_handles, leg_labels = ax.get_legend_handles_labels()
     # When creating the legend, only use the first two elements
      
-    leg = ax.legend(leg_handles[start_ix:start_ix+n_hues], leg_labels[start_ix:start_ix+n_hues], title=title,
+    leg = ax.legend(leg_handles[start_ix:start_ix+n_hues], 
+                    leg_labels[start_ix:start_ix+n_hues], title=title,
             bbox_to_anchor=bbox_to_anchor, fontsize=fontsize, loc=loc, ncol=ncol, 
-            markerscale=markerscale)
+            markerscale=markerscale, frameon=False)
     return leg #, leg_handles
 
 def get_empirical_ci(stat, ci=0.95):

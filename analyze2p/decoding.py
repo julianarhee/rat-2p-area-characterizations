@@ -58,9 +58,9 @@ import analyze2p.objects.sim_utils as su
 def get_cells_with_overlap(cells0, sdata, overlap_thr=0.5, greater_than=False,
                 response_type='dff', do_spherical_correction=False):
 
-    cells_RF = get_rfdf(cells0, sdata, response_type=response_type,
+    rfdf = get_rfdf(cells0, sdata, response_type=response_type,
                     do_spherical_correction=do_spherical_correction)
-    #cells_RF = get_cells_with_rfs(cells0, rfdf)
+    cells_RF = get_cells_with_rfs(cells0, rfdf)
 
     fit_desc = rfutils.get_fit_desc(response_type=response_type,
                             do_spherical_correction=do_spherical_correction)
@@ -134,9 +134,9 @@ def get_cells_with_matched_rfs(cells0, sdata,
         tuple/array:  use specified (lower, upper) bounds 
     '''
  
-    cells_RF = get_rfdf(cells0, sdata, response_type=response_type,
+    rfdf = get_rfdf(cells0, sdata, response_type=response_type,
                     do_spherical_correction=do_spherical_correction)
-    #cells_RF = get_cells_with_rfs(cells0, rfdf)
+    cells_RF = get_cells_with_rfs(cells0, rfdf)
     cells_lim, limits = limit_cells_by_rf(cells_RF, rf_lim=rf_lim,
                                 rf_metric=rf_metric)
     # Resample matched RFs to match 1-to-1
@@ -1041,7 +1041,7 @@ def train_test_morph(iter_num, curr_data, sdf, midp=53, verbose=False,
     iterdf['iteration'] = iter_num 
     
     # fit curve?
-    param_names = ['threshold', 'width', 'lambda', 'gamma', 'eta']
+    param_names = ['threshold', 'width', 'lambda', 'gamma', 'eta', 'jnd']
     iterdf[param_names] = None
     max_morph = float(iterdf['morphlevel'].max())
     for cond, idf in iterdf.groupby('condition'):
@@ -1091,9 +1091,15 @@ def psignifit_neurometric(df): #, ni):
     try:
         res = ps.psignifit(data, opts)
         fit_ = pd.Series(res['Fit'], index=param_names) #, name=ni)
+        [thr_0,CI0] = ps.getThreshold(res,0.25,1)
+        [thr_1,CI1] = ps.getThreshold(res,0.75,1)
+        jnd = thr_1-thr_0
+        fit_['jnd'] = jnd
+
     except AssertionError:
         # no fit
-        fit_ = pd.Series([None]*n_params, index=param_names)
+        pnames =  param_names + ['jnd']
+        fit_ = pd.Series([None]*n_params, index=pnames)
     
     return fit_
 
@@ -1285,7 +1291,7 @@ def train_test_morph_single(iter_num, curr_data, sdf, midp=53, verbose=False,
     iterdf['iteration'] = iter_num 
 
     # fit curve?
-    param_names = ['threshold', 'width', 'lambda', 'gamma', 'eta']
+    param_names = ['threshold', 'width', 'lambda', 'gamma', 'eta', 'jnd']
     iterdf[param_names] = None
     max_morph = float(iterdf['morphlevel'].max())
     for cond, idf in iterdf.groupby(['condition', 'train_transform', 'test_transform']):
@@ -1976,7 +1982,7 @@ def decoding_analysis(dk, va, experiment,
         print("[RF]: Calculating overlap with stimuli.")
         print(cells0[['visual_area','datakey','cell']]\
                 .drop_duplicates()['visual_area'].value_counts())
-        cells0 = get_cells_with_overlap(cells0, sdata, greater_than=False,
+        cells0 = get_cells_with_overlap(cells0, sdata, greater_than=True,
                                         overlap_thr=overlap_thr)
         print("----> post:")
         print(cells0[['visual_area','datakey', 'cell']]\
@@ -2378,7 +2384,7 @@ def plot_pchooseb_lum_by_area(plotd, metric='p_chooseB', ax=None, colors=0.8,
                               visual_areas=['V1', 'Lm', 'Li']):
     '''plot pchooseB for LUMINANCE cond (morphlevel=-1)'''
     if not isinstance(colors, dict):
-        colors=[colors]*0.8
+        colors={'data': [0.5]*3, 'shuffled': [0.8]*3}
 
     pplot.set_plot_params()
     if ax is None:

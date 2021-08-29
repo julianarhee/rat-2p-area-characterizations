@@ -181,7 +181,7 @@ if analysis_type=='by_ncells':
     # -----------------------------------------------------------------
     dk=None
     if len(sample_sizes)==0:
-        sample_sizes = [1, 2, 4, 8, 16, 32, 64, 96, 128, 256] 
+        sample_sizes = [1, 2, 4, 8, 16, 32, 64, 96, 120, 128, 256] 
     visual_areas = ['V1', 'Lm', 'Li'] if visual_area is None else [visual_area]
     info("Testing %i areas: %s" % (len(visual_areas), str(visual_areas)))
     info("Testing %i sample size: %s" % (len(sample_sizes), str(sample_sizes)))
