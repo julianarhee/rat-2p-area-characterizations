@@ -296,7 +296,7 @@ def load_roi_positions(datakey, roiid=None, traceid='traces001',
     try:
         # print("... loading roi coords")
         with open(fovinfo_fpath, 'rb') as f:
-            fovinfo = pkl.load(f) #, encoding='latin1')
+            fovinfo = pkl.load(f, encoding='latin1')
         assert 'roi_positions' in fovinfo.keys(), "Bad file: %s" % fovinfo_fpath
         posdf = fovinfo['roi_positions'].copy()
 
@@ -335,7 +335,7 @@ def get_roi_coords(animalid, session, fov, roiid=None,
         masks, zimg = load_roi_masks(animalid, session, fov, rois=roiid)
         fovinfo = calculate_roi_coords(masks, zimg, convert_um=convert_um)
         with open(fovinfo_fpath, 'wb') as f:
-            pkl.dump(fovinfo, f, protocol=pkl.HIGHEST_PROTOCOL)
+            pkl.dump(fovinfo, f, protocol=2)
 
     return fovinfo
 

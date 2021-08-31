@@ -7,6 +7,8 @@ Created on Thu Jul 22 13:16:05 2021
 """
 import os
 import glob
+import copy
+import itertools
 
 import pandas as pd
 import numpy as np
@@ -109,6 +111,7 @@ def fit_decay_on_binned(cc_, use_binned=False, func='halflife', estimator='media
         Otherwise, sample within bin, but fit on raw points.
     '''
 
+    #cc_ = cc0.dropna(axis=1)
 
     if use_binned:
         if estimator=='median':
@@ -154,10 +157,17 @@ def bootstrap_fitdecay(bcorrs, use_binned=False, func='halflife',
     Cycle thru visual areas, sample w replacement, fit decay func.
     Return df of bootstrapped params.
     '''
-    cnt_grouper = ['binned_%s' % to_quartile, 'datakey'] if fit_sites \
-                    else ['binned_%s' % to_quartile]
+
+    cnt_grouper = ['binned_%s' % to_quartile] #, 'datakey']
+    if fit_sites:
+        cnt_grouper.extend(['datakey']) 
+
+    col_selector = ['visual_area', 'cell_1', 'cell_2', 'neuron_pair', to_quartile, metric]
+    col_selector.extend(cnt_grouper)
+
     r_=[]
-    for va, cc0 in bcorrs.groupby('visual_area'):
+    for va, vg in bcorrs.groupby('visual_area'):
+        cc0 = vg[col_selector].copy()
         cnts = cc0.groupby(cnt_grouper)['neuron_pair'].count()  
         # How many resample per group
         nsamples_per = dict((k, v) for k, v \
@@ -228,7 +238,7 @@ def bootstrap_linregress(bcorrs, metric='signal_cc', to_quartile='cortical_dista
 
 
 # ------------------------------------------
-# calculate correlations
+# PAIRWISE CALCULATIONS
 # ------------------------------------------
 def trial_averaged_responses(zscored, sdf, params=['ori', 'sf', 'size', 'speed']):
     '''
@@ -249,45 +259,30 @@ def trial_averaged_responses(zscored, sdf, params=['ori', 'sf', 'size', 'speed']
     return tuning_
 
 
-#def get_ccdist(neuraldf, return_zscored=False, curr_cfgs=None, curr_cells=None):
-#    '''
-#    Calculate pairwise correlation coefs and also add distance. 
-#    '''
-#    if curr_cfgs is None:
-#        curr_cfgs = neuraldf['config'].unique()
-#    if curr_cells is None:
-#        curr_cells = neuraldf['cell'].unique()
-#    # Dont do zscore within-condition
-#    corrs, zscored = calculate_corrs(neuraldf, do_zscore=False, return_zscored=True,
-#                                     curr_cells=curr_cells, curr_cfgs=curr_cfgs)
-#    # Add cortical distances
-#    wpos = aggr.add_roi_positions(neuraldf.copy())
-#    roi_pos = wpos[['cell', 'ml_pos', 'ap_pos']].drop_duplicates().copy()
-#    ccdist = get_pw_cortical_distance(corrs, roi_pos)
-#
-#    if return_zscored:
-#        return ccdist, zscored
-#    else:
-#        return ccdist
-
-
-def get_roi_pos_and_rfs(neuraldf, curr_rfs=None):
+def get_roi_pos_and_rfs(neuraldf, curr_rfs=None, rfs_only=True):
     wpos = aggr.add_roi_positions(neuraldf.copy())
     roi_pos = wpos[['cell', 'ml_pos', 'ap_pos']].drop_duplicates().copy()
 
     if curr_rfs is not None:    
-        has_rfs = np.intersect1d(roi_pos['cell'].unique(), curr_rfs['cell'].unique())
-        pos_ = roi_pos[roi_pos.cell.isin(has_rfs)].copy()
-        rfs_ = curr_rfs[curr_rfs.cell.isin(has_rfs)].copy()
-        roidf = pd.merge(pos_, rfs_)
+
+        cells_with_rfs = curr_rfs[['visual_area', 'datakey', 'cell', 'x0', 'y0']].copy()
+        roidf = pd.merge(roi_pos, cells_with_rfs, on=['cell'], how='left')
+
+        #has_rfs = np.intersect1d(roi_pos['cell'].unique(), curr_rfs['cell'].unique())
+        #pos_ = roi_pos[roi_pos.cell.isin(has_rfs)].copy()
+        #rfs_ = curr_rfs[curr_rfs.cell.isin(has_rfs)].copy()
+        #roidf = pd.merge(pos_, rfs_)
     else:
         roidf = roi_pos.copy()
 
-    return roidf
+    if rfs_only:
+        return roidf.dropna(axis=0)
+    else:
+        return roidf
 
 def get_ccdist(neuraldf, roidf, return_zscored=False, curr_cfgs=None,
                 xcoord='ml_pos', ycoord='ap_pos', label='cortical_distance',
-                add_eccentricity=False):
+                add_eccentricity=True):
     ''' 
     roidf should be 1 row per cell -- must contan xcoord, ycoord info
     Do get_roi_pos_and_rfs() for ROIDF.
@@ -296,11 +291,11 @@ def get_ccdist(neuraldf, roidf, return_zscored=False, curr_cfgs=None,
         curr_cfgs = neuraldf['config'].unique()
     #if curr_cells is None:
     #    curr_cells = neuraldf['cell'].unique()
-    curr_cells = np.intersect1d(neuraldf['cell'].unique(), roidf['cell'].unique())
+    #curr_cells = np.intersect1d(neuraldf['cell'].unique(), roidf['cell'].unique())
 
     # Dont do zscore within-condition
     corrs, zscored = calculate_corrs(neuraldf, do_zscore=True, return_zscored=True,
-                                     curr_cells=curr_cells, curr_cfgs=curr_cfgs)
+                                     curr_cfgs=curr_cfgs)
    
     # Add distance 
     ccdist = get_pw_distance(corrs, roidf, xcoord=xcoord, ycoord=ycoord, label=label,
@@ -409,6 +404,12 @@ def do_pairwise_cc_melt(df_, metric_name='cc', include_diagonal=False):
     cc = melt_square_matrix(df_.corr(), metric_name=metric_name, 
                             include_diagonal=include_diagonal)
     cc = cc.rename(columns={'row': 'cell_1', 'col': 'cell_2'})
+
+    # Check counts
+    nr = len(df_['cell'].unique())
+    ncombos = len(list(itertools.combinations(np.arange(0, nr), 2)))
+    assert len(cc)==ncombos, "bad merging when creating pw combos (expected %i, have %i)" % (ncombos, len(cc))
+
     cc[['cell_1', 'cell_2']] = cc[['cell_1', 'cell_2']].astype(int)
     cc['neuron_pair'] = ['%i_%i' % (c1, c2) for \
                          c1, c2 in cc[['cell_1', 'cell_2']].values]
@@ -419,8 +420,10 @@ def melt_square_matrix(df, metric_name='value', add_values={}, include_diagonal=
     k = 0 if include_diagonal else 1
     df = df.where(np.triu(np.ones(df.shape), k=k).astype(np.bool))
 
-    df = df.stack().reset_index()
-    df.columns=['row', 'col', metric_name]
+    df0 = df.stack(dropna=True).reset_index()
+    df0.columns=['row', 'col', metric_name]
+
+    df = df0[df0['row']!=df0['col']].reset_index(drop=True)
 
     if len(add_values) > 0:
         for k, v in add_values.items():
@@ -428,27 +431,6 @@ def melt_square_matrix(df, metric_name='value', add_values={}, include_diagonal=
 
     return df
 
-#def get_pw_cortical_distance(cc_, pos_):
-#    # Get current FOV rfdata and add position info to sigcorrs df
-#    cc_['cell_1'] = cc_['cell_1'].astype(int)
-#    cc_['cell_2'] = cc_['cell_2'].astype(int)
-#
-#    r1 = cc_['cell_1'].unique()
-#    r2 = cc_['cell_2'].unique()
-#    crois_ = np.union1d(r1, r2)
-#    #assert len([r for r in crois_ if r not in pos_.index.tolist()])==0, \
-#    #    "[%s, %s]: incorrect roi indexing in RFDATA" % (va, dk)
-#    if 'cell' in pos_.columns:
-#        pos_.index = pos_['cell'].values
-#    # Coords of cell1 in pair, in order
-#    coords1 = np.array(pos_.loc[cc_['cell_1'].values][['ml_pos', 'ap_pos']])
-#    # Coords of cell2 in pair 
-#    coords2 = np.array(pos_.loc[cc_['cell_2'].values][['ml_pos', 'ap_pos']])
-#    # Get dists, in order of appearance
-#    dists = [np.linalg.norm(c1-c2) for c1, c2 in zip(coords1, coords2)]
-#    cc_['cortical_distance'] = dists
-#    
-#    return cc_
 
 def get_pw_distance(cc_, pos_, xcoord='ml_pos', ycoord='ap_pos', label='cortical_distance',
                     add_eccentricity=False):
@@ -463,7 +445,7 @@ def get_pw_distance(cc_, pos_, xcoord='ml_pos', ycoord='ap_pos', label='cortical
 
     r1 = cc_['cell_1'].unique()
     r2 = cc_['cell_2'].unique()
-    crois_ = np.union1d(r1, r2)
+    #crois_ = np.union1d(r1, r2)
     #assert len([r for r in crois_ if r not in pos_.index.tolist()])==0, \
     #    "[%s, %s]: incorrect roi indexing in RFDATA" % (va, dk)
     if 'cell' in pos_.columns:
@@ -476,13 +458,20 @@ def get_pw_distance(cc_, pos_, xcoord='ml_pos', ycoord='ap_pos', label='cortical
     dists = [np.linalg.norm(c1-c2) for c1, c2 in zip(coords1, coords2)]
     cc_[label] = dists
     
-    if add_eccentricity: 
+    if add_eccentricity and 'x0' in pos_.columns: 
+        if 'eccentricity' not in pos_.columns:
+            null_ixs = pos_[pos_['x0'].isnull()].index.tolist()
+            eccs = np.sqrt((pos_[['x0', 'y0']]**2).sum(axis=1))
+            eccs.loc[null_ixs] = np.nan 
+            pos_.loc[eccs.index, 'eccentricity'] = eccs
+
         v1 = pos_.loc[cc_['cell_1'].values]['eccentricity'].values
         v2 = pos_.loc[cc_['cell_2'].values]['eccentricity'].values
-        cc_['max_ecc'] = [max([i, j]) for i, j in zip(v1, v2)]
-        cc_['min_ecc'] = [min([i, j]) for i, j in zip(v1, v2)]
-
-   
+        cc_['max_ecc'] = [max([i, j]) if not(any([np.isnan(i), np.isnan(j)])) \
+                            else np.nan for i, j in zip(v1, v2)]
+        cc_['min_ecc'] = [min([i, j]) if not(any([np.isnan(i), np.isnan(j)])) \
+                            else np.nan for i, j in zip(v1, v2)]
+ 
     if label!='cortical_distance':
         coords1 = np.array(pos_.loc[cc_['cell_1'].values][['ml_pos', 'ap_pos']])
         coords2 = np.array(pos_.loc[cc_['cell_2'].values][['ml_pos', 'ap_pos']])
@@ -499,7 +488,7 @@ def do_pairwise_diffs_melt(df_, metric_name='morph_sel', include_diagonal=False)
                                   - df_[metric_name].values[:, None]), 
                               columns=df_['cell'].values, index=df_['cell'].values)
 
-    diffs = melt_square_matrix(pairwise_diffs, metric_name=metric_name)
+    diffs = melt_square_matrix(pairwise_diffs, metric_name=metric_name, include_diagonal=False)
     diffs = diffs.rename(columns={'row': 'cell_1', 'col': 'cell_2'})
     diffs[['cell_1', 'cell_2']] = diffs[['cell_1', 'cell_2']].astype(int)
     diffs['neuron_pair'] = ['%i_%i' % (c1, c2) for \
@@ -507,8 +496,208 @@ def do_pairwise_diffs_melt(df_, metric_name='morph_sel', include_diagonal=False)
     return diffs
 
 
-# Data binning
 
+
+
+def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, SDF=None, min_ncells=10, 
+                select_stimuli='fullfield', distance_var='rf_distance', verbose=False):
+    '''
+    Cycle thru all datasets and calculate CCs and PW distances.
+    
+    Returns:
+    CORRS: pd.DataFrame()
+        All pw signal- and noise-corrs, plus distances (RF, and/or cortical)
+        
+    Args:
+    
+    selective_stimuli: (str, None)
+        fullfield: only include FF stimuli when calculating PW corrs (must provide SDF)
+        images:  only include apertured or image stimuli (must provide SDF)
+        None:  include it all (SDF can be None)
+    
+    rfdf: (None, pd.DataFrame)
+        All RF fit data (rfutils.aggregate_fits()). If None, ignores RF calculations.
+    
+    SDF: (None, pd.DataFrame)
+        Aggregate sdfs across datasets. Include if selective_stimulis is not None.
+    
+    distance_var: (str)
+        rf_distance:  Calculate PW dists bw RF centers (must provide rfdf). 
+                      Also calculates cortical_distance anyway.
+        cortical_distance:  Calculate cortical dists only (no RFs)
+    '''
+    # NDATA already contains only unique dkeys
+    #print(experiment)
+    CORRS=None
+    #     min_ncells=10
+    #     selective_only=False
+    #     select_stimuli = 'fullfield'
+    # ------------------------------------------------------------
+    distance_var = 'rf_distance' if rfdf is not None else 'cortical_distance'
+    print("Dist: %s" % distance_var)
+
+    xcoord = 'x0' if distance_var=='rf_distance' else 'ml_pos'
+    ycoord = 'y0' if distance_var=='rf_distance' else 'ap_pos'
+    wrong_configs=[]
+    no_rfs=[]
+    c_list=[]
+    for (va, dk, exp), ndf in NDATA.groupby(['visual_area', 'datakey', 'experiment']):
+        rfdf_=None
+        if rfdf is not None:
+            rfdf_ = rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk)].copy()
+            if rfdf_.shape[0]==0:
+                no_rfs.append((va, dk, exp))
+                continue
+            # rois_ = np.intersect1d(ndf['cell'].unique(), rfdf_['cell'].unique())
+        #else:
+        rois_ = ndf['cell'].unique()
+        # Select cells
+#         if selective_only:
+#             rois_ = gdata_u[(gdata_u.visual_area==va) & (gdata_u.datakey==dk) 
+#                           & (gdata_u.experiment==exp)]['cell'].unique()
+#         else:
+        if len(rois_)<min_ncells:
+            print("Skipping - (%s, %s)" % (va, dk))
+            continue
+        # Select stimuli and trials
+        if experiment in ['gratings', 'blobs']:
+            sdf=SDF[SDF.datakey==dk].copy()
+            curr_cfgs = aggr.get_included_stimconfigs(sdf, experiment=exp,
+                                                     select_stimuli=select_stimuli)
+            if len(curr_cfgs)==0:
+                wrong_configs.append((va, dk))
+                continue
+        else:
+            curr_cfgs = sorted(NDATA['config'].unique())
+        roidf_ = get_roi_pos_and_rfs(ndf, curr_rfs=rfdf_, rfs_only=False)
+        cc_ = get_ccdist(ndf, roidf_, return_zscored=False,
+                            curr_cfgs=curr_cfgs,
+                            xcoord=xcoord, ycoord=ycoord, label=distance_var,
+                            add_eccentricity=True)
+        cc_['visual_area'] = va
+        cc_['datakey'] = dk
+        cc_['experiment'] = experiment
+        cc_['n_cells'] = len(rois_)
+        c_list.append(cc_)
+    CORRS = pd.concat(c_list, ignore_index=True)
+    
+    if verbose:
+        print('%i datasets w wrong configs:' % len(wrong_configs))
+        for w in wrong_configs:
+            print("    %s" % str(w))
+        print('%i datasets w/out RF fits:' % len(no_rfs))
+        for w in no_rfs:
+            print("    %s" % str(w))
+            
+    return CORRS
+
+
+#  Gratings-specific
+
+def smallest_signed_angle(x, y, TAU=360):
+    a = (x - y) % TAU
+    b = (y - x) % TAU
+    return -a if a < b else b
+
+def get_pw_angular_dist(df_, tau=180, in_name='input', out_name='output'):
+    '''Calculate angular diffs (corrected), both signed and abs'''
+
+    col_pairs = list(itertools.combinations(df_['cell'], 2))
+    pairdf = pd.DataFrame(['%i_%i' % (a, b) for a, b \
+                           in col_pairs], columns=['neuron_pair'])
+    pairdf['cell_1'] = [a for a, b in col_pairs]
+    pairdf['cell_2'] = [b for a, b in col_pairs]
+    pairdf[out_name] = [smallest_signed_angle(\
+                              float(df_[df_['cell']==a][in_name]), 
+                               float(df_[df_['cell']==b][in_name]), TAU=tau) \
+                        for a, b in col_pairs]
+    pairdf['%s_abs' % out_name] = [abs(smallest_signed_angle(\
+                              float(df_[df_['cell']==a][in_name]), 
+                               float(df_[df_['cell']==b][in_name]), TAU=tau)) \
+                        for a, b in col_pairs]
+    return pairdf
+
+def get_pw_diffs(df_, metric='response_pref'):
+    '''Get abs diff for a given metric for all pairs of cells
+    '''
+    col_pairs = list(itertools.combinations(df_['cell'], 2))
+    pairdf = pd.DataFrame(['%i_%i' % (a, b) for a, b \
+                           in col_pairs], columns=['neuron_pair'])
+    pairdf['cell_1'] = [a for a, b in col_pairs]
+    pairdf['cell_2'] = [b for a, b in col_pairs]
+    pairdf[metric] = [abs(float(df_[df_['cell']==a][metric])\
+                      - float(df_[df_['cell']==b][metric])) \
+                        for a, b in col_pairs]
+    return pairdf
+
+
+def aggregate_angular_dists(df, min_ncells=5):
+    a_=[]
+    for (va, dk), df_ in df.groupby(['visual_area', 'datakey']):
+        if len(df_['cell'].unique())<min_ncells:
+            print("too few cells: %s, %s" % (va, dk))
+            continue
+        # diff in pref. thteas
+        dir_diff = get_pw_angular_dist(df_, tau=360,
+                                       in_name='theta_pref', out_name='pref_dir_diff')
+        ori_diff = get_pw_angular_dist(df_, tau=180,
+                                       in_name='theta_pref', out_name='pref_ori_diff')
+        osi_diff = pd.merge(dir_diff, ori_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+        # RF angle diffs
+        rf_diff = get_pw_angular_dist(df_, tau=180,
+                                      in_name='rf_theta_deg', out_name='rf_angle_diff')
+        ang_diffs = pd.merge(osi_diff, rf_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+        resp_diff = get_pw_diffs(df_, metric='response_pref')
+        diffs_ = pd.merge(ang_diffs, resp_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+        # Cortical and RF difff
+        adist = get_pw_distance(diffs_, df_, xcoord='x0', ycoord='y0', 
+                                 label='rf_distance', add_eccentricity=True)
+        assert adist.shape[0]==osi_diff.shape[0], 'Bad merging: %s, %s' (va, dk)
+        adist['visual_area'] = va
+        adist['datakey'] = dk
+        adist['n_cells'] = len(df_['cell'].unique())
+        a_.append(adist)
+    angdists = pd.concat(a_, axis=0, ignore_index=True)
+
+    return angdists
+
+
+
+
+
+# Data binning
+# ----------------------------------------------------------------------------
+def get_bins_within_limits(bcorrs, bin_name='cortical_distance', 
+                    upper_lim=None, lower_lim=None):
+    currdf = bcorrs.copy()
+    if upper_lim is not None and lower_lim is not None:
+        currdf = bcorrs[(bcorrs[bin_name]<upper_lim)
+                    & (bcorrs[bin_name]>lower_lim)].copy()
+    elif upper_lim is not None:
+        currdf = bcorrs[(bcorrs[bin_name]<upper_lim)].copy()
+    elif lower_lim is not None:
+        currdf = bcorrs[(bcorrs[bin_name]>lower_lim)].copy()
+    else:
+        print("No limits specified. Returning same.")
+
+    return currdf
+
+
+def get_binned_X(currdf, x_label='signal_cc',  x_bins=None, min_npairs=10, labels=None):
+    # Check counts
+    currdf['binned_%s' % x_label], bin_edges = pd.cut(currdf[x_label], \
+                                                x_bins, labels=labels, retbins=True)
+    curr_bin_counts = currdf.groupby(['visual_area',\
+                     'binned_%s' % x_label])['neuron_pair'].count()
+
+    pass_ = pd.concat([currdf[(currdf.visual_area==va) 
+                        & (currdf['binned_%s' % x_label]==bc)] \
+                for (va, bc) in curr_bin_counts[curr_bin_counts>=min_npairs]\
+                       .index.tolist()], axis=0)
+    return pass_
+
+
+# -------------------------- for exp decay version
 def get_bins(n_bins=4, custom_bins=False, cmap='viridis'):
     '''Get generic bins and bin labels to split data up'''
     qcolor_list = sns.color_palette(cmap, n_colors=n_bins)

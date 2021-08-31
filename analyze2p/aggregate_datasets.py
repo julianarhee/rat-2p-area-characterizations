@@ -561,17 +561,55 @@ def count_n_total(assigned_cells, u_dkeys):
 
     return n_total
 
-def count_n_cells(NDATA, name='n_cells', reset_index=True):
+def count_n_cells(NDATA, name='n_cells', reset_index=True, split_na=False, split_suffix='fits'):
+
     if reset_index:
         counts = NDATA[['visual_area', 'datakey','cell']].drop_duplicates()\
-                .groupby(['visual_area', 'datakey']).count().reset_index()\
-                .rename(columns={'cell': name})
+                    .groupby(['visual_area', 'datakey']).count().reset_index()\
+                    .rename(columns={'cell': name}).reset_index(drop=True)
     else:
         counts = NDATA[['visual_area', 'datakey','cell']].drop_duplicates()\
-                .groupby(['visual_area', 'datakey']).count()\
-                .rename(columns={'cell': name})
+                    .groupby(['visual_area', 'datakey']).count()\
+                    .rename(columns={'cell': name})
+
+    if split_na:
+        counts1 = counts.copy().rename(columns={name: '%s_all' % name})        
+        ND_ = NDATA.dropna().copy()
+        if reset_index:
+            counts2 = ND_[['visual_area', 'datakey','cell']].drop_duplicates()\
+                    .groupby(['visual_area', 'datakey']).count().reset_index()\
+                    .rename(columns={'cell': '%s_%s' % (name, split_suffix)})\
+                    .reset_index(drop=True)
+            counts = pd.merge(counts1, counts2, on=['visual_area', 'datakey'], how='outer')
+        else:
+            counts2 = ND_[['visual_area', 'datakey','cell']].drop_duplicates()\
+                    .groupby(['visual_area', 'datakey']).count()\
+                    .rename(columns={'cell': '%s_%s' % (name, split_suffix)})
+            counts = pd.merge(counts1, counts2, left_index=True, right_index=True, how='outer')
 
     return counts
+
+
+def merge_cell_metrics_with_rfs(gfits, rfdf, split_suffix='rfs'):
+    merge_cols=['visual_area', 'datakey', 'cell']
+    GRFS = pd.merge(gfits, rfdf, on=merge_cols, how='outer')
+    GRFS['experiment'] = 'all'
+    # counts
+    grat_and_rf_counts = aggr.count_n_cells(GRFS, split_na=True, split_suffix=split_suffix)
+    print(grat_and_rf_counts.groupby('visual_area').sum().to_markdown())
+
+    #grat_and_rf_counts.groupby('visual_area').sum()
+    return GRFS, grat_and_rf_counts
+
+
+def get_final_cell_and_site_counts(final_cells):
+    '''Returns counts of total N cells, total N sites, for each visual area'''
+
+    cnts = final_cells.groupby(by='visual_area', axis=0).sum()
+    dks = final_cells.groupby(by='visual_area', axis=0).count()['datakey']
+    final_counts = pd.concat([cnts, dks], axis=1)
+    return final_counts
+
 
 def get_best_fit(CELLS, resp_desc, traceid='traces001', metric='gof'):
     gdata, no_fits, missing_ = osi.aggregate_ori_fits(CELLS, traceid=traceid, 

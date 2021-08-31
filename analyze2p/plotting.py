@@ -95,6 +95,18 @@ def set_plot_params(lw_axes=0.25, labelsize=6, color='k', dpi=100):
 
     return 
 
+def adjust_subplots(left=0.1, right=0.9, bottom=0.1, top=0.8, wide=False):
+    pl.gca()
+    if wide:
+        left=0.2
+        right=0.8
+        bottom=0.2
+        top=0.7
+    pl.subplots_adjust(left=left, right=right, bottom=bottom, top=top,
+            hspace=0.5, wspace=0.5)
+
+
+
 # Colorbar stuff
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap as lsc
