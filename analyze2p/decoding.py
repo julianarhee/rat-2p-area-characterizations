@@ -58,7 +58,7 @@ import analyze2p.objects.sim_utils as su
 def get_cells_with_overlap(cells0, sdata, overlap_thr=0.5, greater_than=False,
                 response_type='dff', do_spherical_correction=False):
 
-    rfdf = get_rfdf(cells0, sdata, response_type=response_type,
+    rfdf = rfutils.aggregate_fits(cells0, sdata, response_type=response_type,
                     do_spherical_correction=do_spherical_correction)
     cells_RF = get_cells_with_rfs(cells0, rfdf)
 
@@ -134,7 +134,7 @@ def get_cells_with_matched_rfs(cells0, sdata,
         tuple/array:  use specified (lower, upper) bounds 
     '''
  
-    rfdf = get_rfdf(cells0, sdata, response_type=response_type,
+    rfdf = rfutils.aggregate_fits(cells0, sdata, response_type=response_type,
                     do_spherical_correction=do_spherical_correction)
     cells_RF = get_cells_with_rfs(cells0, rfdf)
     cells_lim, limits = limit_cells_by_rf(cells_RF, rf_lim=rf_lim,
@@ -226,23 +226,23 @@ def get_quartile_limits(cells_RF, rf_metric='fwhm_avg', whis=1.5):
     return limit_lower, limit_upper
 
 
-def get_rfdf(cells0, sdata, response_type='dff', do_spherical_correction=False,
-            reliable_only=False, pass_criterion='all'):
-    '''Combines all RF fit params, returns AVERAGE of >1 experiment'''
-    # Get cells and metadata
-    assigned_cells, rf_meta = aggr.select_assigned_cells(cells0, sdata, 
-                                                    experiments=['rfs', 'rfs10']) 
-    # Load RF fit data
-    rf_fit_desc = rfutils.get_fit_desc(response_type=response_type, 
-                                do_spherical_correction=do_spherical_correction)
-    rfdata = rfutils.aggregate_rfdata(rf_meta, assigned_cells, 
-                                fit_desc=rf_fit_desc,
-                                reliable_only=reliable_only, pass_criterion=pass_criterion)
-    # Combined rfs5/rfs10
-    rfdf = rfutils.average_rfs(rfdata, keep_experiment=False) 
-
-    return rfdf
-
+#def get_rfdf(cells0, sdata, response_type='dff', do_spherical_correction=False,
+#            reliable_only=False, pass_criterion='all'):
+#    '''Combines all RF fit params, returns AVERAGE of >1 experiment'''
+#    # Get cells and metadata
+#    assigned_cells, rf_meta = aggr.select_assigned_cells(cells0, sdata, 
+#                                                    experiments=['rfs', 'rfs10']) 
+#    # Load RF fit data
+#    rf_fit_desc = rfutils.get_fit_desc(response_type=response_type, 
+#                                do_spherical_correction=do_spherical_correction)
+#    rfdata = rfutils.aggregate_rfdata(rf_meta, assigned_cells, 
+#                                fit_desc=rf_fit_desc,
+#                                reliable_only=reliable_only, pass_criterion=pass_criterion)
+#    # Combined rfs5/rfs10
+#    rfdf = rfutils.average_rfs(rfdata, keep_experiment=False) 
+#
+#    return rfdf
+#
 def get_cells_with_rfs(cells0, rfdf):
     '''
     CELLS should be assigned + responsive cells (from NDATA)

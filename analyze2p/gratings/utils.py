@@ -315,45 +315,67 @@ def get_good_fits(bootresults, fitparams, gof_thr=0.66, verbose=True):
 def aggregate_ori_fits(CELLS, traceid='traces001', fit_desc=None,
                        response_type='dff', responsive_test='nstds', responsive_thr=10.,
                        n_bootstrap_iters=1000, verbose=False,
-                       return_missing=False, rootdir='/n/coxfs01/2p-data'):
+                       return_missing=False, create_new=False,
+                       rootdir='/n/coxfs01/2p-data',
+                       aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     '''
     assigned_cells:  dataframe w/ assigned cells of dsets that have gratings
     '''
+    gdata=None
+    no_fits=[]
+
     if fit_desc is None:
         fit_desc = get_fit_desc(response_type=response_type, 
                             responsive_test=responsive_test, 
                             n_stds=n_stds, responsive_thr=responsive_thr, 
                             n_bootstrap_iters=n_bootstrap_iters)
-    gdata=None
-    no_fits=[]; g_list=[];
-    for (va, dk), g in CELLS.groupby(['visual_area', 'datakey']):
+
+    aggr_fits_fpath = os.path.join(aggregate_dir, 'gratings-tuning', 'dataframes',
+                               '%s.pkl' % fit_desc)
+ 
+    if not create_new:
         try:
-            # Load tuning results
-            fitresults, fitparams = load_tuning_results(dk, 
-                                            fit_desc=fit_desc, traceid=traceid)
-            assert fitresults is not None, "ERROR: [%s] No fit results" % dk
-            # Get OSI results for assigned cells
-            rois_ = g['cell'].unique()
-            boot_ = dict((k, v) for k, v in fitresults.items() if k in rois_)
+            with open(aggr_fits_fpath, 'rb') as f:
+                res = pkl.load(f, encoding='latin1')
+            gdata = res['fits']
+            no_fits = res['no_fits']
         except Exception as e:
-            if verbose:
-                traceback.print_exc() 
-            no_fits.append('%s_%s' % (va, dk))
-            continue
-        # Aggregate fits
-        best_fits, all_fits = get_good_fits(boot_, fitparams, 
-                                             gof_thr=None, verbose=verbose)
-        if best_fits is None:
-            no_fits.append('%s_%s' % (va, dk))
-            continue
-        all_fits['visual_area'] = va
-        all_fits['datakey'] = dk
-        g_list.append(all_fits)
-    gdata = pd.concat(g_list, axis=0).reset_index(drop=True)
-    if verbose:
-        print("Datasets with NO fits found:")
-        for s in no_fits:
-            print(s)
+            traceback.print_exc()
+            create_new=True
+
+    if create_new:
+        g_list=[];
+        for (va, dk), g in CELLS.groupby(['visual_area', 'datakey']):
+            try:
+                # Load tuning results
+                fitresults, fitparams = load_tuning_results(dk, 
+                                                fit_desc=fit_desc, traceid=traceid)
+                assert fitresults is not None, "ERROR: [%s] No fit results" % dk
+                # Get OSI results for assigned cells
+                rois_ = g['cell'].unique()
+                boot_ = dict((k, v) for k, v in fitresults.items() if k in rois_)
+            except Exception as e:
+                if verbose:
+                    traceback.print_exc() 
+                no_fits.append('%s_%s' % (va, dk))
+                continue
+            # Aggregate fits
+            best_fits, all_fits = get_good_fits(boot_, fitparams, 
+                                                 gof_thr=None, verbose=verbose)
+            if best_fits is None:
+                no_fits.append('%s_%s' % (va, dk))
+                continue
+            all_fits['visual_area'] = va
+            all_fits['datakey'] = dk
+            g_list.append(all_fits)
+        gdata = pd.concat(g_list, axis=0).reset_index(drop=True)
+        if verbose:
+            print("Datasets with NO fits found:")
+            for s in no_fits:
+                print(s)
+        
+        with open(aggr_fits_fpath, 'wb') as f:
+            pkl.dump({'fits': gdata, 'no_fits': no_fits}, f, protocol=2)
 
     if return_missing:
         return gdata, no_fits

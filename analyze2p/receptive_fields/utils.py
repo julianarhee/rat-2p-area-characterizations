@@ -831,11 +831,12 @@ def cycle_and_load(rfmeta, cells0, is_neuropil=False,
             if rfit_df is None:
                 no_fits.append((va, dk))
                 continue
+            fit_rois = rfit_df[rfit_df['r2']>fit_thr].index.tolist()
         except Exception as e:
             raise e
 
-        rfit_df = load_rf_fits(dk, experiment=rfname, fit_desc=fit_desc)
-        fit_rois = rfit_df[rfit_df['r2']>fit_thr].index.tolist()
+        #rfit_df = load_rf_fits(dk, experiment=rfname, fit_desc=fit_desc)
+        #fit_rois = rfit_df[rfit_df['r2']>fit_thr].index.tolist()
         if len(fit_rois)==0:
             continue
         if is_neuropil:
@@ -1024,35 +1025,60 @@ def aggregate_rfdata(rf_dsets, assigned_cells, traceid='traces001',
     else:
         return rfdf
 
-def add_rf_positions(rfdf, calculate_position=False, traceid='traces001'):
-    '''
-    Add ROI position info to RF dataframe (converted and pixel-based).
-    Set calculate_position=True, to re-calculate.
-    '''
-    import roi_utils as rutils
-    print("Adding RF position info...")
-    pos_params = ['fov_xpos', 'fov_xpos_pix', 'fov_ypos', 'fov_ypos_pix', 'ml_pos','ap_pos']
-    for p in pos_params:
-        rfdf[p] = ''
-    p_list=[]
-    #for (animalid, session, fovnum, exp), g in rfdf.groupby(['animalid', 'session', 'fovnum', 'experiment']):
-    for (va, dk, exp), g in rfdf.groupby(['visual_area', 'datakey', 'experiment']):
-        session, animalid, fovnum = split_datakey_str(dk)
 
-        fcoords = rutils.get_roi_coords(animalid, session, 'FOV%i_zoom2p0x' % fovnum,
-                                  traceid=traceid, create_new=False)
+def aggregate_fits(cells0, sdata, response_type='dff', do_spherical_correction=False,
+            reliable_only=False, pass_criterion='all', combine='average'):
+    '''
+    Combines all RF fit params.
+    Args:
 
-        #for ei, e_df in g.groupby(['experiment']):
-        cell_ids = g['cell'].unique()
-        p_ = fcoords['roi_positions'].loc[cell_ids]
-        for p in pos_params:
-            rfdf.loc[g.index, p] = p_[p].values
+    reliable_only: (bool)
+        Load evaluation params to only select cells with "reliable fits" (based on bootstrapping)
+
+    pass_criterion: (str)
+        all -- EVERY fit param must pass evaluation (can be weird for theta)
+        most -- most must pass (avoids theta problem)
+        position -- only care about position (x0, y0)
+        size -- only care about size params (sigma_x, sigma_y)
+
+    combine: (str)
+        average -- returns AVERAGE of >1 experiment (least conservative, default)
+        single -- try to pick rf-5 for V1/Lm and rf-10 for Li, but otherwise, get what u can
+        select -- ONLY allow rf-5 for V1/LM, rf-10 for Li (most conservative)
+
+    '''
+    # Get cells and metadata
+    assigned_cells, rf_meta = aggr.select_assigned_cells(cells0, sdata, 
+                                                    experiments=['rfs', 'rfs10']) 
+    # Load RF fit data
+    rf_fit_desc = get_fit_desc(response_type=response_type, 
+                                do_spherical_correction=do_spherical_correction)
+    rfdata = aggregate_rfdata(rf_meta, assigned_cells, 
+                                fit_desc=rf_fit_desc,
+                                reliable_only=reliable_only, pass_criterion=pass_criterion)
+
+    # Combined rfs5/rfs10
+    if combine=='select':
+        rfdf = combine_rfs_select(rfdata) 
+    elif combine=='single':
+        rfdf = combine_rfs_single(rfdata )
+    else:
+        rfdf = average_rfs(rfdata, keep_experiment=False) 
+
+    # Add eccentricity
+    rfdf['eccentricity'] = [np.sqrt((g[['x0', 'y0']]**2).sum()) \
+                      for i, g in rfdf.iterrows()]
+
 
     return rfdf
 
 
+
 def combine_rfs_single(rfdf):
-    '''Combine RF data so only 1 RF experiment per datakey'''
+    '''
+    Combine RF data so only 1 RF experiment per datakey. 
+    Default:  Always take rfs for V1/LM, otherwise rfs10. Opposite for LI.
+    '''
     final_rfdf=None
     rf_=[]
     for (visual_area, datakey), curr_rfdf in rfdf.groupby(['visual_area', 'datakey']):
@@ -1074,7 +1100,31 @@ def combine_rfs_single(rfdf):
     return final_rfdf
 
 
+def combine_rfs_select(rfdf):
+    '''
+    Combine RF data so only 1 RF experiment per datakey. 
+    Default:  Always take rfs for V1/LM. Always take rfs10 for LI.
+    '''
+    final_rfdf=None
+    rf_=[]
+    for (visual_area, datakey), curr_rfdf in rfdf.groupby(['visual_area', 'datakey']):
+        final_rf=None
+        if visual_area in ['V1', 'Lm']:
+            if 'rfs' in curr_rfdf['experiment'].values:
+                final_rf = curr_rfdf[curr_rfdf.experiment=='rfs'].copy()
+        else:
+            if 'rfs10' in curr_rfdf['experiment'].values:
+                final_rf = curr_rfdf[curr_rfdf.experiment=='rfs10'].copy()
+        rf_.append(final_rf)
+
+    final_rfdf = pd.concat(rf_).reset_index(drop=True)
+
+    return final_rfdf
+
+
 def average_rfs_select(rfdf):
+    '''prob should just ignore this one
+    '''
     final_rfdf=None
     rf_=[]
     for (visual_area, datakey), curr_rfdf in rfdf.groupby(['visual_area', 'datakey']):
@@ -1109,6 +1159,10 @@ def average_rfs_select(rfdf):
 
 
 def average_rfs(rfdf, keep_experiment=True):
+    '''
+    Cycle thru all rf fit data, and grab EVERYTHING. Averages fit params
+    for cells measured with both stimulus sizes (5 vs 10). Least conservative way.
+    '''
     final_rfdf=None
     rf_=[]
     for (visual_area, datakey), curr_rfdf in rfdf.groupby(['visual_area', 'datakey']):
@@ -1136,6 +1190,33 @@ def average_rfs(rfdf, keep_experiment=True):
     final_rfdf = pd.concat(rf_).reset_index(drop=True)
 
     return final_rfdf
+
+
+def add_rf_positions(rfdf, calculate_position=False, traceid='traces001'):
+    '''
+    Add ROI position info to RF dataframe (converted and pixel-based).
+    Set calculate_position=True, to re-calculate.
+    '''
+    import roi_utils as rutils
+    print("Adding RF position info...")
+    pos_params = ['fov_xpos', 'fov_xpos_pix', 'fov_ypos', 'fov_ypos_pix', 'ml_pos','ap_pos']
+    for p in pos_params:
+        rfdf[p] = ''
+    p_list=[]
+    for (va, dk, exp), g in rfdf.groupby(['visual_area', 'datakey', 'experiment']):
+        session, animalid, fovnum = split_datakey_str(dk)
+
+        fcoords = rutils.get_roi_coords(animalid, session, 'FOV%i_zoom2p0x' % fovnum,
+                                  traceid=traceid, create_new=False)
+
+        #for ei, e_df in g.groupby(['experiment']):
+        cell_ids = g['cell'].unique()
+        p_ = fcoords['roi_positions'].loc[cell_ids]
+        for p in pos_params:
+            rfdf.loc[g.index, p] = p_[p].values
+
+    return rfdf
+
 
 
 # ----------------------------------------------------------------------------

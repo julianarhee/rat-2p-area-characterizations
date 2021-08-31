@@ -286,7 +286,8 @@ def get_roi_pos_and_rfs(neuraldf, curr_rfs=None):
     return roidf
 
 def get_ccdist(neuraldf, roidf, return_zscored=False, curr_cfgs=None,
-                xcoord='ml_pos', ycoord='ap_pos', label='cortical_distance'):
+                xcoord='ml_pos', ycoord='ap_pos', label='cortical_distance',
+                add_eccentricity=False):
     ''' 
     roidf should be 1 row per cell -- must contan xcoord, ycoord info
     Do get_roi_pos_and_rfs() for ROIDF.
@@ -302,7 +303,8 @@ def get_ccdist(neuraldf, roidf, return_zscored=False, curr_cfgs=None,
                                      curr_cells=curr_cells, curr_cfgs=curr_cfgs)
    
     # Add distance 
-    ccdist = get_pw_distance(corrs, roidf, xcoord=xcoord, ycoord=ycoord, label=label)
+    ccdist = get_pw_distance(corrs, roidf, xcoord=xcoord, ycoord=ycoord, label=label,
+                        add_eccentricity=add_eccentricity)
     
     if return_zscored:
         return ccdist, zscored
@@ -448,7 +450,8 @@ def melt_square_matrix(df, metric_name='value', add_values={}, include_diagonal=
 #    
 #    return cc_
 
-def get_pw_distance(cc_, pos_, xcoord='ml_pos', ycoord='ap_pos', label='cortical_distance'):
+def get_pw_distance(cc_, pos_, xcoord='ml_pos', ycoord='ap_pos', label='cortical_distance',
+                    add_eccentricity=False):
     '''Given DF of pairwise calcs (cc_), calculate corresponding cells' POS diff
     using pos_. xcoord and ycoord must be columns in pos_.
 
@@ -472,6 +475,13 @@ def get_pw_distance(cc_, pos_, xcoord='ml_pos', ycoord='ap_pos', label='cortical
     # Get dists, in order of appearance
     dists = [np.linalg.norm(c1-c2) for c1, c2 in zip(coords1, coords2)]
     cc_[label] = dists
+    
+    if add_eccentricity: 
+        v1 = pos_.loc[cc_['cell_1'].values]['eccentricity'].values
+        v2 = pos_.loc[cc_['cell_2'].values]['eccentricity'].values
+        cc_['max_ecc'] = [max([i, j]) for i, j in zip(v1, v2)]
+        cc_['min_ecc'] = [min([i, j]) for i, j in zip(v1, v2)]
+
    
     if label!='cortical_distance':
         coords1 = np.array(pos_.loc[cc_['cell_1'].values][['ml_pos', 'ap_pos']])
@@ -495,9 +505,6 @@ def do_pairwise_diffs_melt(df_, metric_name='morph_sel', include_diagonal=False)
     diffs['neuron_pair'] = ['%i_%i' % (c1, c2) for \
                          c1, c2 in diffs[['cell_1', 'cell_2']].values]
     return diffs
-
-
-
 
 
 # Data binning
