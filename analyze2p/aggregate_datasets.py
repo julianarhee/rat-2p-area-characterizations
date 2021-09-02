@@ -595,7 +595,7 @@ def merge_cell_metrics_with_rfs(gfits, rfdf, split_suffix='rfs'):
     GRFS = pd.merge(gfits, rfdf, on=merge_cols, how='outer')
     GRFS['experiment'] = 'all'
     # counts
-    grat_and_rf_counts = aggr.count_n_cells(GRFS, split_na=True, split_suffix=split_suffix)
+    grat_and_rf_counts = count_n_cells(GRFS, split_na=True, split_suffix=split_suffix)
     print(grat_and_rf_counts.groupby('visual_area').sum().to_markdown())
 
     #grat_and_rf_counts.groupby('visual_area').sum()

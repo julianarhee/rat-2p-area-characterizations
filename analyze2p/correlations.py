@@ -406,7 +406,8 @@ def do_pairwise_cc_melt(df_, metric_name='cc', include_diagonal=False):
     cc = cc.rename(columns={'row': 'cell_1', 'col': 'cell_2'})
 
     # Check counts
-    nr = len(df_['cell'].unique())
+    nr = len([r for r in df_.columns if hutils.isnumber(r)])
+    #nr = len(df_['cell'].unique())
     ncombos = len(list(itertools.combinations(np.arange(0, nr), 2)))
     assert len(cc)==ncombos, "bad merging when creating pw combos (expected %i, have %i)" % (ncombos, len(cc))
 
@@ -686,7 +687,8 @@ def get_bins_within_limits(bcorrs, bin_name='cortical_distance',
 def get_binned_X(currdf, x_label='signal_cc',  x_bins=None, min_npairs=10, labels=None):
     # Check counts
     currdf['binned_%s' % x_label], bin_edges = pd.cut(currdf[x_label], \
-                                                x_bins, labels=labels, retbins=True)
+                                                x_bins, labels=labels, retbins=True,
+                                                include_lowest=True)
     curr_bin_counts = currdf.groupby(['visual_area',\
                      'binned_%s' % x_label])['neuron_pair'].count()
 
@@ -743,14 +745,16 @@ def bin_column_values(cc_, to_quartile='cortical_distance', use_quartile=True,
             labels = custom_bin_labels(bins)
         cc_['binned_%s' % to_quartile] = pd.cut(x=cc_[to_quartile], 
                                 bins=bins, 
-                                labels=labels)
+                                labels=labels, include_lowest=True)
 
     if use_quartile:
         cc_['binned_%s' % to_quartile], bin_edges = pd.qcut(cc_[to_quartile], \
-                                        n_bins, labels=labels, retbins=True)
+                                        n_bins, labels=labels, retbins=True,
+                                        include_lowest=True)
     else:
         cc_['binned_%s' % to_quartile], bin_edges = pd.cut(cc_[to_quartile], \
-                                         n_bins,labels=labels, retbins=True)
+                                         n_bins,labels=labels, retbins=True,
+                                         include_lowest=True)
     if return_bins:
         return cc_, bin_edges
     else:
