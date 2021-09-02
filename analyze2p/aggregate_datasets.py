@@ -561,7 +561,8 @@ def count_n_total(assigned_cells, u_dkeys):
 
     return n_total
 
-def count_n_cells(NDATA, name='n_cells', reset_index=True, split_na=False, split_suffix='fits'):
+def count_n_cells(NDATA, name='n_cells', reset_index=True, split_na=False, 
+                    suffix_a='all', suffix_b='fits'):
 
     if reset_index:
         counts = NDATA[['visual_area', 'datakey','cell']].drop_duplicates()\
@@ -573,29 +574,30 @@ def count_n_cells(NDATA, name='n_cells', reset_index=True, split_na=False, split
                     .rename(columns={'cell': name})
 
     if split_na:
-        counts1 = counts.copy().rename(columns={name: '%s_all' % name})        
+        counts1 = counts.copy().rename(columns={name: '%s_%s' % (name, suffix_a)})        
         ND_ = NDATA.dropna().copy()
         if reset_index:
             counts2 = ND_[['visual_area', 'datakey','cell']].drop_duplicates()\
                     .groupby(['visual_area', 'datakey']).count().reset_index()\
-                    .rename(columns={'cell': '%s_%s' % (name, split_suffix)})\
+                    .rename(columns={'cell': '%s_%s' % (name, suffix_b)})\
                     .reset_index(drop=True)
             counts = pd.merge(counts1, counts2, on=['visual_area', 'datakey'], how='outer')
         else:
             counts2 = ND_[['visual_area', 'datakey','cell']].drop_duplicates()\
                     .groupby(['visual_area', 'datakey']).count()\
-                    .rename(columns={'cell': '%s_%s' % (name, split_suffix)})
+                    .rename(columns={'cell': '%s_%s' % (name, suffix_b)})
             counts = pd.merge(counts1, counts2, left_index=True, right_index=True, how='outer')
 
     return counts
 
 
-def merge_cell_metrics_with_rfs(gfits, rfdf, split_suffix='rfs'):
+def merge_cell_metrics_with_rfs(gfits, rfdf, suffix_a='all', suffix_b='rfs'):
     merge_cols=['visual_area', 'datakey', 'cell']
     GRFS = pd.merge(gfits, rfdf, on=merge_cols, how='outer')
     GRFS['experiment'] = 'all'
     # counts
-    grat_and_rf_counts = count_n_cells(GRFS, split_na=True, split_suffix=split_suffix)
+    grat_and_rf_counts = count_n_cells(GRFS, split_na=True, suffix_a=suffix_a,
+                                suffix_b=suffix_b)
     print(grat_and_rf_counts.groupby('visual_area').sum().to_markdown())
 
     #grat_and_rf_counts.groupby('visual_area').sum()
