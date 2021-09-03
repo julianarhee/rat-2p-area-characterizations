@@ -632,6 +632,97 @@ def get_pw_diffs(df_, metric='response_pref'):
     return pairdf
 
 
+
+import analyze2p.gratings.bootstrap_osi as osi
+from scipy import signal
+
+def cross_correlate_curves(thetas, fitdf, a=0, b=1):
+    '''Given fit params (gratings fits), get tuning curves, calculate corrs'''
+    # Tuning curves
+    params = ['response_pref', 'response_null', 'theta_pref', 
+              'sigma', 'response_offset']
+    fitr1 = osi.double_gaussian(thetas, *fitdf[params].loc[a])
+    fitr2 = osi.double_gaussian(thetas, *fitdf[params].loc[b])
+    # cross-correlation
+    ccorr = signal.correlate(fitr1, fitr2)
+    lags = signal.correlation_lags(len(fitr1), len(fitr2))
+    lagzero = list(lags).index(0)
+    xcorr = ccorr[lagzero]
+    # do pearson's corr
+    cc, pv = spstats.pearsonr(fitr1, fitr2)
+    # combine
+    res = pd.Series({'xcorr': xcorr, 'pearsons': cc, 
+                      'cell_1': int(a), 'cell_2': int(b), 
+                      'neuron_pair': '%i_%i' % (a, b)})
+    return res
+
+def get_pw_curve_correlations(fitdf, n_intervals=9):
+    '''Calculate cross-corr (0 lag) and pearsons corr for tuning curves'''
+
+    fitdf.index = fitdf['cell'].values
+    tested_thetas = np.arange(0, 360, 45)
+    thetas = osi.interp_values(tested_thetas, n_intervals=n_intervals, wrap_value=360)
+    # Get pairs
+    col_pairs = list(itertools.combinations(fitdf['cell'], 2))
+    # do corrs for all pairs
+    t = [cross_correlate_curves(thetas, fitdf, a=a, b=b) for (a, b) in col_pairs]
+    df_ = pd.concat(t, axis=1).T
+    return df_
+
+def aggregate_tuning_curve_ccdist(df, n_intervals=9, min_ncells=5):
+    '''
+    Calculate PW diffs for GRATINGS (+ RFs, if have).
+
+    Args:
+    
+    df: (pd.DataFrame)
+        For each cell, fit params (and sometimes position or RF info).
+
+    n_intervals: (int)
+        N vals to interp steps (0, 45, 90, etc.), Default is 9.
+
+    '''
+
+    a_=[]
+    for (va, dk), df_ in df.groupby(['visual_area', 'datakey']):
+        if len(df_['cell'].unique())<min_ncells:
+            print("too few cells: %s, %s" % (va, dk))
+            continue
+        # diff in pref. thteas       
+        #resp_diff = get_pw_diffs(df_, metric='response_pref') 
+        #sigma_diff = get_pw_diffs(df_, metric='sigma') 
+        #nonang_diff = pd.merge(resp_diff, sigma_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+ 
+        #gratings_diff = pd.merge(ang_diff, nonang_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+        cc = get_pw_curve_correlations(df_, n_intervals=n_intervals)
+
+        if 'rf_theta_deg' in df_.columns:
+            # RF angle diffs
+            rf_diff = get_pw_angular_dist(df_, tau=180,
+                                          in_name='rf_theta_deg', out_name='rf_angle_diff')
+            diffs_ = pd.merge(cc, rf_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+        else:
+            diffs_ = cc.copy()
+
+        # Cortical and RF difff
+        if 'x0' in df_.columns:
+            adist = get_pw_distance(cc, df_, xcoord='x0', ycoord='y0', 
+                                     label='rf_distance', add_eccentricity=True)
+        else:
+            adist = get_pw_distance(cc, df_, xcoord='ml_pos', ycoord='ap_pos', 
+                                     label='cortical_distance', add_eccentricity=False)
+
+        assert adist.shape[0]==cc.shape[0], 'Bad merging: %s, %s' (va, dk)
+        adist['visual_area'] = va
+        adist['datakey'] = dk
+        adist['n_cells'] = len(df_['cell'].unique())
+        a_.append(adist)
+    angdists = pd.concat(a_, axis=0, ignore_index=True)
+
+    return angdists
+
+
+
 def aggregate_angular_dists(df, min_ncells=5):
     '''
     Calculate PW diffs for GRATINGS (+ RFs, if have).
