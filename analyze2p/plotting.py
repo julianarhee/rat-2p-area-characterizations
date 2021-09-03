@@ -67,9 +67,13 @@ def set_threecolor_palette(c1='magenta', c2='orange', c3='dodgerblue', cmap=None
 
 def set_plot_params(lw_axes=0.25, labelsize=6, color='k', dpi=100):
     import pylab as pl
+    from matplotlib import rc
     #### Plot params
     pl.rcParams['font.size'] = labelsize
     #pl.rcParams['text.usetex'] = True
+
+    rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
+    #rc('text', usetex=True)
 
     pl.rcParams["axes.titlesize"] = labelsize+2
   
@@ -95,7 +99,8 @@ def set_plot_params(lw_axes=0.25, labelsize=6, color='k', dpi=100):
 
     return 
 
-def adjust_subplots(left=0.1, right=0.9, bottom=0.1, top=0.8, wide=False):
+def adjust_subplots(left=0.1, right=0.9, bottom=0.1, top=0.8, wide=False,
+                wspace=0.5, hspace=0.5):
     pl.gca()
     if wide:
         left=0.2
@@ -103,7 +108,7 @@ def adjust_subplots(left=0.1, right=0.9, bottom=0.1, top=0.8, wide=False):
         bottom=0.2
         top=0.7
     pl.subplots_adjust(left=left, right=right, bottom=bottom, top=top,
-            hspace=0.5, wspace=0.5)
+            hspace=hspace, wspace=wspace)
 
 
 

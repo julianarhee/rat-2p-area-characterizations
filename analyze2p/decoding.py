@@ -286,19 +286,9 @@ def computeMI(x, y):
         sum_mi += sum(pxy[t>0]*np.log2( t[t>0]) ) # sum ( P(x,y)* log(P(x,y)/( P(x)*P(y)) )
     return sum_mi
 
-
-def fit_svm(zdata, targets, test_split=0.2, cv_nfolds=5,  n_processes=1,
-                C_value=None, verbose=False, return_clf=False, 
-                return_predictions=False,
-                randi=10, inum=0):
-    # For each transformation, split trials into 80% and 20%
-    train_data, test_data, train_labels, test_labels = train_test_split(
-                                                        zdata, 
-                                                        targets['label'].values, 
-                                                        test_size=test_split, 
-                                                        stratify=targets['label'], 
-                                                        shuffle=True, 
-                                                        random_state=randi)
+def train_classifier(train_data, train_labels, 
+                     C_value=1., cv_nfolds=5, test_split=0.2, verbose=False,
+                    randi=None):
     if verbose:
         print("Unique train: %s (%i)" \
                 % (str(np.unique(train_labels)), len(train_labels)))
@@ -325,13 +315,59 @@ def fit_svm(zdata, targets, test_split=0.2, cv_nfolds=5,  n_processes=1,
                     % (C_value, iterdict['train_score'], iterdict['test_score']))
     trained_svc = svm.SVC(kernel='linear', C=C_value, random_state=randi)\
                      .fit(train_data, train_labels) 
+
+    return iterdict, trained_svc, scaler
+
+
+def fit_svm(zdata, targets, test_split=0.2, cv_nfolds=5,  n_processes=1,
+                C_value=None, verbose=False, return_clf=False, randi=10, inum=0,
+                return_predictions=False, return_test=False):
+    # For each transformation, split trials into 80% and 20%
+    train_data, test_data, train_labels, test_labels = train_test_split(
+                                                        zdata, 
+                                                        targets['label'].values, 
+                                                        test_size=test_split, 
+                                                        stratify=targets['label'], 
+                                                        shuffle=True, 
+                                                        random_state=randi)
+    
+    iterdict, trained_svc, scaler = train_classifier(train_data, train_labels, 
+                                                 C_value=C_value, cv_nfolds=cv_nfolds,
+                                                 test_split=test_split,
+                                                 verbose=verbose, randi=randi)
+#     if verbose:
+#         print("Unique train: %s (%i)" \
+#                 % (str(np.unique(train_labels)), len(train_labels)))
+#     # Cross validate (tune C w/ train data)
+#     cv = C_value is None
+#     if cv:
+#         cv_grid = tune_C(train_data, train_labels, scoring_metric='accuracy', 
+#                         cv_nfolds=cv_nfolds,  
+#                         test_split=test_split, verbose=verbose) 
+#         C_value = cv_grid.best_params_['C'] 
+#     else:
+#         assert C_value is not None, "Provide value for hyperparam C..."
+#     # Fit SVM
+#     scaler = preprocessing.StandardScaler().fit(train_data)
+#     train_data = scaler.transform(train_data)
+#     trained_svc = svm.SVC(kernel='linear', C=C_value, random_state=randi)
+#     scores = cross_validate(trained_svc, train_data, train_labels, cv=cv_nfolds,
+#                             scoring=('accuracy'),
+#                             #scoring=('precision_macro', 'recall_macro', 'accuracy'),
+#                             return_train_score=True)
+#     iterdict = dict((s, values.mean()) for s, values in scores.items())
+#     if verbose:
+#         print('... train (C=%.2f): %.2f, test: %.2f' \
+#                     % (C_value, iterdict['train_score'], iterdict['test_score']))
+#     trained_svc = svm.SVC(kernel='linear', C=C_value, random_state=randi)\
+#                      .fit(train_data, train_labels) 
+
     # DATA - Test with held-out data
     test_data = scaler.transform(test_data)
     test_score = trained_svc.score(test_data, test_labels)
     # DATA - Calculate MI
     predicted_labels = trained_svc.predict(test_data)
     predictions = pd.DataFrame({'true': test_labels, 'predicted': predicted_labels})
-
     if verbose:    
         print("Detailed classification report:")
         print("The model is trained on the full development set.")
@@ -341,12 +377,13 @@ def fit_svm(zdata, targets, test_split=0.2, cv_nfolds=5,  n_processes=1,
     #mi_dict = get_mutual_info_metrics(test_labels, predicted_labels)
     #iterdict.update(mi_dict) 
     iterdict.update({'heldout_test_score': test_score, 'C': C_value, 'randi': randi})
-    
     iterdf = pd.DataFrame(iterdict, index=[inum])
 
     if return_clf:
         if return_predictions:
             return iterdf, trained_svc, scaler, predictions
+        elif return_test:
+            return iterdf, trained_svc, scaler, test_data, test_labels
         else:
             return iterdf, trained_svc, scaler
     else:
@@ -2255,7 +2292,7 @@ def load_iterdf(meta, class_name, experiment=None,
 
         i_list.append(df_)
 
-    df = pd.concat(i_list, axis=0)
+    df = pd.concat(i_list, axis=0, ignore_index=True)
 
     return df, missing_dict
 
@@ -2297,19 +2334,24 @@ def average_across_iterations_by_fov(iterdf, analysis_type='by_fov',
 
 def average_within_iterations_by_ncells(iterdf, analysis_type='by_ncells', 
                               test_type='size_single',
-                        grouper=['visual_area', 'condition', 'iteration']):
+                              grouper=['visual_area', 'condition', 'iteration']):
     '''
     For each iteration, get average of relevant columns. Returns distn of 
     iteration results.
     '''
     if analysis_type=='by_ncells':
         grouper.append('n_cells')
-    if test_type is not None:
+    if test_type is not None and 'novel' not in grouper:
         grouper.append('novel')
-    print(grouper)
+    #print(grouper)
     mean_by_iters = iterdf.groupby(grouper).mean().reset_index()
+    
     return mean_by_iters
 
+
+# --------------------------------------------------------------------
+# Analyze classifier results 
+# --------------------------------------------------------------------
 
 def generalization_score_by_iter(mean_df, max_ncells=None, 
                                  metric='heldout_test_score'):
@@ -2330,6 +2372,57 @@ def generalization_score_by_iter(mean_df, max_ncells=None,
     byiter_novel['generalization'] = byiter_data[(byiter_data.novel)][metric].values\
                                         /byiter_data[~(byiter_data.novel)][metric].values
     return byiter_novel
+
+
+def calculate_difference_scores(byiter_data, metric_name='difference'):
+    '''
+    For each iteration, calculate the difference between test scores on 
+    TRAINED v NOVEL conditions.
+    
+    Returns:
+        
+    diffdf: (pd.DataFrame)
+        DF of size N visual areas * N iterations.
+    '''
+    cols = ['visual_area', 'n_cells', 'iteration'] #, 'train_transform', 'test_transform']
+    diffdf = byiter_data[cols].copy().reset_index(drop=True).drop_duplicates()
+    diffdf = diffdf.sort_values(by=['iteration', 'visual_area'])
+
+    byiter_data = byiter_data.sort_values(by=['iteration', 'visual_area'])
+    true_diffs = byiter_data[(~byiter_data.novel)]['heldout_test_score'].values\
+                - byiter_data[(byiter_data.novel)]['heldout_test_score'].values
+    diffdf[metric_name] = true_diffs
+    
+    return diffdf
+
+
+def permutation_test_trained_v_novel(data_, analysis_type='by_ncells', 
+                            test_type='size_single'):
+    '''
+    For each iteration, calculate trained vs. novel test score difference,
+    and test score difference if trained/novel labels shuffled.
+    '''
+    # Get true diffs
+    data_scores = average_within_iterations_by_ncells(data_, 
+                            analysis_type=analysis_type, test_type=test_type,
+                            grouper=['visual_area', 'condition', 'iteration']) 
+    true_diffs = calculate_difference_scores(data_scores)
+    # Shuffle labels
+    shuff_ = data_.copy()
+     # Shuffle novel/trained WITHIN classifier cond (per clf, per iter)
+    shuff_['novel'] = shuff_.groupby(\
+                        ['visual_area', 'iteration', 'train_transform'])['novel']\
+                        .transform(np.random.permutation)
+    # Average
+    shuff_scores = average_within_iterations_by_ncells(shuff_, 
+                            analysis_type=analysis_type, test_type=test_type,
+                            grouper=['visual_area', 'condition', 'iteration']) 
+    shuff_diffs = calculate_difference_scores(shuff_scores)
+    true_diffs['trained_v_novel'] = 'true'
+    shuff_diffs['trained_v_novel'] = 'shuffled'
+    diffs = pd.concat([true_diffs, shuff_diffs], axis=0, ignore_index=True)
+    
+    return diffs
 
 
 # --------------------------------------------------------------------
@@ -2359,6 +2452,7 @@ def plot_score_v_ncells_color_X(finaldf, sample_sizes, ax=None,
         ax.legend_.remove()    
 
 # morph plotting
+# -----------------------------------------------------------------------
 def plot_pchooseb_by_area(plotd, metric='p_chooseB', area_colors=None, ax=None):
     '''plot neurometric curves, color by visual_area'''
     pplot.set_plot_params()
