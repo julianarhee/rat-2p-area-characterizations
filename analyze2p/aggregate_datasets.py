@@ -591,9 +591,12 @@ def count_n_cells(NDATA, name='n_cells', reset_index=True, split_na=False,
     return counts
 
 
+
+
 def merge_cell_metrics_with_rfs(gfits, rfdf, suffix_a='all', suffix_b='rfs'):
     merge_cols=['visual_area', 'datakey', 'cell']
     GRFS = pd.merge(gfits, rfdf, on=merge_cols, how='outer')
+
     GRFS['experiment'] = 'all'
     # counts
     grat_and_rf_counts = count_n_cells(GRFS, split_na=True, suffix_a=suffix_a,

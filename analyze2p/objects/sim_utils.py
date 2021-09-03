@@ -434,7 +434,10 @@ def load_rfpolys(fit_desc,
         with open(poly_fpath, 'rb') as f:
             res = pkl.load(f)
         check_rfs = res['check_rfs']
-        rf_polys = res['POLYS']
+        rf_polys0 = res['POLYS'].reset_index(drop=True)
+        check_dup = rf_polys0[['datakey', 'cell']].drop_duplicates().index.tolist()
+        rf_polys= rf_polys0.loc[check_dup]
+
     except Exception as e:
         raise(e)
 

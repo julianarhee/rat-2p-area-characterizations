@@ -227,6 +227,9 @@ def stimsize_poly(sz, xpos=0, ypos=0):
     return s_blobs
 
 def calculate_overlap(poly1, poly2, r1='poly1', r2='poly2'):
+    '''
+    poly1, poly2 -- shapely polygons
+    '''
     #r1, poly1 = poly_tuple1
     #r2, poly2 = poly_tuple2
 
@@ -269,11 +272,14 @@ def get_rf_overlaps(rf_polys):
     '''
     # Calculate signal corrs
     o_=[]
-    rois_ = sorted(rf_polys.keys())
+    rois_ = sorted(rf_polys['cell'].unique()) #.keys())
     # Get unique pairs, then iterate thru and calculate pearson's CC
     for col_a, col_b in itertools.combinations(rois_, 2):
-        df_ = calculate_overlap(rf_polys[col_a], rf_polys[col_b], \
-                                  r1=col_a, r2=col_b)
+        polys1 = rf_polys[rf_polys['cell']==col_a]['poly'].iloc[0]
+        polys2 = rf_polys[rf_polys['cell']==col_b]['poly'].iloc[0]
+        df_ = calculate_overlap(polys1, polys2, r1=col_a, r2=col_b)
+        #df_ = calculate_overlap(rf_polys[col_a], rf_polys[col_b], \
+        #                          r1=col_a, r2=col_b)
         o_.append(df_)
     overlapdf = pd.concat(o_)
                    
@@ -1020,6 +1026,9 @@ def aggregate_rfdata(rf_dsets, assigned_cells, traceid='traces001',
                             verbose=verbose, return_missing=True)
     rfdf = rfdf.reset_index(drop=True)
 
+    rfdf['rf_theta_deg'] = [np.rad2deg(i) % 180 for i in rfdf['theta_Mm_c'].values]
+    rfdf['aspect_ratio'] = rfdf['major_axis']/rfdf['minor_axis']
+
     if return_missing:
         return rfdf, no_fit, no_eval
     else:
@@ -1099,6 +1108,35 @@ def combine_rfs_single(rfdf):
 
     return final_rfdf
 
+
+def merge_rf_experiments(rfdata):
+    d1 = rfdata[rfdata.experiment=='rfs'].copy()
+    d2 = rfdata[rfdata.experiment=='rfs10'].copy()
+
+    suffix_a = 'rfs5'
+    suffix_b = 'rfs10'
+    assert d2['experiment'].unique()==['rfs10'], "ERR: 1st arg must be rfs5, 2nd is rfs10"
+    merge_cols=['visual_area', 'datakey', 'cell', 'animalid', 'fov', 'session']
+    if 'fov_xpos' in d1.columns and 'fov_xpos' in d2.columns:
+        merge_cols.extend(['fov_xpos', 'fov_ypos'])
+    if 'ml_pos' in d1.columns and 'ml_pos' in d2.columns:
+        merge_cols.extend(['fov_xpos_pix', 'fov_ypos_pix', 'ml_pos', 'ap_pos'])
+    GRFS = pd.merge(d1, d2, on=merge_cols, how='outer',
+            suffixes=('_%s' % suffix_a, '_%s' % suffix_b))
+
+    rf_counts = count_n_cells_each(d1, d2, suffix_a=suffix_a, suffix_b=suffix_b)
+ 
+    print(rf_counts.groupby('visual_area').sum().to_markdown())
+
+    return GRFS, rf_counts
+
+def count_n_cells_each(d1, d2, suffix_a='rfs5', suffix_b='rfs10'):
+
+    r5 = aggr.count_n_cells(d1, name='n_cells_%s' % suffix_a)
+    r10 = aggr.count_n_cells(d2, name='n_cells_%s' % suffix_b)
+    rf_counts = pd.merge(r5, r10, on=['visual_area', 'datakey'], how='outer')
+     
+    return rf_counts 
 
 def combine_rfs_select(rfdf):
     '''

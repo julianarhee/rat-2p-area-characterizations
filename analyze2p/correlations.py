@@ -633,6 +633,9 @@ def get_pw_diffs(df_, metric='response_pref'):
 
 
 def aggregate_angular_dists(df, min_ncells=5):
+    '''
+    Calculate PW diffs for GRATINGS (+ RFs, if have).
+    '''
     a_=[]
     for (va, dk), df_ in df.groupby(['visual_area', 'datakey']):
         if len(df_['cell'].unique())<min_ncells:
@@ -643,17 +646,81 @@ def aggregate_angular_dists(df, min_ncells=5):
                                        in_name='theta_pref', out_name='pref_dir_diff')
         ori_diff = get_pw_angular_dist(df_, tau=180,
                                        in_name='theta_pref', out_name='pref_ori_diff')
-        osi_diff = pd.merge(dir_diff, ori_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+        ang_diff = pd.merge(dir_diff, ori_diff, on=['neuron_pair', 'cell_1', 'cell_2']) 
+        
+        resp_diff = get_pw_diffs(df_, metric='response_pref') 
+        sigma_diff = get_pw_diffs(df_, metric='sigma') 
+        nonang_diff = pd.merge(resp_diff, sigma_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+ 
+        gratings_diff = pd.merge(ang_diff, nonang_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+
+        if 'rf_theta_deg' in df_.columns:
+            # RF angle diffs
+            rf_diff = get_pw_angular_dist(df_, tau=180,
+                                          in_name='rf_theta_deg', out_name='rf_angle_diff')
+            diffs_ = pd.merge(gratings_diff, rf_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+        else:
+            diffs_ = gratings_diff.copy()
+
+        # Cortical and RF difff
+        if 'x0' in df_.columns:
+            adist = get_pw_distance(diffs_, df_, xcoord='x0', ycoord='y0', 
+                                     label='rf_distance', add_eccentricity=True)
+        else:
+            adist = get_pw_distance(diffs_, df_, xcoord='ml_pos', ycoord='ap_pos', 
+                                     label='cortical_distance', add_eccentricity=False)
+
+        assert adist.shape[0]==gratings_diff.shape[0], 'Bad merging: %s, %s' (va, dk)
+        adist['visual_area'] = va
+        adist['datakey'] = dk
+        adist['n_cells'] = len(df_['cell'].unique())
+        a_.append(adist)
+    angdists = pd.concat(a_, axis=0, ignore_index=True)
+
+    return angdists
+
+
+import analyze2p.receptive_fields.utils as rfutils
+
+def aggregate_rf_dists(df, rfpolys=None, min_ncells=5):
+    '''
+    Calculate PW diffs for RFs
+    '''
+    a_=[]
+    for (va, dk), df_ in df.groupby(['visual_area', 'datakey']):
+        if len(df_['cell'].unique())<min_ncells:
+            print("too few cells: %s, %s" % (va, dk))
+            continue
+        overlaps_=None
+        if rfpolys is not None:
+            rois_ = df_['cell'].unique()
+            curr_polys = rfpolys[(rfpolys.datakey==dk) & (rfpolys['cell'].isin(rois_))]
+            overlaps_ = rfutils.get_rf_overlaps(curr_polys)
+            overlaps_ = overlaps_.rename(columns={'poly1': 'cell_1', 'poly2': 'cell_2'})
+            overlaps_['neuron_pair'] = ['%i_%i' % (c1, c2) for c1, c2 \
+                                            in overlaps_[['cell_1', 'cell_2']].values] 
         # RF angle diffs
-        rf_diff = get_pw_angular_dist(df_, tau=180,
+        ang_diff0 = get_pw_angular_dist(df_, tau=180,
                                       in_name='rf_theta_deg', out_name='rf_angle_diff')
-        ang_diffs = pd.merge(osi_diff, rf_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
-        resp_diff = get_pw_diffs(df_, metric='response_pref')
-        diffs_ = pd.merge(ang_diffs, resp_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+        ang_diff0['rf_angle_diff_abs'] = ang_diff0['rf_angle_diff'].abs()
+
+        if overlaps_ is not None:
+            ang_diff = pd.merge(overlaps_, ang_diff0, on=['neuron_pair', 'cell_1', 'cell_2'])
+        else:
+            ang_diff = ang_diff0.copy()
+
+        # Difference metrics
+        sz_x = get_pw_diffs(df_, metric='std_x')
+        sz_y = get_pw_diffs(df_, metric='std_y')
+        sz_diff = pd.merge(sz_x, sz_y, on=['neuron_pair', 'cell_1', 'cell_2'])
+        asp_diff = get_pw_diffs(df_, metric='aspect_ratio')
+        resp_diff = pd.merge(sz_diff, asp_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+
+        diffs_ = pd.merge(ang_diff, resp_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
         # Cortical and RF difff
         adist = get_pw_distance(diffs_, df_, xcoord='x0', ycoord='y0', 
                                  label='rf_distance', add_eccentricity=True)
-        assert adist.shape[0]==osi_diff.shape[0], 'Bad merging: %s, %s' (va, dk)
+        assert adist.shape[0]==ang_diff.shape[0], 'Bad merging: %s, %s' (va, dk)
         adist['visual_area'] = va
         adist['datakey'] = dk
         adist['n_cells'] = len(df_['cell'].unique())
@@ -668,6 +735,13 @@ def aggregate_angular_dists(df, min_ncells=5):
 
 # Data binning
 # ----------------------------------------------------------------------------
+def cut_bins(DF, bins, metric='cortical_distance'):
+    DF['binned_%s' % metric] = pd.cut(DF[metric], bins, include_lowest=True,
+                                                labels=bins[0:-1])
+    DF['%s_label' % metric] = [float(d) if not np.isnan(d) else d \
+                                for d in DF['binned_%s' % metric].values]
+    return DF
+
 def get_bins_within_limits(bcorrs, bin_name='cortical_distance', 
                     upper_lim=None, lower_lim=None):
     currdf = bcorrs.copy()
