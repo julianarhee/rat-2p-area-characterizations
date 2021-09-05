@@ -562,29 +562,31 @@ def count_n_total(assigned_cells, u_dkeys):
     return n_total
 
 def count_n_cells(NDATA, name='n_cells', reset_index=True, split_na=False, 
-                    suffix_a='all', suffix_b='fits'):
+                    suffix_a='all', suffix_b='fits',
+                    count_cols=['visual_area', 'datakey', 'cell']):
 
+    group_cols = [k for k in count_cols if k!='cell']
     if reset_index:
-        counts = NDATA[['visual_area', 'datakey','cell']].drop_duplicates()\
-                    .groupby(['visual_area', 'datakey']).count().reset_index()\
+        counts = NDATA[count_cols].drop_duplicates()\
+                    .groupby(group_cols).count().reset_index()\
                     .rename(columns={'cell': name}).reset_index(drop=True)
     else:
-        counts = NDATA[['visual_area', 'datakey','cell']].drop_duplicates()\
-                    .groupby(['visual_area', 'datakey']).count()\
+        counts = NDATA[count_cols].drop_duplicates()\
+                    .groupby(group_cols).count()\
                     .rename(columns={'cell': name})
 
     if split_na:
         counts1 = counts.copy().rename(columns={name: '%s_%s' % (name, suffix_a)})        
         ND_ = NDATA.dropna().copy()
         if reset_index:
-            counts2 = ND_[['visual_area', 'datakey','cell']].drop_duplicates()\
-                    .groupby(['visual_area', 'datakey']).count().reset_index()\
+            counts2 = ND_[count_cols].drop_duplicates()\
+                    .groupby(group_cols).count().reset_index()\
                     .rename(columns={'cell': '%s_%s' % (name, suffix_b)})\
                     .reset_index(drop=True)
-            counts = pd.merge(counts1, counts2, on=['visual_area', 'datakey'], how='outer')
+            counts = pd.merge(counts1, counts2, on=group_cols, how='outer')
         else:
-            counts2 = ND_[['visual_area', 'datakey','cell']].drop_duplicates()\
-                    .groupby(['visual_area', 'datakey']).count()\
+            counts2 = ND_[count_cols].drop_duplicates()\
+                    .groupby(group_cols).count()\
                     .rename(columns={'cell': '%s_%s' % (name, suffix_b)})
             counts = pd.merge(counts1, counts2, left_index=True, right_index=True, how='outer')
 
