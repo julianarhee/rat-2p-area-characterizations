@@ -302,7 +302,7 @@ def interp_values(response_vector, n_intervals=3, as_series=False,
         return resps_interp
 
 
-def do_fit(responsedf, n_intervals_interp=3, check_offset=False):
+def do_fit(responsedf, n_intervals_interp=3, check_offset=True):
     '''
     responsedf = Series
         index : tested_oris
@@ -423,7 +423,7 @@ def initializer(terminating_):
 
 
 def bootstrap_fit_by_config(roi_df, sdf=None, statdf=None, 
-                            params=None, create_new=False):
+                            params=None, create_new=False, check_offset=True):
 #                            response_type='dff',
 #                            n_bootstrap_iters=1000, n_resamples=20, 
 #                            n_intervals_interp=3, min_cfgs_above=2, min_nframes_above=10):
@@ -515,8 +515,8 @@ def bootstrap_fit_by_config(roi_df, sdf=None, statdf=None,
             #    bootdf = (bootdf_tmp-bootdf_tmp.min()) #- (bootdf_tmp-bootdf_tmp.mean()).min()
             bootdf = bootdf_tmp.copy()
 
-            # Find init params for tuning fits and set fit constraints:
-            fitp = bootdf.apply(do_fit, args=[n_intervals_interp, True], axis=0) 
+            # Find init params for tuning fits and set fit constraints 
+            fitp = bootdf.apply(do_fit, args=[n_intervals_interp, check_offset], axis=0) 
             fitdict=None;
             if fitp.dropna().shape[0]>0:
                 # Get fits
@@ -614,7 +614,7 @@ def bootstrap_osi_mp(rdf_list, sdf, statdf=None, params=None, n_processes=1, cre
 # ###################################################################
 
 def pool_bootstrap(rdf_list, sdf, statdf=None, params=None, 
-                    n_processes=1, create_new=False):
+                    n_processes=1, create_new=False, check_offset=True):
 #
     bootresults = {}
     results = None
@@ -625,7 +625,7 @@ def pool_bootstrap(rdf_list, sdf, statdf=None, params=None,
     try:
         results = pool.map_async(partial(bootstrap_fit_by_config, 
                                 sdf=sdf, statdf=statdf, params=params, 
-                                create_new=create_new), rdf_list).get() #999999999)
+                                create_new=create_new, check_offset=check_offset), rdf_list).get() #999999999)
 
     except KeyboardInterrupt:
         print("**interupt")
@@ -749,10 +749,10 @@ def get_params_dict(response_type='dff', trial_epoch='stimulus',
         'n_bootstrap_iters': n_bootstrap_iters,
         'n_intervals_interp': n_intervals_interp,
         'min_cfgs_above': min_cfgs_above,
-        'min_nframes_above': min_nframes_above 
+        'min_nframes_above': min_nframes_above,
+        'nonori_params': nonori_params
     }
-    if nonori_params is not None:
-        fitparams.update({'nonori_params': nonori_params})
+        #fitparams.update({'nonori_params': nonori_params})
 
     return fitparams
 
@@ -763,7 +763,7 @@ def get_tuning(datakey, run_name, return_iters=False,
                make_plots=True, responsive_test='nstds', responsive_thr=10, n_stds=2.5,
                create_new=False, redo_cell=False, fmt='svg',
                rootdir='/n/coxfs01/2p-data', n_processes=1,
-               min_cfgs_above=1, min_nframes_above=10, verbose=True):
+               min_cfgs_above=1, min_nframes_above=10, check_offset=True, verbose=True):
     '''
     Returns:
 
@@ -828,7 +828,7 @@ def get_tuning(datakey, run_name, return_iters=False,
             assert fitparams is not None, "None returned"
             assert 'nonori_params' in fitparams.keys(), "Wrong results"
         except Exception as e:
-            #traceback.print_exc()
+            traceback.print_exc()
             do_fits = True
     else:
         do_fits=True
@@ -921,7 +921,7 @@ def get_tuning(datakey, run_name, return_iters=False,
         start_t = time.time()
         bootresults = pool_bootstrap(roidf_list, sdf, statdf=statdf, 
                                     params=fitparams, n_processes=n_processes,
-                                    create_new=redo_cell)
+                                    create_new=redo_cell, check_offset=check_offset)
         #bootresults = bootstrap_osi_mp(roidf_list, sdf, statdf=statdf, 
         #                            params=fitparams, n_processes=n_processes)
         end_t = time.time() - start_t
@@ -1059,26 +1059,27 @@ def evaluate_fits(bootr, interp=False):
     From all bootstrap iterations, calculate combined metrics for
     evaluating the fits. 
     ''' 
-
+    fit_params=['response_pref', 'response_null', 'theta_pref', 'sigma', 'response_offset']
     # Average fit parameters aross boot iters
-    params = [c for c in bootr['results'].columns if 'stim' not in c]
-    avg_metrics = average_metrics_across_iters(bootr['results'][params])
+    params_to_avg = [c for c in bootr['results'].columns if 'stim' not in c]
+    avg_metrics = average_metrics_across_iters(bootr['results'][params_to_avg])
     
-    orig_ = bootr['data']['responses'].mean(axis=0)
+    orig_ = bootr['data']['responses'].mean(axis=0).copy()
     #orig_data = np.abs(orig_ - np.mean(orig_)) 
-    orig_data = (orig_ - orig_.min()) #- (orig_ - orig_.mean()).min()
-
+    if orig_.min()<0:
+        orig_ -= orig_.min()
+    #orig_data = (orig_ - orig_.min()) #- (orig_ - orig_.mean()).min()
     # Get combined r2 between original and avg-fit
     if interp:
-        origr = interp_values(orig_data)
+        origr = interp_values(orig_)
         thetas = bootr['fits']['xv']
     else:
-        origr = orig_data #bootr['data']['responses'].mean(axis=0).values
+        origr = orig_.copy()  #bootr['data']['responses'].mean(axis=0).values
         thetas = bootr['data']['tested_values']
     #thetas = bootr['fits']['xv'][0:-1]
     #origr = interp_values(origr, n_intervals=3, wrap_value=origr[0])[0:-1]
     
-    cpopt = tuple(avg_metrics[['response_pref', 'response_null', 'theta_pref', 'sigma', 'response_offset']].values[0])
+    cpopt = tuple(avg_metrics[fit_params].values[0])
     fitr = double_gaussian( thetas, *cpopt)
     r2_comb, _ = coeff_determination(origr, fitr)
     
@@ -1783,7 +1784,7 @@ def extract_options(options):
                     default=1, help="N processes (default: 1)")
 
     parser.add_option('-G', '--goodness-thr', action='store', dest='goodness_thr', 
-                    default=0.66, help="Goodness-of-fit threshold (default: 0.66)")
+                    default=0.5, help="Goodness-of-fit threshold (default: 0.66)")
 
     parser.add_option('--new', action='store_true', dest='create_new', default=False, 
                       help="Create aggregate fit results file")
@@ -1831,7 +1832,7 @@ def fit_and_evaluate(datakey, traceid='traces001',
                         goodness_thr = 0.66,
                         n_processes=1, create_new=False, redo_cell=False,
                         rootdir='/n/coxfs01/2p-data',
-                        make_plots=True, verbose=True):
+                        make_plots=True, check_offset=True, verbose=True):
 
     #datakey = '%s_%s_fov%i' % (session, animalid, int(fov.split('_')[0][3:])) 
     run_name = get_run_name(datakey, traceid=traceid, rootdir=rootdir, verbose=verbose) 
@@ -1852,7 +1853,7 @@ def fit_and_evaluate(datakey, traceid='traces001',
                                          rootdir=rootdir, verbose=verbose,
                                          min_cfgs_above=min_cfgs_above, 
                                          min_nframes_above=min_nframes_above, 
-                                         make_plots=make_plots
+                                         make_plots=make_plots, check_offset=check_offset
     )
 
     fit_desc = os.path.split(fitparams['directory'])[-1]
@@ -1922,7 +1923,8 @@ def main(options):
                                              create_new=create_new, redo_cell=redo_cell,
                                              n_processes=n_processes, 
                                              rootdir=rootdir,
-                                             goodness_thr=goodness_thr, make_plots=make_plots)
+                                             goodness_thr=goodness_thr, make_plots=make_plots,
+                                             check_offset=True)
     print("***** DONE *****")
     
 if __name__ == '__main__':
