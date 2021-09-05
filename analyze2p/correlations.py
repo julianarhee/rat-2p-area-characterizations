@@ -656,7 +656,7 @@ def cross_correlate_curves(thetas, fitdf, a=0, b=1):
                       'neuron_pair': '%i_%i' % (a, b)})
     return res
 
-def get_pw_curve_correlations(fitdf, n_intervals=9):
+def get_pw_curve_correlations(fitdf, n_intervals=3):
     '''Calculate cross-corr (0 lag) and pearsons corr for tuning curves'''
 
     fitdf.index = fitdf['cell'].values
@@ -669,7 +669,7 @@ def get_pw_curve_correlations(fitdf, n_intervals=9):
     df_ = pd.concat(t, axis=1).T
     return df_
 
-def aggregate_tuning_curve_ccdist(df, n_intervals=9, min_ncells=5):
+def aggregate_tuning_curve_ccdist(df, n_intervals=3, min_ncells=5):
     '''
     Calculate PW diffs for GRATINGS (+ RFs, if have).
 

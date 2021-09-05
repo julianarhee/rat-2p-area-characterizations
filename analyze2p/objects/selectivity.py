@@ -377,6 +377,18 @@ def correct_luminance(rdf0, sdf, lcorrection='none'):
 def aggregate_cell_metrics(NDATA, offset_type='none', lcorrection='none',
                             experiment='blobs', exclude=[]):
     '''Cycle thru all datasets, calculate all the metrics.
+    Args.
+
+    offset_type: (str)
+        How to deal with negative values for metrics.
+        'none': don't do anything, just min-subtract if is neg.
+        'minsub': same as none
+        'rectify': half-rectify if neg.
+
+    lcorrection: (str)
+        'none': don't do anything
+        'exclude': exclude cells whose BEST stimulus is luminance.
+
     '''
     d_=[]
     for (va, dk), x0 in NDATA.groupby(['visual_area', 'datakey']):
