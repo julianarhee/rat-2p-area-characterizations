@@ -334,7 +334,7 @@ def plot_paired(plotdf, aix=0, curr_metric='avg_size', ax=None,
 
 def pairwise_compare_single_metric(comdf, curr_metric='avg_size', 
                         c1='rfs', c2='rfs10', compare_var='experiment',
-                        c1_label=None, c2_label=None,
+                        c1_label=None, c2_label=None, label_areas=True,
                         ax=None, marker='o', visual_areas=['V1', 'Lm', 'Li'],
                         lw=1, alpha=1., size=5, mean_plot='bar',
                         xlabel_offset=-1, area_colors=None, bar_ci=95, bar_lw=0.5,
@@ -395,8 +395,9 @@ def pairwise_compare_single_metric(comdf, curr_metric='avg_size',
                     markers=point_marker, scale=point_scale)
 
     ax.legend_.remove()
-    for x in ax.get_xticks():
-        ax.text(x, xlabel_offset, visual_areas[x])
+    if label_areas:
+        for x in ax.get_xticks():
+            ax.text(x, xlabel_offset, visual_areas[x])
     c1_label = c1 if c1_label is None else c1_label
     c2_label = c2 if c2_label is None else c2_label
     set_split_xlabels(ax, a_label=c1_label, b_label=c2_label)
@@ -670,7 +671,7 @@ def turn_off_axis_ticks(ax, despine=True):
     ax.set_xticklabels([])
     ax.set_yticklabels([])
 
-def custom_legend_markers(colors=['m', 'c'], labels=['label1', 'label2'], markers='o', linestyles='-', use_patch=False, lw=0.5):
+def custom_legend_markers(colors=['m', 'c'], labels=['label1', 'label2'], markers='o', linestyles='-', use_patch=False, lws=0.5):
     from matplotlib.patches import Patch
     from matplotlib.lines import Line2D
 
@@ -678,9 +679,11 @@ def custom_legend_markers(colors=['m', 'c'], labels=['label1', 'label2'], marker
         linestyles = [linestyles]*3
     if not isinstance(markers, (np.ndarray, list)):
         markers = [markers]*3
+    if not isinstance(lws, (np.ndarray, list)):
+        lws = [lws]*3
 
     leg_h=[]
-    for col, label, style, marker in zip(colors, labels, linestyles, markers):
+    for col, label, style, marker, lw in zip(colors, labels, linestyles, markers, lws):
         if use_patch:
             leg_h.append(Patch(facecolor=col, edgecolor=None, label=label))
         else: 

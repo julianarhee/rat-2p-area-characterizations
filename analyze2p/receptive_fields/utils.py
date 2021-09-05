@@ -669,6 +669,7 @@ def load_fit_results(datakey, experiment='rfs', is_neuropil=False,
 def load_eval_results(datakey, experiment='rfs', rfdir=None,
                     traceid='traces001', fit_desc=None,
                     response_type='dff', do_spherical_correction=False,
+                    verbose=False,
                     rootdir='/n/coxfs01/2p-data'):
 
     '''
@@ -681,23 +682,29 @@ def load_eval_results(datakey, experiment='rfs', rfdir=None,
     eval_results=None; eval_params=None;            
     try: 
         if rfdir is None:
-            run_name = experiment.split('_')[1] if 'combined' \
-                            in experiment else experiment
+            rfname = experiment if int(session)>=20190511 else 'gratings'
+
+            run_name = rfname.split('_')[1] if 'combined' \
+                            in rfname else rfname
             if fit_desc is None:
                 fit_desc = get_fit_desc(response_type=response_type,
                                 do_spherical_correction=do_spherical_correction)
+
             rfdir = glob.glob(os.path.join(rootdir, animalid, session, 
                         'FOV%i_*' % fovn, 'combined_%s_*' % run_name, 
                         'traces/%s*' % traceid, 
-                        'receptive_fields', '%s*' % fit_desc))[0]
+                        'receptive_fields', '%s' % fit_desc))[0]
         evaldir = os.path.join(rfdir, 'evaluation')
         assert os.path.exists(evaldir), \
                         "No evaluation exists\n(%s)\n. Aborting" % evaldir
     except IndexError as e:
-        #traceback.print_exc()
+        if verbose:
+            print("NO dir for: %s (%s)" % (experiment, run_name))
+            traceback.print_exc()
         return None, None
     except AssertionError as e:
-        #traceback.print_exc()
+        if verbose:
+            traceback.print_exc()
         return None, None
     except Exception as e:
         raise e

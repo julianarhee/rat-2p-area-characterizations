@@ -143,7 +143,8 @@ def fit_with_deviants(boot_, cis_, rfs_, xname='ml_proj', yname='x0', ax=None,
 
 
 
-def plot_scatter_and_marginals(axdf, regr_, cond='az', xlim=None, ylim=None, 
+def plot_scatter_and_marginals(axdf, regr_, roi_to_label=None, cond='az', 
+                    xlim=None, ylim=None, 
                     lw=0.5, sz=3, nbins=10, color1='purple', color2='green'):
 #    sz = 3
 #    lw=0.5
@@ -180,8 +181,11 @@ def plot_scatter_and_marginals(axdf, regr_, cond='az', xlim=None, ylim=None,
     #    if ii not in pt_ixs:
     #        continue
     # Do DEG scatter
-    med_val = abs(axdf['deg_scatter_%s' % rf_label]).max()/4
-    ii = abs(abs(axdf['deg_scatter_%s' % rf_label])-med_val).argmin()
+    if roi_to_label is None:
+        med_val = abs(axdf[rf_label]).max()/2
+        ii = abs(abs(axdf[rf_label])-med_val).argmin()
+    else:
+        ii = int(axdf[axdf['cell']==roi_to_label].index)
     xi = axdf['%s_proj' % ctx_label].iloc[ii]
     yi = axdf[rf_label].iloc[ii]
     pred_deg = axdf['predicted_%s' % rf_label].iloc[ii]
@@ -235,8 +239,8 @@ def clean_up_marginal_axes(histax_x, histax_y):
 
 
 # Save deviants
-def get_deviants(dk, va, experiment='rfs',  traceid='traces001', 
-                 create_new=False, response_type='dff', 
+def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001', 
+                 redo_fov=False, response_type='dff', 
                  do_spherical_correction=False):
     # Get reliable c
     deviants=None
@@ -250,7 +254,7 @@ def get_deviants(dk, va, experiment='rfs',  traceid='traces001',
         return None
     # try loading
     dev_fpath = os.path.join(eval_params['rfdir'], 'evaluation', 'deviants.json')
-    if os.path.exists(dev_fpath) and create_new is False:
+    if os.path.exists(dev_fpath) and redo_fov is False:
         try:
             with open(dev_fpath, 'r') as f:
                 deviants = json.load(f)
@@ -258,18 +262,19 @@ def get_deviants(dk, va, experiment='rfs',  traceid='traces001',
             # assert va in deviants.keys(), "No deviant results found: %s, %s" % (dk, va)
         except Exception as e:
             print(e)
-            create_new=True
+            redo_fov=True
     else:
         deviants={}
 
     cond_dict = {}
     if not isinstance(deviants, dict):
         deviants={}
-    if create_new:
+
+    if redo_fov:
         print("    identifying deviants (%s, %s)" % (dk, va))
         reliable_ = rfutils.get_reliable_fits(eval_results['pass_cis'],
                                             pass_criterion='position')
-        fitrf_ = get_projected_soma_rfs(dk, va, experiment=experiment, 
+        fitrf_ = align_soma_in_fov(dk, va, experiment=experiment, 
                                 traceid=traceid, response_type=response_type,
                                 do_spherical_correction=do_spherical_correction)
         if fitrf_.shape[0]>0:
@@ -287,22 +292,85 @@ def get_deviants(dk, va, experiment='rfs',  traceid='traces001',
                     ax, devs_ = fit_with_deviants(boot_, cis_, rfs_)
                     cond_dict.update({cond: devs_})
                     pl.close('all')
-         
-        update_dict = {va: cond_dict}
         # save
-        deviants.update(update_dict)
+        deviants.update({va: cond_dict}) 
         with open(dev_fpath, 'w') as f:
             json.dump(deviants, f, indent=4)                                         
     d_=[]
     for k, v in deviants[va].items():
         df_ = pd.DataFrame({'deviants': v})
-        df_['cond'] = k
+        df_['axis'] = k
         d_.append(df_)
     if len(d_)>0:
         dev_df = pd.concat(d_, axis=0)
     else:
-        dev_df = pd.DataFrame({'deviants': [None, None], 'cond':['az', 'el']})
+        dev_df = pd.DataFrame({'deviants': [None, None], 'axis':['az', 'el']})
     return dev_df
+
+
+def aggregate_deviant_cells(fit_desc, meta=None, traceid='traces001',
+                            create_new=False, redo_fov=False,
+                            aggr_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+    '''
+    Cycle thru all datasets (meta) with rfs/rfs10, and calculate deviants
+    Main function is get_deviants_in_fov(). Assumes basis is RFs.
+
+    Returns:
+    
+    deviants: (pd.DataFrame)
+        Cell (rids of deviants), cond (az/el), datakey, visual_area
+    no_results: (list)
+        List of datasets (va, dk) where no deviant results found.
+        
+    Args:
+    
+    fit_desc: (str)
+        Standard ID name for RFs (response_type, do_spherical_correction)
+    create_new: (bool)
+        Recreate main aggr. file,
+        (<aggr_dir>/receptive-fields/scatter/deviants_<fit_desc>.pkl)
+    redo_fov: (bool)
+        Recalculate deviants (and save results to json) for each dataset.
+    '''
+    src_dir = os.path.join(aggr_dir, 'receptive-fields/scatter')
+    aggr_deviants_fpath = os.path.join(src_dir, 'deviants__%s.pkl' % fit_desc)
+    if redo_fov:
+        create_new=True
+    if not create_new:
+        try:
+            with open(aggr_deviants_fpath, 'rb') as f:
+                res = pkl.load(f, encoding='latin1')
+            deviants = res['deviants']
+            no_results = res['no_results']
+        except Exception as e:
+            traceback.print_exc()
+            create_new=True
+    #print(create_new)
+
+    if create_new:
+        if meta is None:
+            sdata = aggr.get_aggregate_info(visual_areas=visual_areas)
+            meta = sdata[sdata.experiment.isin(['rfs', 'rfs10'])].copy()
+        d_=[]
+        no_results=[]
+        for (va, dk, exp), g in meta.groupby(['visual_area', 'datakey', 'experiment']):
+            df_ = get_deviants_in_fov(dk, va, experiment=exp, traceid=traceid,
+                                   response_type=response_type,
+                                   do_spherical_correction=do_spherical_correction,
+                                   redo_fov=redo_fov)
+            if df_ is None:
+                no_results.append((va, dk, exp))
+                continue
+            df_['visual_area'] = va
+            df_['datakey'] = dk
+            df_['experiment'] = exp
+            d_.append(df_)
+        deviants = pd.concat(d_, axis=0)
+        with open(aggr_deviants_fpath, 'wb') as f:
+            pkl.dump({'deviants': deviants, 'no_results': no_results}, f, protocol=2)
+            
+    return deviants, no_results
+
 
 # --------------------------------------------------------------------
 # Background retino maps
@@ -460,9 +528,9 @@ def load_movingbar_results(dk, retinorun, traceid='traces001',
     # Image dimensions
     d2_orig = scaninfo['pixels_per_line']
     d1_orig = scaninfo['lines_per_frame']
-    print("Original dims: [%i, %i]" % (d1_orig, d2_orig))
+    #print("Original dims: [%i, %i]" % (d1_orig, d2_orig))
     ds_factor = int(RETID['PARAMS']['downsample_factor'])
-    print('Data were downsampled by %i.' % ds_factor)
+    #print('Data were downsampled by %i.' % ds_factor)
     # Get pixel size
     pixel_size = hutils.get_pixel_size()
     pixel_size_ds = (pixel_size[0]*ds_factor, pixel_size[1]*ds_factor)
@@ -622,7 +690,7 @@ def load_gradients(dk, va, retinorun='retino_run1', create_new=False,
             traceback.print_exc()
         
     if create_new:
-        print("--- Doing gradients (%s, %s)" % (dk, va))
+        print("... calculating global gradients (%s, %s)" % (dk, va))
         # Load area segmentation results 
         seg_results, seg_params = seg.load_segmentation_results(dk, retinorun=retinorun)
         segmented_areas = seg_results['areas']
@@ -925,12 +993,12 @@ def add_position_info(df, dk, experiment, retinorun='retino_run1'):
 # --------------------------------------------------------------------
 # Scatter analysis functions
 # --------------------------------------------------------------------
-def get_projected_soma_rfs(dk, va, experiment='rfs', traceid='traces001', 
+def align_soma_in_fov(dk, va, experiment='rfs', traceid='traces001', 
         response_type='dff', do_spherical_correction=False, 
         return_transformation=False):
     '''
     Simplified function: load G-vectors only, align soma coords. 
-    
+    Prev called  get_projected_soma_rfs()
     Returns:
 
     aligned_soma: (pd.DataFrame)
@@ -1029,6 +1097,17 @@ def predict_retino_position(regr, cond='az', points=None):
 
     return predicted_ret_x
 
+def check_inbounds(df):
+    # TMP -- not always 512x512..
+    (pix_ap_um, pix_ml_um) = hutils.get_pixel_size()
+    ap_lim = 512*pix_ap_um
+    ml_lim = 512*pix_ml_um
+    inbounds = df[(df.ml_proj<=ml_lim) & (df.ap_proj<=ap_lim)].copy()
+    df['inbounds'] = False
+    df.loc[inbounds.index, 'inbounds'] = True
+
+    return df
+
 def get_deviations(df):
     '''
     Calculate deviations (in degrees for VF and distance for CTX). 
@@ -1048,14 +1127,7 @@ def get_deviations(df):
     devE['axis'] = 'el'
     deviations = pd.concat([deviations, devE], axis=0).reset_index(drop=True)
 
-    # TMP -- not always 512x512..
-    (pix_ap_um, pix_ml_um) = hutils.get_pixel_size()
-    ap_lim = 512*pix_ap_um
-    ml_lim = 512*pix_ml_um
-    inbounds = df[(df.ml_proj<=ml_lim) & (df.ap_proj<=ap_lim)]['cell'].unique()
-    deviations['inbounds'] = False
-    deviations.loc[deviations['cell'].isin(inbounds), 'inbounds'] = True
-
+    deviations = check_inbounds(deviations)
 
     return deviations
 
@@ -1076,24 +1148,29 @@ def load_vectors(dk, va, create_new=False,
         #print("... loading vectors (%s, %s)" % (dk, va))
         try: 
             with open(gradients_fpath, 'rb') as f:
-                gresults = pkl.load(f, encoding='latin1')
-            assert va in gresults.keys(),\
+                all_vectors = pkl.load(f, encoding='latin1')
+            assert va in all_vectors.keys(),\
                 "Area <%s> not in results." % va
-            GVECTORS = gresults[va].copy()
-            assert 'az' in list(GVECTORS.keys())
+            GVECTORS = all_vectors[va].copy()
+            assert 'az' in list(GVECTORS.keys()), "grad vectors, found keys: %s" % str(list(GVECTORS.keys()))
         except Exception as e:
             create_new=True
             traceback.print_exc()
 
+    if not isinstance(all_vectors, dict):
+        all_vectors={}
+
     if create_new: 
+        #gresults={}
         gpath = gradients_fpath.replace('vectors', 'results')
         with open(gpath, 'rb') as f:
-            gresults = pkl.load(f, encoding='latin1') 
-        GVECTORS = {'az': gresults[va]['az_gradients']['vhat'], 
-                    'el': gresults[va]['el_gradients']['vhat']}
-        gresults[va] = GVECTORS
+            results = pkl.load(f, encoding='latin1') 
+        GVECTORS = {'az': results[va]['az_gradients']['vhat'], 
+                    'el': results[va]['el_gradients']['vhat']}
+        all_vectors.update({va: GVECTORS})
+
         with open(gradients_fpath, 'wb') as f:
-            pkl.dump(gresults, f, protocol=2)
+            pkl.dump(all_vectors, f, protocol=2)
         print("... saved: %s" % gradients_fpath)
  
     return GVECTORS
@@ -1205,7 +1282,7 @@ def get_gradient_results(dk, va, do_gradients=False, do_model=False, plot=True,
             os.makedirs(plot_dst_dir)
 
     #### Load NEUROPIL BACKGROUND and GRADIENTS
-    print("... loading vectors (%s, %s)" % (dk, va))
+    print("... loading gradient vectors (%s, %s)" % (dk, va))
     retinorun, AZMAP_NP, ELMAP_NP, GVECTORS = load_vectors_and_maps(dk, va, create_new=do_gradients)
     if plot:
         fig = plot_gradients(dk, va, retinorun, cmap=cmap)
@@ -1255,7 +1332,7 @@ def get_gradient_results(dk, va, do_gradients=False, do_model=False, plot=True,
 
     return retinorun, AZMAP_NP, ELMAP_NP, GVECTORS, REGR_NP
 
-def get_aligned_soma(dk, va, retinorun, GVECTORS, REGR_NP, experiment='rfs',
+def get_aligned_soma(dk, va, REGR_NP, experiment='rfs',
                      traceid='traces001', protocol='TILE',
                     response_type='dff', do_spherical_correction=False,
                     verbose=False, plot=False, plot_dst_dir='/tmp'):
@@ -1265,24 +1342,12 @@ def get_aligned_soma(dk, va, retinorun, GVECTORS, REGR_NP, experiment='rfs',
 
     '''
 #    #### Load soma
-    aligned_soma, M = get_projected_soma_rfs(dk, va, experiment=experiment, 
+    aligned_soma, M = align_soma_in_fov(dk, va, experiment=experiment, 
                             traceid=traceid, 
                             response_type=response_type, 
                             do_spherical_correction=do_spherical_correction,
                             return_transformation=True)
 
-#    df_soma = get_soma_data(dk, experiment=experiment, retinorun=retinorun, 
-#                                protocol=protocol, traceid=traceid,
-#                                response_type=response_type,
-#                                do_spherical_correction=do_spherical_correction)
-#    if df_soma is None:
-#        return None
-#
-#    #### Align soma coords to gradient
-#    aligned_, M = align_cortex_to_gradient(df_soma, GVECTORS,
-#                                      xlabel='ml_pos', ylabel='ap_pos')
-#    aligned_soma = pd.concat([df_soma, aligned_], axis=1).dropna()\
-#                        .reset_index(drop=True)
     #### Align SOMA coords
     regr_soma_meas = regress_cortex_and_retino_pos(aligned_soma, 
                                                        xvar='pos', model='ridge')
@@ -1334,6 +1399,11 @@ def get_aligned_soma(dk, va, retinorun, GVECTORS, REGR_NP, experiment='rfs',
 
     aligned_soma.loc[:, 'dist_scatter_ml'] = abs(aligned_soma['ml_proj'] - aligned_soma['predicted_ml_proj'])
     aligned_soma.loc[:, 'dist_scatter_ap'] = abs(aligned_soma['ap_proj'] - aligned_soma['predicted_ap_proj'])
+
+
+    # Check inbounds
+    aligned_soma = check_inbounds(aligned_soma)
+
         
     return aligned_soma.reset_index(drop=True)
 
@@ -1397,7 +1467,7 @@ def do_scatter_analysis(dk, va, do_gradients=False, do_model=False,
             soma_dst_dir = os.path.join(curr_dst_dir, 'scatter_%s' % experiment)
             if not os.path.exists(soma_dst_dir):
                 os.makedirs(soma_dst_dir)
-            aligned_soma = get_aligned_soma(dk, va, retinorun, GVECTORS, REGR_NP, 
+            aligned_soma = get_aligned_soma(dk, va, REGR_NP, 
                                     experiment=experiment,
                                     traceid=traceid, protocol=protocol, 
                                     response_type=response_type,
@@ -1469,11 +1539,11 @@ def update_results(dk, va, soma_results, soma_dst_dir, create_new=False):
     return
 
        
-def load_results(dk, va, experiment='rfs', verbose=False,
+def load_scatter_results(dk, va, experiment='rfs', verbose=False,
                     rootdir='/n/coxfs01/2p-data'):
     '''
     Loads dataframe: 'cell', 'deg_scatter', 'dist_scatter', 'axis'.
-    Faster (but otherwise, is same data, but with calcualtions as get_projected_soma_rfs)
+    Faster (but otherwise, is same data, but with calcualtions as align_soma_in_fov)
 
      soma_dst_dir = os.path.join(curr_dst_dir, 'scatter_%s' % experiment)
     '''
