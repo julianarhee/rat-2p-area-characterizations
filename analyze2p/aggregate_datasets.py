@@ -983,7 +983,7 @@ def load_frame_labels(datakey, experiment, traceid='traces001',
 def load_responsive_neuraldata(experiment, meta=None, traceid='traces001',
                       response_type='dff', trial_epoch='plushalf',
                       responsive_test='nstds', responsive_thr=10,n_stds=2.5,
-                      retino_thr=0.01, retino_delay=0.5):
+                      retino_thr=0.01, retino_delay=0.5, redo_retino=False):
     '''
     Load ALL aggregate data for ALL FOV, with correctly assigned cells (NDATA).
     --> calls get_aggregate_data()
@@ -1003,7 +1003,7 @@ def load_responsive_neuraldata(experiment, meta=None, traceid='traces001',
                               responsive_thr=responsive_thr, n_stds=n_stds)
     elif experiment=='retino':
         retinodata = get_aggregate_retinodata(meta=meta, traceid=traceid, 
-                                mag_thr=retino_thr, delay_thr=retino_delay)
+                                mag_thr=retino_thr, delay_thr=retino_delay, create_new=redo_retino)
         NDATA = get_responsive_retino(retinodata, mag_thr=retino_thr)
     elif experiment in ['rfs', 'rfs10']:
         # TODO: what is the right way to select for responsive cells, separate
@@ -1143,14 +1143,14 @@ def get_cells_by_area(sdata, create_new=False, excluded_datasets=[],
 
     # bad segmentation
     excluded_datasets = ['20190321_JC073_fov1',
-                         '20190314_JC070_fov2',
+                         '20190314_JC070_fov2', 
+                         '20190420_JC076_fov1',
                          '20190602_JC080_fov1', 
                          '20190605_JC090_fov1',
                          '20191003_JC111_fov1', 
                          '20191104_JC117_fov1', '20191104_JC117_fov2', 
-                         #'20191105_JC117_fov1',
                          '20191108_JC113_fov1', '20191004_JC110_fov3',
-                         '20191008_JC091_fov'] 
+                         '20191008_JC091_fov', '20191012_JC113_fov1'] 
     if create_new:
         print("Assigning cells")
         d_ = []
