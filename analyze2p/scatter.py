@@ -289,7 +289,7 @@ def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001',
             print("    identifying deviants (%s, %s)" % (dk, va))
         reliable_ = rfutils.get_reliable_fits(eval_results['pass_cis'],
                                             pass_criterion='position')
-        fitrf_ = align_soma_in_fov(dk, va, experiment=experiment, 
+        fitrf_ = project_soma_position_in_fov(dk, va, experiment=experiment, 
                                 traceid=traceid, response_type=response_type,
                                 do_spherical_correction=do_spherical_correction)
         if fitrf_.shape[0]>0:
@@ -618,7 +618,7 @@ def adjust_retinodf(mvb_np, mag_thr=0.02):
     return retinodf_np
 
 
-def get_neuropil_data(dk, retinorun, mag_thr=0.001, delay_map_thr=1.0, ds_factor=2,
+def load_neuropil_data(dk, retinorun, mag_thr=0.001, delay_map_thr=1.0, ds_factor=2,
                     visual_areas=['V1', 'Lm', 'Li']):
     '''
     Wrapper for loading neuropil data from movingbar.
@@ -720,7 +720,8 @@ def load_gradients(dk, va, retinorun='retino_run1', create_new=False,
         try: 
             with open(gradients_fpath, 'rb') as f:
                 results = pkl.load(f, encoding='latin1')
-            print('    found: %s, %s' % (dk, va), results.keys())
+            if len(list(results.keys()))>1:
+                print('    found: %s, %s' % (dk, va), results.keys())
             assert va in list(results.keys()), "Area <%s> not in results. creating now." % va
         except Exception as e:
             create_new=True
@@ -786,7 +787,7 @@ def load_gradients(dk, va, retinorun='retino_run1', create_new=False,
 # --------------------------------------------------------------------
 # ALIGNMENT functions.
 # --------------------------------------------------------------------
-def project_onto_gradient_vectors(df_, u1, u2, xlabel='ml_proj', ylabel='ap_proj'):
+def apply_projection(df_, u1, u2, xlabel='ml_proj', ylabel='ap_proj'):
     '''Project data position (ml_pos, al_pos) onto direction of gradients,
     specified by u1 (azimuth) and u2 (elevation)'''
     M = np.array([[u1[0], u1[1]],
@@ -799,11 +800,11 @@ def project_onto_gradient_vectors(df_, u1, u2, xlabel='ml_proj', ylabel='ap_proj
     return t_df, M
 
 
-def align_cortex_to_gradient(df, gvectors, xlabel='ml_pos', ylabel='ap_pos'):
+def project_onto_gradient(df, gvectors, xlabel='ml_pos', ylabel='ap_pos'):
     '''
     Align FOV to gradient vector direction w transformation matrix.
     Use gvectors to align coordinates specified in df.
-    Note: calculate separate for each axis.
+    Note: calculate separate for each axis. (prev. called align_cortex_to_gradient)
     
     gvectors: dict()
         keys/vals: 'az': [v1, v2], 'el': [w1, w2]
@@ -811,11 +812,11 @@ def align_cortex_to_gradient(df, gvectors, xlabel='ml_pos', ylabel='ap_pos'):
         coordi
     '''
     # Transform predicted-ctx pos back to FOV coords
-    u1 = (gvectors['az'])
-    u2 = (gvectors['el'])
+    u1 = gvectors['az']
+    u2 = gvectors['el']
 
     # Transform FOV coords to lie alone gradient axis
-    transf_df, M = project_onto_gradient_vectors(df, u1, u2, 
+    transf_df, M = apply_projection(df, u1, u2, 
                                     xlabel='ml_proj', ylabel='ap_proj')
     # rename
 
@@ -973,7 +974,7 @@ def do_linear_fit(xvs, yvs, model='ridge', di=0, verbose=False):
 
     return regr_df, model_results
 
-def load_models(dk, va, return_best=False, rootdir='/n/coxfs01/2p-data'):
+def load_models(dk, va, return_best=False, return_all=False, rootdir='/n/coxfs01/2p-data'):
     '''
     Load saved REGR results (linear fit for ctx vs. retino position).
 
@@ -981,7 +982,7 @@ def load_models(dk, va, return_best=False, rootdir='/n/coxfs01/2p-data'):
         Set flag to return UNALIGNED, if it's better. Otherwise, just always return corrected.
 
     '''
-    REGR_NP=None
+    REGR_NP=None; REGR_=None;
     try:
         session, animalid, fovn = hutils.split_datakey_str(dk)
         fovdir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovn))[0]
@@ -991,6 +992,9 @@ def load_models(dk, va, return_best=False, rootdir='/n/coxfs01/2p-data'):
             regr_results = pkl.load(f)
         assert va in regr_results, "Visual area not found"
         REGR_ = regr_results[va].copy()
+
+        if return_all:
+            return REGR_
 
         if return_best:
             pre = float(REGR_[~REGR_.aligned]['R2'].mean())
@@ -1051,7 +1055,7 @@ def add_position_info(df, dk, experiment, retinorun='retino_run1'):
 # --------------------------------------------------------------------
 # Scatter analysis functions
 # --------------------------------------------------------------------
-def align_soma_in_fov(dk, va, experiment='rfs', traceid='traces001', 
+def project_soma_position_in_fov(dk, va, experiment='rfs', traceid='traces001', 
         response_type='dff', do_spherical_correction=False, 
         return_transformation=False):
     '''
@@ -1068,7 +1072,7 @@ def align_soma_in_fov(dk, va, experiment='rfs', traceid='traces001',
     '''
 
     GVECTORS = load_vectors(dk, va, create_new=False)
-    df_soma = get_soma_data(dk, experiment=experiment,
+    df_soma = load_soma_data(dk, experiment=experiment,
                                 protocol='TILE', traceid=traceid,
                                 response_type=response_type,
                                 do_spherical_correction=do_spherical_correction)
@@ -1077,7 +1081,7 @@ def align_soma_in_fov(dk, va, experiment='rfs', traceid='traces001',
 
     #### Align soma coords to gradient
     curr_somas = df_soma[df_soma.visual_area==va].copy()
-    aligned_, M = align_cortex_to_gradient(curr_somas, GVECTORS,
+    aligned_, M = project_onto_gradient(curr_somas, GVECTORS,
                                       xlabel='ml_pos', ylabel='ap_pos')
     aligned_soma = pd.concat([curr_somas, aligned_], axis=1).dropna()\
                         .reset_index(drop=True)
@@ -1088,7 +1092,7 @@ def align_soma_in_fov(dk, va, experiment='rfs', traceid='traces001',
         return aligned_soma
 
 
-def get_soma_data(dk, experiment='rfs', retinorun='retino_run1', 
+def load_soma_data(dk, experiment='rfs', retinorun='retino_run1', 
                         protocol='TILE', traceid='traces001',
                         response_type='dff', 
                         do_spherical_correction=False, fit_thr=0.5,
@@ -1374,7 +1378,7 @@ def get_gradient_results(dk, va, return_best=False, do_gradients=False, do_model
     if do_model:
         print("... estimating linear fit (%s, %s)" % (dk, va))
         # Align NP to gradient vectors in current visual area
-        aligned_np, regr_np_post, regr_np_meas = get_aligned_neuropil(dk, va, retinorun,
+        aligned_np, regr_np_post, regr_np_meas = transform_and_fit_neuropil(dk, va, retinorun,
                                                 GVECTORS,
                                                 mag_thr=np_mag_thr, 
                                                 delay_map_thr=np_delay_map_thr, 
@@ -1409,11 +1413,12 @@ def get_gradient_results(dk, va, return_best=False, do_gradients=False, do_model
 
     return retinorun, AZMAP_NP, ELMAP_NP, GVECTORS, REGR_NP
 
-def get_aligned_neuropil(dk, va, retinorun, GVECTORS,
+def transform_and_fit_neuropil(dk, va, retinorun, GVECTORS,
                         mag_thr=0.001, delay_map_thr=1.0, ds_factor=2):
     '''
     Align NEUROPIL retino preferences (each ROI's neuropil) to gradient vectors
     calculated for curent visual area. 
+    prev. called 'get_aligned_neuropil'
     
     Returns:
 
@@ -1430,7 +1435,7 @@ def get_aligned_neuropil(dk, va, retinorun, GVECTORS,
     aligned_np, REGR_NP, regr_np_meas = None, None, None
 
     # 1. Get retino data for NEUROPIL (background)
-    retinodf_np = get_neuropil_data(dk, retinorun, mag_thr=mag_thr, 
+    retinodf_np = load_neuropil_data(dk, retinorun, mag_thr=mag_thr, 
                                         delay_map_thr=delay_map_thr, 
                                         ds_factor=ds_factor)
 
@@ -1441,7 +1446,7 @@ def get_aligned_neuropil(dk, va, retinorun, GVECTORS,
     curr_np = retinodf_np[retinodf_np.visual_area==va].copy()
 
     # 2. Align FOV to gradient vector direction 
-    aligned_, M = align_cortex_to_gradient(curr_np, GVECTORS,
+    aligned_, M = project_onto_gradient(curr_np, GVECTORS,
                                       xlabel='ml_pos', ylabel='ap_pos')
     aligned_np = pd.concat([curr_np, aligned_], axis=1).dropna()
 
@@ -1455,17 +1460,17 @@ def get_aligned_neuropil(dk, va, retinorun, GVECTORS,
     return aligned_np, REGR_NP, regr_np_meas
 
 
-def get_aligned_soma(dk, va, REGR_NP, experiment='rfs',
+def predict_soma_from_gradient(dk, va, REGR_NP, experiment='rfs',
                      traceid='traces001', protocol='TILE',
                     response_type='dff', do_spherical_correction=False,
                     verbose=False, plot=False, plot_dst_dir='/tmp'):
     '''
     Using gradient vectors, project FOV coords along retino gradients.
     If protocol=='TILE', then will also calculate deg/dist scatter.
-
+    Prev. called:  get_aligned_soma()
     '''
 #    #### Load soma
-    aligned_soma, M = align_soma_in_fov(dk, va, experiment=experiment, 
+    aligned_soma, M = project_soma_position_in_fov(dk, va, experiment=experiment, 
                             traceid=traceid, 
                             response_type=response_type, 
                             do_spherical_correction=do_spherical_correction,
@@ -1592,7 +1597,7 @@ def do_scatter_analysis(dk, va, experiment='rfs',
             soma_dst_dir = os.path.join(curr_dst_dir, 'scatter_%s' % experiment)
             if not os.path.exists(soma_dst_dir):
                 os.makedirs(soma_dst_dir)
-            aligned_soma = get_aligned_soma(dk, va, REGR_NP, 
+            aligned_soma = predict_soma_from_gradient(dk, va, REGR_NP, 
                                     experiment=experiment,
                                     traceid=traceid, protocol=protocol, 
                                     response_type=response_type,
@@ -1669,7 +1674,7 @@ def load_scatter_results(dk, va, experiment='rfs', verbose=False,
                     rootdir='/n/coxfs01/2p-data'):
     '''
     Loads dataframe: 'cell', 'deg_scatter', 'dist_scatter', 'axis'.
-    Faster (but otherwise, is same data, but with calcualtions as align_soma_in_fov)
+    Faster (but otherwise, is same data, but with calcualtions as project_soma_position_in_fov)
 
      soma_dst_dir = os.path.join(curr_dst_dir, 'scatter_%s' % experiment)
     '''
