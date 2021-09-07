@@ -711,7 +711,10 @@ def load_eval_results(datakey, experiment='rfs', rfdir=None,
 
     # Load results
     rf_eval_fpath = os.path.join(evaldir, 'evaluation_results.pkl')
-    assert os.path.exists(rf_eval_fpath), "No eval result: %s" % datakey 
+    if not os.path.exists(rf_eval_fpath):
+        print("ERROR: No RF evaluations for - %s (%s)" % (datakey, fit_desc))
+        return None, None
+    #assert os.path.exists(rf_eval_fpath), "No eval result: %s" % datakey 
     with open(rf_eval_fpath, 'rb') as f:
         eval_results = pkl.load(f, encoding='latin1')
    

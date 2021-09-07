@@ -944,19 +944,19 @@ def plot_gradients_in_area(labeled_image, img_az, img_el, grad_az, grad_el,
     '''
     Retinomaps overlaid w/ gradient field, plus average gradient dir.
     '''
-    fig, axn = pl.subplots(2,2, figsize=(6,6))
+    fig, axn = pl.subplots(2,2, figsize=(5,6))
 
     # Maps ------------
     ax=axn[0, 0]
     im = ax.imshow(img_az,cmap=cmap_phase) #, vmin=vmin, vmax=vmax)
-    fig.colorbar(im, ax=ax, shrink=0.7)
-    ax.set_title('azimuth')
+    fig.colorbar(im, ax=ax, shrink=0.7, label='azimuth (deg.)')
+    #ax.set_title('azimuth')
     ax = overlay_all_contours(labeled_image, ax=ax, lw=contour_lw, lc=contour_lc)
 
     ax=axn[1, 0]
     im = ax.imshow(img_el, cmap=cmap_phase) #, vmin=vmin, vmax=vmax)
-    fig.colorbar(im, ax=ax, shrink=0.7)
-    ax.set_title('elevation')
+    fig.colorbar(im, ax=ax, shrink=0.7, label='elevation (deg.)')
+    #ax.set_title('elevation')
     ax = overlay_all_contours(labeled_image, ax=ax, lw=contour_lw, lc=contour_lc)
 
     # Gradients ------------   
@@ -1000,7 +1000,7 @@ def plot_gradients_in_area(labeled_image, img_az, img_el, grad_az, grad_el,
     ax.set_aspect('equal')
     ax.invert_yaxis()
     
-    pl.subplots_adjust(wspace=0.5, hspace=0.5)
+    pl.subplots_adjust(wspace=0.5, hspace=0.5, right=0.8)
 
     return fig
 

@@ -56,7 +56,7 @@ def regplot(
     # Calculate the residual from a linear regression
     #_, yhat, _ = plotter.fit_regression(grid=plotter.x)
     #plotter.y = plotter.y - yhat
-    print(len(plotter.x))
+    #print(len(plotter.x))
 
     # Set the regression option on the plotter
     if lowess:
@@ -101,7 +101,7 @@ def fit_with_deviants(boot_, cis_, rfs_, xname='ml_proj', yname='x0', ax=None,
                                                 color='k', fit_regr=True,
                                         scatter_kws=scatter_kws,line_kws=line_kws)
     eq_str = 'y=%.2fx + %.2f' % (slope, intercept)
-    print(eq_str)
+    #print(eq_str)
     #Refit line to get correct xbins
     grid, yhat, err_bands = plotter.fit_regression(ax, grid=x_bins)
     # 2b. Get CIs from linear fit (fit w/ reliable rois only)
@@ -185,12 +185,12 @@ def plot_scatter_and_marginals(axdf, regr_, roi_to_label=None, cond='az',
         med_val = abs(axdf[rf_label]).max()/2
         ii = abs(abs(axdf[rf_label])-med_val).argmin()
     else:
-        ii = int(axdf[axdf['cell']==roi_to_label].index)
-    xi = axdf['%s_proj' % ctx_label].iloc[ii]
-    yi = axdf[rf_label].iloc[ii]
+        ii = int(np.where(axdf['cell']==roi_to_label)[0]) #int(axdf[axdf['cell']==roi_to_label].index[0])
+    xi = float(axdf['%s_proj' % ctx_label].iloc[ii])
+    yi = float(axdf[rf_label].iloc[ii])
     pred_deg = axdf['predicted_%s' % rf_label].iloc[ii]
-    offset_deg = axdf['deg_scatter_%s' % rf_label].iloc[ii]*-1 if yi>pred_deg \
-                        else axdf['deg_scatter_%s' % rf_label].iloc[ii]
+    offset_deg = axdf['deg_scatter_%s' % rf_label].iloc[ii] #*-1 if yi>pred_deg \
+                        #else axdf['deg_scatter_%s' % rf_label].iloc[ii]
     scatterax.plot([xi,xi], [yi, yi-offset_deg], color2, alpha=1, lw=lw)
     # Do DIST scatter
     pred_dist = axdf['predicted_%s_proj' % ctx_label].iloc[ii]
@@ -204,34 +204,46 @@ def plot_scatter_and_marginals(axdf, regr_, roi_to_label=None, cond='az',
 
     # Create top/right histograms
     divider = make_axes_locatable(scatterax)
-    histax_x = divider.append_axes("top", 1.2, pad=0.5, sharex=None) #scatterax) #None)
-    histax_y = divider.append_axes("right", 1.2, pad=0.5, sharey=None) #scatterax)
+    histax_x = divider.append_axes("top", 0.5, pad=0.5, sharex=None) #scatterax) #None)
+    histax_y = divider.append_axes("right", 0.5, pad=0.5, sharey=None) #scatterax)
     # plot the marginals
     histax_x.tick_params(labelright=False, labelleft=True, 
                         bottom=True, labelbottom=True, top=False, labeltop=False)
-    sns.distplot(axdf['deg_scatter_%s' % rf_label], color=color2, ax=histax_x, 
-                 vertical=False, kde=False, bins=nbins)
+    #sns.distplot(axdf['deg_scatter_%s' % rf_label], color=color2, ax=histax_x, 
+    #             vertical=False, kde=False, bins=nbins)
+    sns.histplot(x='deg_scatter_%s' % rf_label, data=axdf, color=color2, ax=histax_x, 
+                 kde=False, bins=nbins, stat='count', edgecolor='w')
 
-    sns.distplot(axdf['dist_scatter_%s' % ctx_label], color=color1, ax=histax_y, vertical=True,
-                 kde=False, bins=nbins)
+    histax_x.set_xlabel('visual field scatter (deg.)')
+
+    #sns.distplot(axdf['dist_scatter_%s' % ctx_label], color=color1, ax=histax_y, vertical=True,
+    #             kde=False, bins=nbins)
+    sns.histplot(y='dist_scatter_%s' % ctx_label, data=axdf, color=color1, ax=histax_y, 
+                 kde=False, bins=nbins, stat='count', edgecolor='w')
+
     histax_y.tick_params(labelright=False, labelleft=True, 
                         bottom=True, labelbottom=True, top=False, labeltop=False)
+    histax_y.set_ylabel('cortical scatter (um)')
     clean_up_marginal_axes(histax_x, histax_y)
     
     return fig
 
 def clean_up_marginal_axes(histax_x, histax_y):
     xlim, ylim=histax_x.get_ylim()
-    histax_x.set_yticks([xlim, ylim])
-    histax_x.set_yticklabels([round(xlim), round(ylim)])
+    yticks = np.linspace(xlim, ylim, 3)
+    histax_x.set_yticks(yticks)
+    histax_x.set_yticklabels([ int(round(i)) for i in yticks])
+     #round(xlim), round(ylim)])
     histax_x.spines["right"].set_visible(False)
     histax_x.spines["left"].set_visible(True)
     histax_x.spines["top"].set_visible(False)
     histax_x.spines["bottom"].set_visible(True)
 
     xlim, ylim=histax_y.get_xlim()
-    histax_y.set_xticks([xlim, ylim])
-    histax_y.set_xticklabels([round(xlim), round(ylim)])
+    xticks = np.linspace(xlim, ylim, 3)
+    histax_y.set_xticks(xticks)
+    histax_y.set_xticklabels([int(round(i)) for i in xticks])
+    #round(xlim), round(ylim)])
     histax_y.spines["right"].set_visible(False)
     histax_y.spines["left"].set_visible(True)
     histax_y.spines["top"].set_visible(False)
@@ -241,7 +253,7 @@ def clean_up_marginal_axes(histax_x, histax_y):
 # Save deviants
 def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001', 
                  redo_fov=False, response_type='dff', 
-                 do_spherical_correction=False):
+                 do_spherical_correction=False, verbose=False):
     # Get reliable c
     deviants=None
     eval_results, eval_params = rfutils.load_eval_results(dk,
@@ -261,7 +273,9 @@ def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001',
             assert isinstance(deviants, dict) and va in list(deviants.keys())
             # assert va in deviants.keys(), "No deviant results found: %s, %s" % (dk, va)
         except Exception as e:
-            print(e)
+            traceback.print_exc()
+            print("    REDOING.")
+            #print(e)
             redo_fov=True
     else:
         deviants={}
@@ -271,7 +285,8 @@ def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001',
         deviants={}
 
     if redo_fov:
-        print("    identifying deviants (%s, %s)" % (dk, va))
+        if verbose:
+            print("    identifying deviants (%s, %s)" % (dk, va))
         reliable_ = rfutils.get_reliable_fits(eval_results['pass_cis'],
                                             pass_criterion='position')
         fitrf_ = align_soma_in_fov(dk, va, experiment=experiment, 
@@ -287,11 +302,15 @@ def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001',
             
             if len(reliable_)>0:
                 for cond in ['az', 'el']:
-                    fig, ax = pl.subplots(figsize=(1,1))
-                    # Get projected cortical position
-                    ax, devs_ = fit_with_deviants(boot_, cis_, rfs_)
-                    cond_dict.update({cond: devs_})
-                    pl.close('all')
+                    try:
+                        fig, ax = pl.subplots(figsize=(1,1))
+                        # Get projected cortical position
+                        ax, devs_ = fit_with_deviants(boot_, cis_, rfs_)
+                        cond_dict.update({cond: devs_})
+                        pl.close('all')
+                    except Exception as e:
+                        print("ERROR: %s, %s -- cond=%s" % (va, dk, cond))
+                        traceback.print_exc()
         # save
         deviants.update({va: cond_dict}) 
         with open(dev_fpath, 'w') as f:
@@ -308,8 +327,9 @@ def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001',
     return dev_df
 
 
-def aggregate_deviant_cells(fit_desc, meta=None, traceid='traces001',
-                            create_new=False, redo_fov=False,
+def aggregate_deviant_cells(response_type='dff', do_spherical_correction=False,
+                            meta=None, traceid='traces001',
+                            create_new=False, redo_fov=False, verbose=False,
                             aggr_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     '''
     Cycle thru all datasets (meta) with rfs/rfs10, and calculate deviants
@@ -332,6 +352,9 @@ def aggregate_deviant_cells(fit_desc, meta=None, traceid='traces001',
     redo_fov: (bool)
         Recalculate deviants (and save results to json) for each dataset.
     '''
+    fit_desc = rfutils.get_fit_desc(response_type=response_type,
+                                  do_spherical_correction=do_spherical_correction)
+
     src_dir = os.path.join(aggr_dir, 'receptive-fields/scatter')
     aggr_deviants_fpath = os.path.join(src_dir, 'deviants__%s.pkl' % fit_desc)
     if redo_fov:
@@ -357,7 +380,7 @@ def aggregate_deviant_cells(fit_desc, meta=None, traceid='traces001',
             df_ = get_deviants_in_fov(dk, va, experiment=exp, traceid=traceid,
                                    response_type=response_type,
                                    do_spherical_correction=do_spherical_correction,
-                                   redo_fov=redo_fov)
+                                   redo_fov=redo_fov, verbose=verbose)
             if df_ is None:
                 no_results.append((va, dk, exp))
                 continue
@@ -383,12 +406,24 @@ def get_background_maps(dk, experiment='rfs', traceid='traces001',
                         target_sigma_um=20, smooth_spline_x=1, smooth_spline_y=1,
                         ds_factor=1, fit_thr=0.5):
     '''
-    Load RF fitting results from TILES protocol. 
-    Create smoothed background maps for AZ and EL (like done w BAR).
+    Create smoothed background maps for AZ and EL (like done w BAR, but for TILE protocol).
+    This can be funky. Better to use global gradient estimation, as with Widefield.
+    Saves to: <rfdir>/neuropil_maps.pkl
 
+    Loads RF fitting results from TILES protocol.
+   
     Returns:
         res: (dict)
             Keys: 'azim_orig', 'azim_final', 'elev_orig', 'elev_final', 'fitdf'
+
+    Args:
+    redo: (bool)
+        Redo the whole background smoothing and segmentation (mask dilation, etc.)
+    
+    redo_smooth: (bool)
+        Only adjust smoothing params.
+
+
     '''
     res=None
     try:
@@ -504,7 +539,6 @@ def cycle_and_load_maps(dk_list, experiment='rfs', traceid='traces001',
         with open(tmp_masks_fpath, 'wb') as f:
             pkl.dump(MAPS, f, protocol=2)
             
-
     return MAPS
 
 #---------------------------------------------------------------------
@@ -618,8 +652,11 @@ def get_neuropil_data(dk, retinorun, mag_thr=0.001, delay_map_thr=1.0, ds_factor
 def load_neuropil_background(datakey, retinorun, map_type='final', protocol='BAR',
                         rootdir='/n/coxfs01/2p-data'):
     '''
-    Load NP background (MOVINGBAR). Saved by notebook
-    >> ./retinotopy/identify_visual_areas.ipynb.
+    Load NP background (MOVINGBAR) from:
+        <retinorun_dir>/retino_analysis/segmentation/smoothed_maps.npz 
+    Saved by notebook (interactive for manual check):
+        analyze2p/retinotopy/identify_visual_areas.ipynb.
+
     TODO:  Clean up, so all this stuff in same place 
     (retino_structure - has projections_, vectors_.pkl
     vs. segmentation - has smoothed/processed maps)
@@ -720,29 +757,29 @@ def load_gradients(dk, va, retinorun='retino_run1', create_new=False,
             
     return results[va]
 
-def plot_gradients(az_map, el_map, grad_az, grad_el,
-                  spacing=200, scale=0.0001, width=0.01, headwidth=20):
-    '''plot az and el maps + gradient vectors as unit'''
-    fig, axn = pl.subplots(2,2, figsize=(5,6))
-    for ai, cond in enumerate(['az', 'el']):
-        ax=axn[ai,0]
-        npmap = az_map.copy() if cond=='az' else el_map.copy()
-        im = ax.imshow(npmap, cmap='Spectral')
-        grad_ = grad_az.copy() if cond=='az' else grad_el.copy()
-        seg.plot_gradients(grad_, ax=ax, draw_interval=spacing, 
-                           scale=scale, width=width, headwidth=headwidth)
-        ax= axn[ai,1]
-        ax.grid(True)
-        vhat_ = grad_['vhat'].copy()
-        ax.quiver(0,0, vhat_[0], vhat_[1],  scale=1, scale_units='xy',
-                  units='xy', angles='xy', width=.05, pivot='tail')
-        ax.set_aspect('equal')
-        ax.set_ylim([-1, 1])
-        ax.set_xlim([-1, 1])
-        ax.set_title("%s: [%.2f, %.2f]" % (cond, vhat_[0], vhat_[1]))
-        ax.invert_yaxis()
-    
-    return fig
+#def plot_gradients(az_map, el_map, grad_az, grad_el,
+#                  spacing=200, scale=0.0001, width=0.01, headwidth=20):
+#    '''plot az and el maps + gradient vectors as unit'''
+#    fig, axn = pl.subplots(2,2, figsize=(5,6))
+#    for ai, cond in enumerate(['az', 'el']):
+#        ax=axn[ai,0]
+#        npmap = az_map.copy() if cond=='az' else el_map.copy()
+#        im = ax.imshow(npmap, cmap='Spectral')
+#        grad_ = grad_az.copy() if cond=='az' else grad_el.copy()
+#        seg.plot_gradients(grad_, ax=ax, draw_interval=spacing, 
+#                           scale=scale, width=width, headwidth=headwidth)
+#        ax= axn[ai,1]
+#        ax.grid(True)
+#        vhat_ = grad_['vhat'].copy()
+#        ax.quiver(0,0, vhat_[0], vhat_[1],  scale=1, scale_units='xy',
+#                  units='xy', angles='xy', width=.05, pivot='tail')
+#        ax.set_aspect('equal')
+#        ax.set_ylim([-1, 1])
+#        ax.set_xlim([-1, 1])
+#        ax.set_title("%s: [%.2f, %.2f]" % (cond, vhat_[0], vhat_[1]))
+#        ax.invert_yaxis()
+#    
+#    return fig
 
 
 
@@ -757,6 +794,7 @@ def project_onto_gradient_vectors(df_, u1, u2, xlabel='ml_proj', ylabel='ap_proj
     transf_vs = [M.dot(np.array([x, y])) for (x, y) \
                      in df_[['ml_pos', 'ap_pos']].values]
     t_df = pd.DataFrame(transf_vs, columns=[xlabel, ylabel], index=df_.index)
+    t_df = t_df.abs()
 
     return t_df, M
 
@@ -935,7 +973,14 @@ def do_linear_fit(xvs, yvs, model='ridge', di=0, verbose=False):
 
     return regr_df, model_results
 
-def load_models(dk, va, rootdir='/n/coxfs01/2p-data'):
+def load_models(dk, va, return_best=False, rootdir='/n/coxfs01/2p-data'):
+    '''
+    Load saved REGR results (linear fit for ctx vs. retino position).
+
+    return_best: (bool)
+        Set flag to return UNALIGNED, if it's better. Otherwise, just always return corrected.
+
+    '''
     REGR_NP=None
     try:
         session, animalid, fovn = hutils.split_datakey_str(dk)
@@ -945,8 +990,20 @@ def load_models(dk, va, rootdir='/n/coxfs01/2p-data'):
         with open(alignment_fpath, 'rb') as f:
             regr_results = pkl.load(f)
         assert va in regr_results, "Visual area not found"
-        REGR_NP = regr_results[va].copy()
+        REGR_ = regr_results[va].copy()
+
+        if return_best:
+            pre = float(REGR_[~REGR_.aligned]['R2'].mean())
+            post = float(REGR_[REGR_.aligned]['R2'].mean())
+            if pre>post:
+                REGR_NP = REGR_[~REGR_.aligned]
+            else:
+                REGR_NP = REGR_[REGR_.aligned]
+        else:
+            REGR_NP = REGR_[REGR_.aligned]
+
     except Exception as e:
+        traceback.print_exc() 
         return None
     
     return REGR_NP
@@ -963,6 +1020,7 @@ def update_models(dk, va, REGR_NP, create_new=False,
             results = pkl.load(f)
         if not isinstance(results, dict):
             results={}
+
 
     results.update({va: REGR_NP})
     with open(alignment_fpath, 'wb') as f:
@@ -1030,15 +1088,14 @@ def align_soma_in_fov(dk, va, experiment='rfs', traceid='traces001',
         return aligned_soma
 
 
-
-
 def get_soma_data(dk, experiment='rfs', retinorun='retino_run1', 
                         protocol='TILE', traceid='traces001',
                         response_type='dff', 
                         do_spherical_correction=False, fit_thr=0.5,
                         mag_thr=0.01):
     '''
-    Load SOMA data. **Specify RETINORUN for correct roi assignments 
+    Load SOMA data (and visual_area assignemnts)
+    **Specify RETINORUN for correct roi assignments 
     (even if protocol is TILE).
     ''' 
     df=None
@@ -1117,17 +1174,17 @@ def get_deviations(df):
     df['deg_scatter_y0'] = abs(df['y0']-df['predicted_y0'])
     df['dist_scatter_ml'] = abs(df['ml_proj']-df['predicted_ml_proj'])
     df['dist_scatter_ap'] = abs(df['ap_proj']-df['predicted_ap_proj'])
-    deviations = df[['cell', 'deg_scatter_x0', 'dist_scatter_ml']].copy()\
+    deviations = df[['cell', 'deg_scatter_x0', 'dist_scatter_ml', 'inbounds']].copy()\
                     .rename(columns={'deg_scatter_x0': 'deg_scatter', 
                                      'dist_scatter_ml': 'dist_scatter'})
     deviations['axis'] = 'az'
-    devE = df[['cell', 'deg_scatter_y0', 'dist_scatter_ap']].copy()\
+    devE = df[['cell', 'deg_scatter_y0', 'dist_scatter_ap', 'inbounds']].copy()\
                     .rename(columns={'deg_scatter_y0': 'deg_scatter', 
                                      'dist_scatter_ap': 'dist_scatter'})
     devE['axis'] = 'el'
     deviations = pd.concat([deviations, devE], axis=0).reset_index(drop=True)
 
-    deviations = check_inbounds(deviations)
+    #deviations = check_inbounds(deviations)
 
     return deviations
 
@@ -1185,6 +1242,8 @@ def load_vectors_and_maps(dk, va, create_new=False):
                 'el': gresults['el_gradients']['vhat']}
 
     return retinorun, AZMAP_NP, ELMAP_NP, GVECTORS
+
+
 
 def plot_gradients(dk, va, retinorun, cmap='Spectral'):
     # Gradient plot
@@ -1266,16 +1325,28 @@ def visualize_scatter_on_fov(df_, AZMAP_NP, ELMAP_NP, zimg_r=None,
     return fig
 
 
-def get_gradient_results(dk, va, do_gradients=False, do_model=False, plot=True,
+def get_gradient_results(dk, va, return_best=False, do_gradients=False, do_model=False, plot=True,
                     np_mag_thr=0.001, np_delay_map_thr=1., np_ds_factor=2,
                     cmap='Spectral', plot_dst_dir='/tmp', verbose=False,
                     create_new=False, rootdir='/n/coxfs01/2p-data'):  
     '''
-    create_new to completely overwrite ALL found gradient results
+    Do gradient analysis and fit linear model for retino pref. and cortical position.
+    Uses NEUROPIL preferences (assumes RF tiling experiment) to calculate global background.
+
+    Args:
+    do_gradients: (bool)
+        Re-calculate gradients (first step, return GVECTORS).
+    do_model: (bool)
+        From GVECTORS, fit linear model to adjusted/aligned background.
+    create_new: (bool)
+        Completely overwrite ALL found gradient results
     '''
     print("Do model?", do_model)
 
     retinorun, AZMAP_NP, ELMAP_NP, GVECTORS, REGR_NP = None, None, None, None, None
+
+    if do_gradients or do_model:
+        plot=True
 
     if plot:
         if not os.path.exists(plot_dst_dir):
@@ -1291,46 +1362,98 @@ def get_gradient_results(dk, va, do_gradients=False, do_model=False, plot=True,
         pl.close()
 
     #### Use NEUROPIL to estimate linear model
-    try:
-        REGR_NP = load_models(dk, va, rootdir=rootdir)
-        assert REGR_NP is not None, "NO REGR"
-    except Exception as e:
-        traceback.print_exc()
-        plot=True
-        do_model=True
-
-    
+    if not do_model:
+        try:
+            REGR_NP = load_models(dk, va, return_best=return_best, rootdir=rootdir)
+            assert REGR_NP is not None, "NO REGR"
+        except Exception as e:
+            traceback.print_exc()
+            do_model=True
+ 
     #print("REGR", REGR_NP)
     if do_model:
         print("... estimating linear fit (%s, %s)" % (dk, va))
-        # 1. Get retino data for NEUROPIL (background)
-        retinodf_np = get_neuropil_data(dk, retinorun, mag_thr=np_mag_thr, 
-                                            delay_map_thr=np_delay_map_thr, 
-                                            ds_factor=np_ds_factor)
-        if retinodf_np is not None:
-            # 2. Align FOV to gradient vector direction 
-            aligned_, M = align_cortex_to_gradient(retinodf_np, GVECTORS,
-                                              xlabel='ml_pos', ylabel='ap_pos')
-            aligned_np = pd.concat([retinodf_np, aligned_], axis=1).dropna()
-            # 3. Fit model
-            REGR_NP = regress_cortex_and_retino_pos(aligned_np, \
-                            xvar='proj', model='ridge')
-            regr_np_meas = regress_cortex_and_retino_pos(aligned_np, \
-                            xvar='pos', model='ridge')
-            # Save
-            update_models(dk, va, REGR_NP, create_new=create_new)
+        # Align NP to gradient vectors in current visual area
+        aligned_np, regr_np_post, regr_np_meas = get_aligned_neuropil(dk, va, retinorun,
+                                                GVECTORS,
+                                                mag_thr=np_mag_thr, 
+                                                delay_map_thr=np_delay_map_thr, 
+                                                ds_factor=np_ds_factor) 
+        # Save
+        regr_np_meas['aligned'] = False
+        regr_np_post['aligned'] = True
+        REGR_ = pd.concat([regr_np_post, regr_np_meas])
+        update_models(dk, va, REGR_, create_new=create_new)
+        if aligned_np is not None:
             if verbose:
                 print("NEUROPIL, MEASURED:")
                 print(regr_np_meas.to_markdown())
                 print("NEUROPIL, ALIGNED:")
-                print(REGR_NP.to_markdown())
-            fig = plot_measured_and_aligned(aligned_np, REGR_NP, regr_np_meas)
+                print(regr_np_post.to_markdown())
+            fig = plot_measured_and_aligned(aligned_np, regr_np_post, regr_np_meas)
             fig.text(0.01, 0.95, 'Aligned CTX. vs retino\n(BAR, Neuropil, %s)' % dk)
             figname = 'measured_vs_aligned_NEUROPIL'
             pl.savefig(os.path.join(plot_dst_dir, '%s.svg' % figname))
             pl.close()
 
+        if return_best:
+            pre = float(regr_np_meas['R2'].mean())
+            post = float(regr_np_post['R2'].mean())
+            if pre>post:
+                REGR_NP = regr_np_meas.copy()
+            else:
+                REGR_NP = regr_np_post.copy()
+        else:
+            REGR_NP = regr_np_post.copy() 
+
+
     return retinorun, AZMAP_NP, ELMAP_NP, GVECTORS, REGR_NP
+
+def get_aligned_neuropil(dk, va, retinorun, GVECTORS,
+                        mag_thr=0.001, delay_map_thr=1.0, ds_factor=2):
+    '''
+    Align NEUROPIL retino preferences (each ROI's neuropil) to gradient vectors
+    calculated for curent visual area. 
+    
+    Returns:
+
+    aligned_np: (pd.DataFrame)
+        Receptive field fit params for each cell's neuropil, plus ml/ap_proj coordinates
+
+    REGR_NP: (pd.DataFrame)
+        Results of linear regression (x0 vs. ml_proj, y0 vs. ap_proj)
+
+    regr_np_meas (pd.DataFrame)
+        Same as REGR_NP, but without correcting/aligning FOV to gradient direction.
+
+    '''
+    aligned_np, REGR_NP, regr_np_meas = None, None, None
+
+    # 1. Get retino data for NEUROPIL (background)
+    retinodf_np = get_neuropil_data(dk, retinorun, mag_thr=mag_thr, 
+                                        delay_map_thr=delay_map_thr, 
+                                        ds_factor=ds_factor)
+
+    if retinodf_np is None:
+        return None
+
+    # Only select ROIs within current visual_area:
+    curr_np = retinodf_np[retinodf_np.visual_area==va].copy()
+
+    # 2. Align FOV to gradient vector direction 
+    aligned_, M = align_cortex_to_gradient(curr_np, GVECTORS,
+                                      xlabel='ml_pos', ylabel='ap_pos')
+    aligned_np = pd.concat([curr_np, aligned_], axis=1).dropna()
+
+    # 3. Fit model
+    REGR_NP = regress_cortex_and_retino_pos(aligned_np, \
+                    xvar='proj', model='ridge')
+    regr_np_meas = regress_cortex_and_retino_pos(aligned_np, \
+                    xvar='pos', model='ridge')
+
+
+    return aligned_np, REGR_NP, regr_np_meas
+
 
 def get_aligned_soma(dk, va, REGR_NP, experiment='rfs',
                      traceid='traces001', protocol='TILE',
@@ -1413,7 +1536,7 @@ def do_visualization(dk, df_, AZMAP_NP, ELMAP_NP, experiment='rfs',
                     plot_true=True, plot_predicted=True, plot_lines=True,
                     plot_dst_dir='/tmp'):
     # # Visualization
-    zimg, masks, ctrs = roiutils.get_masks_and_centroids(dk, experiment, traceid=traceid)
+    zimg, masks, ctrs = roiutils.get_masks_and_centroids(dk, traceid=traceid)
     pixel_size = hutils.get_pixel_size()
     zimg_r = retutils.transform_2p_fov(zimg, pixel_size)
     fig = visualize_scatter_on_fov(df_, AZMAP_NP, ELMAP_NP, zimg_r=zimg_r,
@@ -1427,11 +1550,12 @@ def do_visualization(dk, df_, AZMAP_NP, ELMAP_NP, experiment='rfs',
 
 
 
-def do_scatter_analysis(dk, va, do_gradients=False, do_model=False,
+def do_scatter_analysis(dk, va, experiment='rfs', 
+                        do_gradients=False, do_model=False,
                         np_mag_thr=0.001, np_delay_map_thr=1.0, 
-                        np_ds_factor=2., 
+                        np_ds_factor=2., return_best_model=False,
                         response_type='dff', do_spherical_correction=False, 
-                        experiment='rfs', traceid='traces001',
+                        traceid='traces001',
                         cmap='Spectral', plot=True,
                         rootdir='/n/coxfs01/2p-data', verbose=False,
                         create_new=False):
@@ -1453,6 +1577,7 @@ def do_scatter_analysis(dk, va, do_gradients=False, do_model=False,
     has_rfs=True
     try:
         retinorun, AZMAP_NP, ELMAP_NP, GVECTORS, REGR_NP = get_gradient_results(dk, va, 
+                                return_best=return_best_model,
                                 do_gradients=do_gradients, do_model=do_model, 
                                 np_mag_thr=np_mag_thr, 
                                 np_delay_map_thr=np_delay_map_thr, 
@@ -1492,6 +1617,7 @@ def do_scatter_analysis(dk, va, do_gradients=False, do_model=False,
 
             if has_rfs:
                 # # Calculate scatter
+                print("... calculating deviations")
                 deviations = get_deviations(aligned_soma)
             if has_rfs and plot:
                 # Plot
@@ -1629,6 +1755,8 @@ def extract_options(options):
 
     parser.add_option('--all',  action='store_true', dest='cycle_all', default=False,
                       help="Set flag to cycle thru ALL dsets")
+    parser.add_option('--best',  action='store_true', dest='return_best_model', default=False,
+                      help="Set to return BEST linear model (i.e., don't use ALIGNED regr if it is worse")
 
     (options, args) = parser.parse_args(options)
 
@@ -1689,6 +1817,8 @@ def main(options):
     verbose = optsE.verbose
     cycle_all = optsE.cycle_all
 
+    return_best_model = optsE.return_best_model
+
     if experiment is None:
         exp_list=['rfs', 'rfs10']
     else:     
@@ -1704,6 +1834,7 @@ def main(options):
         for (va, dk, experiment), g in meta.groupby(['visual_area', 'datakey', 'experiment']):
             print("    Area: %s - %s (%s) " % (va, dk, experiment))
             deviants = do_scatter_analysis(dk, va, experiment=experiment, 
+                            return_best_model=return_best_model,
                             do_gradients=do_gradients, do_model=do_model,
                             np_mag_thr=np_mag_thr, np_delay_map_thr=np_delay_map_thr, 
                             np_ds_factor=np_ds_factor,
@@ -1716,13 +1847,14 @@ def main(options):
         sdata = aggr.get_aggregate_info(visual_areas=['V1', 'Lm', 'Li'], 
                                         return_cells=False)
         if (va is None):
-            meta = sdata[(sdata.datakey==dk) & (sdata.experiment.isin(exp_list))]
+            meta = sdata[(sdata.datakey==dk) & (sdata.experiment.isin(exp_list))].drop_duplicates()
         else:
             meta = sdata[(sdata.datakey==dk) & (sdata.experiment.isin(exp_list)) \
-                       & (sdata.visual_area==va)] 
+                       & (sdata.visual_area==va)].drop_duplicates()
         for (va, experiment), g in meta.groupby(['visual_area', 'experiment']):
             print("Processing: %s, %s" % (va, dk))
             deviants = do_scatter_analysis(dk, va, experiment=experiment,
+                            return_best_model=return_best_model,
                             traceid=traceid,
                             do_gradients=do_gradients, do_model=do_model,
                             np_mag_thr=np_mag_thr, np_delay_map_thr=np_delay_map_thr, 
@@ -1731,7 +1863,7 @@ def main(options):
                             do_spherical_correction=do_spherical_correction,
                             cmap=cmap, plot=plot, verbose=verbose, create_new=create_new)
             if deviants is not None:
-                print(deviants.shape)
+                print("    N deviants:", deviants.shape)
 
     print("Done.")
 

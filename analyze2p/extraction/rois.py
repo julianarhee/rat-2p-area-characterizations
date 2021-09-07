@@ -201,7 +201,7 @@ def load_roi_assignments(animalid, session, fov, retinorun='retino_run1',
 
 
 
-def get_masks_and_centroids(dk, experiment, traceid='traces001',
+def get_masks_and_centroids(dk, traceid='traces001',
                         xlabel='ml_pos', ylabel='ap_pos',
                         rootdir='/n/coxfs01/2p-data'):
     '''
@@ -212,7 +212,7 @@ def get_masks_and_centroids(dk, experiment, traceid='traces001',
 
     # Load zimg
     roiid = get_roiid_from_traceid(animalid, session, 'FOV%i_*' % fovnum, 
-                                          experiment, traceid=traceid)
+                                          traceid=traceid)
     zimg_path = glob.glob(os.path.join(rootdir, animalid, session, \
                                        'ROIs', '%s*' % roiid, 'figures', '*.tif'))[0]
     zimg = tf.imread(zimg_path)

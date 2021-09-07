@@ -36,8 +36,8 @@ def extract_options(options):
 #    parser.add_option('-A', '--fov', action='store', dest='fov', default='FOV1_zoom2p0x', \
 #                      help="acquisition folder (ex: 'FOV1_zoom3x') [default: FOV1_zoom2p0x]")
 
-    parser.add_option('-R', '--run', action='store', dest='run', default='rfs', \
-                      help="name of run dir containing tiffs to be processed (ex: rfs)")
+    parser.add_option('-E', '--experiment', action='store', dest='experiment', default='rfs', \
+                      help="name of run dir containing tiffs to be processed (ex: rfs or rfs10")
     parser.add_option('-t', '--traceid', action='store', dest='traceid', default='traces001', \
                       help="name of traces ID [default: traces001]")
     parser.add_option('-d', '--data-type', action='store', dest='trace_type', 
@@ -134,7 +134,7 @@ def main(options):
     #animalid = optsE.animalid
     #session = optsE.session
     #fov = optsE.fov
-    run = optsE.run
+    experiment = optsE.experiment
     traceid = optsE.traceid
     trace_type = optsE.trace_type
     
@@ -171,7 +171,7 @@ def main(options):
     print("--------------------------------------------")
 
     fit_results, fit_params, trialdata = rfutils.fit_2d_rfs(
-                                datakey, run, traceid, 
+                                datakey, experiment, traceid, 
                                 trace_type=trace_type, 
                                 post_stimulus_sec=post_stimulus_sec,
                                 scaley=scaley,
