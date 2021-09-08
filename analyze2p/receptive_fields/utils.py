@@ -2264,12 +2264,16 @@ def fit_2d_rfs(datakey, run, traceid,
     print("... %i out of %i fit rois with r2 > %.2f" % 
                 (len(fit_roi_list), fitdf.shape[0], fit_params['fit_thr']))
 
+    old_figs = glob.glob(os.path.join(fit_params['rfdir'], 'top*_*.png'))
+    for f in old_figs:
+        os.remove(f)
+
     try:
         fig = plot_top_rfs(fitdf, fit_params, fit_roi_list=fit_roi_list)
         pplot.label_figure(fig, data_id)
-        figname = 'top%i_fit_thr_%.2f_%s_ellipse__p3' \
+        figname = 'top%i_fit_thr_%.2f_%s' \
                 % (len(fit_roi_list), fit_thr, fit_desc)
-        pl.savefig(os.path.join(fit_params['rfdir'], '%s.png' % figname))
+        pl.savefig(os.path.join(fit_params['rfdir'], '%s.svg' % figname))
         print(figname)
         pl.close()
     except Exception as e:
@@ -2443,7 +2447,7 @@ def load_trialdata(fit_params, return_traces=False):
         return trialdata, labels
 
 def do_evaluation(datakey, fit_results, fit_params, trialdata,
-                n_bootstrap_iters=1000, n_resamples=None, ci=0.95,
+                n_bootstrap_iters=1000,  ci=0.95,
                 pass_criterion='all', model='ridge', 
                 plot_boot_distns=True, deviant_color='dodgerblue', plot_all_cis=False,
                 n_processes=1, all_new_evals=False,
@@ -2461,6 +2465,7 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
     if all_new_evals:
         if os.path.exists(tmp_roi_dir):
             shutil.rmtree(tmp_roi_dir)
+        create_new=True
     if not os.path.exists(tmp_roi_dir):
         os.makedirs(tmp_roi_dir)
   
@@ -2478,7 +2483,7 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
                     "... no criteria passed, redoing"
             print("N eval:", len(eval_results['pass_cis'].index.tolist()))
         except Exception as e:
-            # traceback.print_exc()
+            traceback.print_exc()
             create_new=True
 
     fitdf = rfits_to_df(fit_results, fit_params=fit_params, 
@@ -2491,16 +2496,16 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
     if create_new: 
         if trialdata is None:
             trialdata, labels = load_trialdata(fit_params)
-        if n_resamples is None:
-            n_resamples = int(trialdata.groupby(['config'])\
-                            .count().min().unique())
+#        if n_resamples is None:
+#            n_resamples = int(trialdata.groupby(['config'])\
+#                            .count().min().unique())
 
         # Which cells have fits?
         #roi_list = sorted(list(fit_results.keys()))
         roidf_list = [trialdata[[roi, 'config', 'trial']] for roi in fit_rois]
         # Update params to include evaluation info 
         evaluation = {'n_bootstrap_iters': n_bootstrap_iters, 
-                      'n_resamples': n_resamples,
+                      #'n_resamples': n_resamples,
                       'ci': ci}   
         fit_params.update({'evaluation': evaluation})
         # Do evaluation 
@@ -2509,6 +2514,7 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
                                     n_processes=n_processes, 
                                     all_new_evals=all_new_evals) 
         save_eval_results(eval_results, fit_params)
+
     if eval_results is None: 
         return None
 
@@ -2528,8 +2534,12 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
     print("%i out of %i cells w. R2>0.5 are reliable (95%% CI)" 
             % (len(reliable_rois), len(fit_rois)))
     # Plotting
-    roidir = os.path.join(evaldir, 
-                'rois_%i-iters_%i-resample' % (n_bootstrap_iters, n_resamples))
+    old_dirs = glob.glob(os.path.join(evaldir, 'rois_*-iters_*-resample'))
+    if len(old_dirs)>0:
+        for d in old_dirs:
+            shutil.rmtree(d)
+
+    roidir = os.path.join(evaldir, 'rois_%i-iters' % (n_bootstrap_iters))
     if os.path.exists(roidir):
         shutil.rmtree(roidir)
     if not os.path.exists(roidir):
@@ -2544,7 +2554,49 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
                           scale_sigma=fit_params['scale_sigma'],
                           outdir=roidir, plot_format='svg', 
                           data_id=data_id)
-    
+   
+     #
+    #reliabledf = fitdf[fitdf['cell'].isin(reliable_rois)].copy() 
+    fitdf_unscaled = rfits_to_df(fit_results, fit_params=fit_params, scale_sigma=False, 
+                        convert_coords=False )
+
+    old_figs = glob.glob(os.path.join(evaldir, 'reliable_top*.png'))
+    for f in old_figs:
+        os.remove(f)
+
+    try:
+        fig = plot_top_rfs(fitdf_unscaled, fit_params, fit_roi_list=reliable_rois)
+        pplot.label_figure(fig, data_id)
+        figname = 'reliable_top%i_pass-%s_%s' \
+                % (len(reliable_rois), pass_criterion, fit_desc)
+        pl.savefig(os.path.join(evaldir, '%s.svg' % figname))
+        print(figname)
+        pl.close()
+    except Exception as e:
+        traceback.print_exc()
+        print("Error plotting best RFs grid")
+
+
+    try:
+        fitdf_converted = rfits_to_df(fit_results, fit_params=fit_params,
+                        scale_sigma=False, convert_coords=True) 
+        experiment='rfs'if fit_params['column_spacing']==5 else 'rfs10'
+        sdf = aggr.get_stimuli(datakey, experiment)
+        screen = hutils.get_screen_dims()
+        fig = plot_rfs_to_screen(fitdf_converted, sdf, screen, \
+                        sigma_scale=fit_params['sigma_scale'],
+                        fit_roi_list=reliable_rois)
+        pplot.label_figure(fig, data_id)
+
+        figname = 'reliable_pass-%s_overlaid_RFs' % pass_criterion
+        pl.savefig(os.path.join(evaldir, '%s.svg' % figname))
+        print(figname)
+        pl.close()
+    except Exception as e:
+        traceback.print_exc()
+        print("Error printing RFs to screen, pretty")
+
+
 #    # Figure out if there are any deviants
      # TODO:  DO THIS< but with projected fov coords
      # Compare CIs of each cell to the regression model CIs.
@@ -2728,7 +2780,11 @@ def save_eval_results(eval_results, fit_params):
     with open(rf_eval_fpath, 'wb') as f:
         pkl.dump(eval_results, f, protocol=2)
 
-    rf_params_fpath = os.path.join(rfdir, 'fit_param.json')
+    bad_n = os.path.join(rfdir, 'fit_param.json')
+    if os.path.exists(bad_n):
+        os.remove(bad_n)
+
+    rf_params_fpath = os.path.join(rfdir, 'fit_params.json')
     with open(rf_params_fpath, 'w') as f:
         json.dump(fit_params, f, indent=4, sort_keys=True)
 
@@ -2753,7 +2809,7 @@ def bootstrap_rf_params(roi_df, fit_params={},
     do_spherical_correction=fit_params['do_spherical_correction']
     row_vals = fit_params['row_vals']
     col_vals = fit_params['col_vals']
-    n_resamples = fit_params['evaluation']['n_resamples']
+    #n_resamples = fit_params['evaluation']['n_resamples']
     n_bootstrap_iters = fit_params['evaluation']['n_bootstrap_iters']
     
     #xres=1 if do_spherical_correction else float(np.unique(np.diff(row_vals)))
@@ -2776,9 +2832,10 @@ def bootstrap_rf_params(roi_df, fit_params={},
         # Get mean response across re-sampled trials for each condition 
         # (i.e., each position). Do this n-bootstrap-iters times
         # cols = boot iters, rows = configs
+        n_resamples = responses_df.shape[0]
         bootresp_ = pd.concat([responses_df.sample(n_resamples, replace=True)\
-                                .mean(axis=0) 
-                                for ni in range(n_bootstrap_iters)], axis=1)
+                        .mean(axis=0) \
+                        for ni in range(n_bootstrap_iters)], axis=1)
 
         # Reshape array so that it matches for fitrf changs 
         # (should match .reshape(ny, nx))

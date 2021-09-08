@@ -495,6 +495,24 @@ def _pad_array(x, wing):
                            x[:-wing-1:-1]))
 
 
+# Visualization
+def smooth_timecourse(in_trace, win_size=41):
+    #smooth trace
+    win_half = int(round(win_size/2))
+    trace_pad = np.pad(in_trace, ((win_half, win_half)), 'reflect') # 'symmetric') #'edge')
+
+    smooth_trace = np.convolve(trace_pad, np.ones((win_size,))*(1/float(win_size)),'valid')
+    
+    return smooth_trace
+
+def smooth_traces_trial(gg, win_size=5, colname='trial'):
+    smoothed_ = smooth_timecourse(gg, win_size=win_size)
+    return pd.Series(smoothed_)
+
+
+# --------------------------------------------------------------------
+# Neuropil Calculations
+# --------------------------------------------------------------------
 def append_neuropil_subtraction(maskdict_path, cfactor, 
                         filetraces_dir, datakey, create_new=False, rootdir=''):
     '''

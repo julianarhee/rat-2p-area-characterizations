@@ -97,9 +97,9 @@ def extract_options(options):
     parser.add_option('-B', '--boot', action='store', dest='n_bootstrap_iters', 
                         default=500, 
                       help="N bootstrap iterations (default: 500)")
-    parser.add_option('-s', '--resample', action='store', dest='n_resamples', 
-                        default=None, 
-                      help="N resamples (default: None, just takes min. N trials)")
+#    parser.add_option('-s', '--resample', action='store', dest='n_resamples', 
+#                        default=None, 
+#                      help="N resamples (default: None, just takes min. N trials)")
 
     parser.add_option('--do-fits', action='store_true', dest='do_fits', default=False, \
                       help="Flag to refit all rois")
@@ -151,7 +151,7 @@ def main(options):
    
     # evaluation prams
     n_bootstrap_iters = int(optsE.n_bootstrap_iters)
-    n_resamples = None if optsE.n_resamples in ['None', None] else int(optsE.n_resamples)
+    #n_resamples = None if optsE.n_resamples in ['None', None] else int(optsE.n_resamples)
     do_eval = optsE.do_eval
     all_new_evals = optsE.all_new_evals
 
@@ -204,12 +204,12 @@ def main(options):
         print("--------------------------------------------")
         #datakey = '%s_%s_fov%i' % (session, animalid, int(fov.split('_')[0][3:]))
         evaldf = rfutils.do_evaluation(datakey, fit_results, fit_params, trialdata,
-                    n_bootstrap_iters=n_bootstrap_iters, n_resamples=n_resamples, ci=0.95,
+                    n_bootstrap_iters=n_bootstrap_iters, ci=0.95,
                     pass_criterion='all', model='ridge', 
                     plot_boot_distns=True, 
                     deviant_color='dodgerblue', plot_all_cis=False, 
                     n_processes=n_processes, all_new_evals=all_new_evals,
-                    create_new=do_eval, rootdir='/n/coxfs01/2p-data')
+                    create_new=all_new_evals, rootdir='/n/coxfs01/2p-data')
 
     print("((( RFs done! )))))")
        
