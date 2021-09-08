@@ -140,7 +140,7 @@ def scale_2p_fov(transformed_image, pixel_size=(2.312, 1.888)):
 
 
 def plot_transformation_steps(rotated, normed, img8, eq):
-    pl.figure()
+    fig = pl.figure()
     pl.subplot(2,2,1); pl.title('orig'); pl.imshow(rotated); pl.colorbar();
     pl.subplot(2,2,2); pl.title('normalized'); pl.imshow(normed); pl.colorbar();
     pl.subplot(2,2,3); pl.title('8 bit'); pl.imshow(img8); pl.colorbar();
@@ -420,7 +420,7 @@ class Animal():
         out_fpath = os.path.join(self.coreg_dir, 'FOVs.pkl')
         f = open(out_fpath, 'wb')
         #with open(out_fpath, 'wb') as f:
-        pkl.dump(self, f, protocol=pkl.HIGHEST_PROTOCOL)
+        pkl.dump(self, f, protocol=2)
         f.close()
     
     def get_reference(self, path_to_macro=None):
@@ -501,7 +501,7 @@ class Animal():
         
     
     def check_alignment(self, curr_fov):
-        reselect = raw_input("Keep current alignment for -- %s --? Press [A] to accept, [R] to reselect points: " % curr_fov)
+        reselect = input("Keep current alignment for -- %s --? Press [A] to accept, [R] to reselect points: " % curr_fov)
         if reselect == 'R':
             #pl.close(fig)
             reselect_points = True
@@ -704,7 +704,7 @@ def main(options):
         A = Animal(optsE)
         A.save_me()
     else:
-        with open(animal_fpath, 'rb') as f: A = pkl.load(f)
+        with open(animal_fpath, 'rb') as f: A = pkl.load(f, encoding='latin1')
        
     state = A.add_fov(optsE)
     if state is None:
