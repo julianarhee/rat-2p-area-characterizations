@@ -636,6 +636,35 @@ def get_pw_diffs(df_, metric='response_pref'):
 import analyze2p.gratings.bootstrap_osi as osi
 from scipy import signal
 
+def cosine_similarity(v1, v2):
+    return (v1.dot(v2)) / (np.sqrt(np.sum(v1**2)) * np.sqrt(np.sum(v2**2)))
+
+
+def get_paired_tuning_metrics(fitdf, r1, r2):
+    tuning_params = ['response_pref', 'response_null', 'theta_pref', 'sigma',
+                     'response_offset', 'asi', 'dsi', 'circvar_asi', 'circvar_dsi', 
+                     'sf', 'size', 'speed', 'tf']
+    d_=[]
+    for ri in [r1, r2]:
+        d1 = pd.DataFrame({'param': fitdf.loc[ri][tuning_params].index.tolist(),
+                            'value': fitdf.loc[ri][tuning_params].values})
+        d1['cell'] = ri
+        d_.append(d1)
+    d0 = pd.concat(d_, axis=0)
+    cosim_m1 = cosine_similarity(d0[d0['cell']==r1]['value'].values, 
+                                d0[d0['cell']==r2]['value'].values)
+    # normalize values
+    d0.loc[d0.param=='size', 'value'] = d0[d0.param=='size']['value'] /200. 
+    d0.loc[d0.param=='speed', 'value'] = d0[d0.param=='speed']['value'] /20. 
+    d0.loc[d0.param=='theta_pref', 'value'] = d0[d0.param=='theta_pref']['value'] /360. 
+    d0.loc[d0.param=='sigma', 'value'] = d0[d0.param=='sigma']['value'] /180. 
+    d0.loc[d0.param=='tf', 'value'] = d0[d0.param=='tf']['value'] /10. 
+
+    cosim_m = cosine_similarity(d0[d0['cell']==r1]['value'].values, 
+                                d0[d0['cell']==r2]['value'].values)
+    return d0, cosim_m
+    #print(cosim_m1, cosim_m)
+
 def cross_correlate_curves(thetas, fitdf, a=0, b=1):
     '''Given fit params (gratings fits), get tuning curves, calculate corrs'''
     # Tuning curves
@@ -650,8 +679,11 @@ def cross_correlate_curves(thetas, fitdf, a=0, b=1):
     xcorr = ccorr[lagzero]
     # do pearson's corr
     cc, pv = spstats.pearsonr(fitr1, fitr2)
+    # do cosine similarity
+    cosim = cosine_similarity(fitr1, fitr2)
+
     # combine
-    res = pd.Series({'xcorr': xcorr, 'pearsons': cc, 
+    res = pd.Series({'xcorr': xcorr, 'pearsons': cc,  'cosim': cosim,
                       'cell_1': int(a), 'cell_2': int(b), 
                       'neuron_pair': '%i_%i' % (a, b)})
     return res
@@ -668,6 +700,7 @@ def get_pw_curve_correlations(fitdf, n_intervals=3):
     t = [cross_correlate_curves(thetas, fitdf, a=a, b=b) for (a, b) in col_pairs]
     df_ = pd.concat(t, axis=1).T
     return df_
+
 
 def aggregate_tuning_curve_ccdist(df, n_intervals=3, min_ncells=5):
     '''
