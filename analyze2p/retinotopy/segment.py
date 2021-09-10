@@ -944,7 +944,7 @@ def plot_gradients_in_area(labeled_image, img_az, img_el, grad_az, grad_el,
     '''
     Retinomaps overlaid w/ gradient field, plus average gradient dir.
     '''
-    fig, axn = pl.subplots(2,2, figsize=(5,6))
+    fig, axn = pl.subplots(2,2, figsize=(4,5))
 
     # Maps ------------
     ax=axn[0, 0]

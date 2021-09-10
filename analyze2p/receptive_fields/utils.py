@@ -783,19 +783,38 @@ def get_reliable_fits(pass_cis, pass_criterion='all', single=False):
         elif pass_criterion=='any':
             tmp_ci = pass_cis[param_cols].copy()
             keep_rids = [i for i in pass_cis.index.tolist() if any(tmp_ci.loc[i])]
+        elif pass_criterion=='most':
+            tmp_ci = pass_cis[param_cols].copy()
+            keep_rids = [i for i in pass_cis.index.tolist() 
+                            if sum([pv==True 
+                            for pv in tmp_ci.loc[i]])/float(len(param_cols))>0.5]
+
         elif pass_criterion=='size':
             keep_rids = [i for i in pass_cis.index.tolist() 
                             if (pass_cis['sigma_x'][i]==True and pass_cis['sigma_y'][i]==True)]
         elif pass_criterion=='position':
             keep_rids = [i for i in pass_cis.index.tolist() 
                             if (pass_cis['x0'][i]==True and pass_cis['y0'][i]==True)]
-        elif pass_criterion=='most':
-            tmp_ci = pass_cis[param_cols].copy()
-            keep_rids = [i for i in pass_cis.index.tolist() 
-                            if sum([pv==True 
-                            for pv in tmp_ci.loc[i]])/float(len(param_cols))>0.5]
+
+        elif isinstance(pass_criterion, (np.ndarray, list)):
+            each_filter = []
+            for pc in pass_criterion:
+                if pc=='size':
+                    keep_ = [i for i in pass_cis.index.tolist() 
+                            if (pass_cis['sigma_x'][i]==True and pass_cis['sigma_y'][i]==True)]
+                elif pc=='position':
+                    keep_ = [i for i in pass_cis.index.tolist() 
+                            if (pass_cis['x0'][i]==True and pass_cis['y0'][i]==True)]
+                else:
+                    keep_ = [i for i in pass_cis.index.tolist() \
+                                if pass_cis[pc][i]==True]
+                each_filter.append(keep_)
+            keep_rids = list(set.intersection(*map(set, each_filter))) # np.intersect1d(each_filter) 
+
         else:   
-            keep_rids = [i for i in pass_cis.index.tolist() if any(pass_cis.loc[i])]
+            tmp_ci = pass_cis[param_cols].copy()
+            keep_rids = [i for i in pass_cis.index.tolist() if any(tmp_ci.loc[i])]
+            #keep_rids = [i for i in pass_cis.index.tolist() if any(pass_cis.loc[i])]
        
     pass_df = pass_cis.loc[keep_rids]
  
@@ -805,7 +824,7 @@ def get_reliable_fits(pass_cis, pass_criterion='all', single=False):
 
 
 
-def load_rf_fits(dk, experiment='rfs', fit_desc=None):
+def load_rf_fits(dk, experiment='rfs', fit_desc=None, ecc_center=(0, 0), verbose=False):
     rfdf_ = None
     try:
         fit_results, fit_params = load_fit_results(dk, experiment=experiment,
@@ -814,7 +833,11 @@ def load_rf_fits(dk, experiment='rfs', fit_desc=None):
                             scale_sigma=fit_params['scale_sigma'], 
                             sigma_scale=fit_params['sigma_scale'])
         rfdf_ = rfit_df[rfit_df['r2']>0.5]
+        rfdf_ = update_rf_metrics(rfdf_, ecc_center=ecc_center)
+
     except Exception as e:
+        if verbose:
+            traceback.print_exc()
         return rfdf_
 
     return rfdf_
@@ -823,7 +846,7 @@ def load_rf_fits(dk, experiment='rfs', fit_desc=None):
 def cycle_and_load(rfmeta, cells0, is_neuropil=False,
                     fit_desc=None, traceid='traces001', 
                     fit_thr=0.5, scale_sigma=True, sigma_scale=2.35, 
-                    verbose=False, 
+                    verbose=False,  ecc_center=(0, 0), 
                     response_type='dff', reliable_only=True, pass_criterion='all',
                     rootdir='/n/coxfs01/2p-data', return_missing=False):
     '''
@@ -896,7 +919,7 @@ def cycle_and_load(rfmeta, cells0, is_neuropil=False,
 
     if len(df_list)>0:
         rfdf = pd.concat(df_list, axis=0).reset_index(drop=True)    
-        rfdf = update_rf_metrics(rfdf, scale_sigma=scale_sigma)
+        rfdf = update_rf_metrics(rfdf, scale_sigma=scale_sigma, ecc_center=ecc_center)
 
     if return_missing:
         return rfdf, no_fits, no_eval
@@ -904,7 +927,7 @@ def cycle_and_load(rfmeta, cells0, is_neuropil=False,
         return rfdf
 
 
-def update_rf_metrics(rfdf, scale_sigma=True):
+def update_rf_metrics(rfdf, scale_sigma=True, ecc_center=(0,0) ):
     # Include average RF size (average of minor/major axes of fit ellipse)
     if scale_sigma:
         rfdf = rfdf.rename(columns={'sigma_x': 'fwhm_x', 'sigma_y': 'fwhm_y'})
@@ -962,6 +985,15 @@ def update_rf_metrics(rfdf, scale_sigma=True):
     sins = abs(np.sin(rfdf['theta_Mm_c']))
     sins_c = hutils.convert_range(sins, oldmin=0, oldmax=1, newmin=-1, newmax=1)
     rfdf['aniso_index'] = sins_c * rfdf['anisotropy']
+
+
+    rfdf['eccentricity'] = np.linalg.norm(rfdf[['x0', 'y0']].sub(np.array(ecc_center)), axis=1)
+    rfdf['eccentricity_ctr'] = np.linalg.norm(rfdf[['x0', 'y0']].sub(np.array([0, 0])), axis=1)
+
+#    rfdf['eccentricity'] = [np.sqrt((g[['x0', 'y0']]**2).sum()) \
+#                      for i, g in rfdf.iterrows()]
+    rfdf['rf_theta_deg'] = [np.rad2deg(i) % 180 for i in rfdf['theta_Mm_c'].values]
+    rfdf['aspect_ratio'] = rfdf['major_axis']/rfdf['minor_axis']
  
     return rfdf
 
@@ -1020,7 +1052,7 @@ def get_fit_dpaths(dsets, traceid='traces001', fit_desc=None,
 
 
 def aggregate_rfdata(rf_dsets, assigned_cells, traceid='traces001', 
-                        fit_desc='fit-2dgaus_dff-no-cutoff', 
+                        fit_desc='fit-2dgaus_dff-no-cutoff', ecc_center=(0, 0), 
                         reliable_only=True, pass_criterion='all',
                         verbose=False,return_missing=False):
     # Gets all results for provided datakeys (sdata, for rfs/rfs10)
@@ -1035,9 +1067,12 @@ def aggregate_rfdata(rf_dsets, assigned_cells, traceid='traces001',
                             fit_desc=fit_desc, traceid=traceid, 
                             verbose=verbose, return_missing=True)
     rfdf = rfdf.reset_index(drop=True)
+    rfdf = update_rf_metrics(rfdf, scale_sigma=True, ecc_center=ecc_center)
 
-    rfdf['rf_theta_deg'] = [np.rad2deg(i) % 180 for i in rfdf['theta_Mm_c'].values]
-    rfdf['aspect_ratio'] = rfdf['major_axis']/rfdf['minor_axis']
+#    rfdf['eccentricity'] = [np.sqrt((g[['x0', 'y0']]**2).sum()) \
+#                      for i, g in rfdf.iterrows()]
+#    rfdf['rf_theta_deg'] = [np.rad2deg(i) % 180 for i in rfdf['theta_Mm_c'].values]
+#    rfdf['aspect_ratio'] = rfdf['major_axis']/rfdf['minor_axis']
 
     if return_missing:
         return rfdf, no_fit, no_eval
@@ -1046,7 +1081,7 @@ def aggregate_rfdata(rf_dsets, assigned_cells, traceid='traces001',
 
 
 def aggregate_fits(cells0, sdata, response_type='dff', do_spherical_correction=False,
-            reliable_only=False, pass_criterion='all', combine='average'):
+            reliable_only=False, pass_criterion='all', combine='average', ecc_center=(0, 0)):
     '''
     Combines all RF fit params.
     Args:
@@ -1073,27 +1108,27 @@ def aggregate_fits(cells0, sdata, response_type='dff', do_spherical_correction=F
     rf_fit_desc = get_fit_desc(response_type=response_type, 
                                 do_spherical_correction=do_spherical_correction)
     rfdata = aggregate_rfdata(rf_meta, assigned_cells, 
-                                fit_desc=rf_fit_desc,
+                                fit_desc=rf_fit_desc, ecc_center=ecc_center,
                                 reliable_only=reliable_only, pass_criterion=pass_criterion)
 
     # Combined rfs5/rfs10
     if combine=='select':
-        rfdf = combine_rfs_select(rfdata) 
+        rfdf = combine_rfs_select(rfdata) #, ecc_center=ecc_center) 
     elif combine=='single':
-        rfdf = combine_rfs_single(rfdata )
+        rfdf = combine_rfs_single(rfdata) #, ecc_center=ecc_center)
     else:
-        rfdf = average_rfs(rfdata, keep_experiment=False) 
+        rfdf = average_rfs(rfdata, keep_experiment=False) #, ecc_center=ecc_center) 
 
     # Add eccentricity
-    rfdf['eccentricity'] = [np.sqrt((g[['x0', 'y0']]**2).sum()) \
-                      for i, g in rfdf.iterrows()]
-
+#    rfdf['eccentricity'] = [np.sqrt((g[['x0', 'y0']]**2).sum()) \
+#                      for i, g in rfdf.iterrows()]
+#
 
     return rfdf
 
 
 
-def combine_rfs_single(rfdf):
+def combine_rfs_single(rfdf): #, ecc_center=(0,0)):
     '''
     Combine RF data so only 1 RF experiment per datakey. 
     Default:  Always take rfs for V1/LM, otherwise rfs10. Opposite for LI.
@@ -1115,6 +1150,7 @@ def combine_rfs_single(rfdf):
         rf_.append(final_rf)
 
     final_rfdf = pd.concat(rf_).reset_index(drop=True)
+    #final_rfdf = update_rf_metrics(final_rfdf, scale_sigma=True, ecc_center=ecc_center)
 
     return final_rfdf
 
@@ -1166,11 +1202,12 @@ def combine_rfs_select(rfdf):
         rf_.append(final_rf)
 
     final_rfdf = pd.concat(rf_).reset_index(drop=True)
+    #final_rfdf = update_rf_metrics(final_rfdf, scale_sigma=True, ecc_center=ecc_center)
 
     return final_rfdf
 
 
-def average_rfs_select(rfdf):
+def average_rfs_select(rfdf): #, ecc_center=(0, 0)):
     '''prob should just ignore this one
     '''
     final_rfdf=None
@@ -1198,7 +1235,7 @@ def average_rfs_select(rfdf):
             metainfo = pd.concat([g[non_num].iloc[0] for c, g in \
                             curr_rfdf.groupby(['cell'])], axis=1).T.reset_index(drop=True)
             final_rf = pd.concat([metainfo, meanrf], axis=1)            
-            final_rf = update_rf_metrics(final_rf, scale_sigma=True)
+            #final_rf = update_rf_metrics(final_rf, scale_sigma=True, ecc_center=ecc_center)
         rf_.append(final_rf)
 
     final_rfdf = pd.concat(rf_).reset_index(drop=True)
@@ -1206,7 +1243,7 @@ def average_rfs_select(rfdf):
     return final_rfdf
 
 
-def average_rfs(rfdf, keep_experiment=True):
+def average_rfs(rfdf, keep_experiment=True): #, ecc_center=(0, 0)):
     '''
     Cycle thru all rf fit data, and grab EVERYTHING. Averages fit params
     for cells measured with both stimulus sizes (5 vs 10). Least conservative way.
@@ -1232,10 +1269,11 @@ def average_rfs(rfdf, keep_experiment=True):
         metainfo = pd.concat([g[non_num].iloc[0] for c, g in \
                             curr_rfdf.groupby(['cell'])], axis=1).T.reset_index(drop=True)
         final_rf = pd.concat([metainfo, meanrf], axis=1)
-        final_rf = update_rf_metrics(final_rf, scale_sigma=True)
+        #final_rf = update_rf_metrics(final_rf, scale_sigma=True, ecc_center=ecc_center)
         rf_.append(final_rf)
 
     final_rfdf = pd.concat(rf_).reset_index(drop=True)
+    #final_rfdf = update_rf_metrics(final_rfdf, scale_sigma=True, ecc_center=ecc_center)
 
     return final_rfdf
 

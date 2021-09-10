@@ -1142,6 +1142,21 @@ def smooth_neuropil(azim_r, smooth_fwhm=21):
     azim_smoothed = VV/WW
     return azim_smoothed
 
+
+def smooth_phase_nans(inputArray, sigma, sz):
+    
+    V=inputArray.copy()
+    V[np.isnan(inputArray)]=0
+    VV=smooth_phase_array(V,sigma,sz)
+
+    W=0*inputArray.copy()+1
+    W[np.isnan(inputArray)]=0
+    WW=smooth_phase_array(W,sigma,sz)
+
+    Z=VV/WW
+
+    return Z
+
 def smooth_array(inputArray, fwhm, phaseArray=False):
     szList=np.array([None,None,None,11,None,21,None,27,None,31,None,37,None,43,None,49,None,53,None,59,None,55,None,69,None,79,None,89,None,99])
     sigmaList=np.array([None,None,None,.9,None,1.7,None,2.6,None,3.4,None,4.3,None,5.1,None,6.4,None,6.8,None,7.6,None,8.5,None,9.4,None,10.3,None,11.2,None,12])

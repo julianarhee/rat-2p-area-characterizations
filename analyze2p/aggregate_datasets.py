@@ -1115,6 +1115,18 @@ def traces_to_trials(traces, labels, epoch='stimulus', metric='mean', n_on=None)
     return mean_responses
 
 
+def datasets_to_exclude():
+    excluded_datasets = ['20190321_JC073_fov1',
+                         '20190314_JC070_fov2', 
+                         '20190420_JC076_fov1', '20190423_JC076_fov1', '20190426_JC078_fov1',
+                         '20190602_JC080_fov1', 
+                         '20190605_JC090_fov1',
+                         '20191003_JC111_fov1', 
+                         '20191104_JC117_fov1', '20191104_JC117_fov2', '20191105_JC117_fov1',
+                         '20191108_JC113_fov1', '20191004_JC110_fov3',
+                         '20191008_JC091_fov', '20191012_JC113_fov1'] 
+
+    return excluded_datasets
 
 # --------------------------------------------------------------------
 # Aggregating functions
@@ -1127,6 +1139,8 @@ def get_cells_by_area(sdata, create_new=False, excluded_datasets=[],
     '''
     Use retionrun to ID area boundaries. If more than 1 retino, combine.
     '''
+    excluded_datasets = datasets_to_exclude()
+
     #from . import roi_utils as rutils
     cells=None
     missing_segmentation=[]
@@ -1136,21 +1150,12 @@ def get_cells_by_area(sdata, create_new=False, excluded_datasets=[],
         try:
             with open(cells_fpath, 'rb') as f:
                 results = pkl.load(f, encoding='latin1')
-            cells = results['cells']
+            cells0 = results['cells']
+            cells = cells0[~cells0.datakey.isin(excluded_datasets)].copy()
             missing_segmentation = results['missing']
         except Exception as e:
             create_new=True
 
-    # bad segmentation
-    excluded_datasets = ['20190321_JC073_fov1',
-                         '20190314_JC070_fov2', 
-                         '20190420_JC076_fov1',
-                         '20190602_JC080_fov1', 
-                         '20190605_JC090_fov1',
-                         '20191003_JC111_fov1', 
-                         '20191104_JC117_fov1', '20191104_JC117_fov2', 
-                         '20191108_JC113_fov1', '20191004_JC110_fov3',
-                         '20191008_JC091_fov', '20191012_JC113_fov1'] 
     if create_new:
         print("Assigning cells")
         d_ = []
@@ -1216,6 +1221,9 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
                 return_missing=False,
                 aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
 
+    # bad segmentation
+    excluded_datasets = datasets_to_exclude()
+
     sdata_fpath = os.path.join(aggregate_dir, 'dataset_info_assigned.pkl')
     if create_new is False:
         print(sdata_fpath)
@@ -1225,9 +1233,10 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
                         "Path does not exist: %s" % sdata_fpath
             # Load old assignment meta info
             with open(sdata_fpath, 'rb') as f:
-                sdata = pkl.load(f, encoding='latin1')
-            assert sdata is not None and isinstance(sdata, pd.DataFrame), \
+                sdata0 = pkl.load(f, encoding='latin1')
+            assert sdata0 is not None and isinstance(sdata0, pd.DataFrame), \
                                         "Bad metadata loading, creating new"
+            sdata = sdata0[~sdata0.datakey.isin(excluded_datasets)].copy()
             # Get cells based on assignment info
             if return_cells:
                 cells, missing_seg = get_cells_by_area(sdata, create_new=False,
@@ -1243,7 +1252,9 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
         print("Loading old...")
         unassigned_fp = os.path.join(aggregate_dir, 'dataset_info.pkl') 
         with open(unassigned_fp, 'rb') as f:
-            sdata = pkl.load(f, encoding='latin1')
+            sdata0 = pkl.load(f, encoding='latin1')
+        sdata = sdata0[~sdata0.datakey.isin(excluded_datasets)].copy()
+
         # Assign cells
         cells, missing_seg = get_cells_by_area(sdata, create_new=create_new,
                                             return_missing=True)
