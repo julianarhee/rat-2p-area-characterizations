@@ -296,7 +296,7 @@ def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001',
     Only considered as deviant if this is true, and also, is "reliable" for position.
     '''
     # Get reliable c
-    deviants=None
+    deviants={}
     eval_results, eval_params = rfutils.load_eval_results(dk,
                                 experiment=experiment, 
                                 traceid=traceid, 
@@ -305,7 +305,6 @@ def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001',
                                     #fit_desc=fit_desc)   
     if eval_params is None:
         return None
-
     # try loading
     eval_dir = os.path.join(eval_params['rfdir'], 'evaluation')
     dev_fpath = os.path.join(eval_dir, 'deviants.json')
@@ -320,13 +319,10 @@ def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001',
             print("    REDOING.")
             #print(e)
             redo_fov=True
-    else:
-        deviants={}
 
     cond_dict = {}
     if not isinstance(deviants, dict):
         deviants={}
-
     fit_desc = rfutils.get_fit_desc(response_type=response_type, 
                                     do_spherical_correction=do_spherical_correction)
     data_id = '%s|%s|%s, %s' % (fit_desc, va, dk, experiment)
@@ -334,28 +330,28 @@ def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001',
         if verbose:
             print("    identifying deviants (%s, %s)" % (dk, va))
         # Get list of all reliable fits
-        reliable_ = rfutils.get_reliable_fits(eval_results['pass_cis'],
-                                            pass_criterion='position')
+        #reliable_ = rfutils.get_reliable_fits(eval_results['pass_cis'],
+        #                                    pass_criterion='position')
         # Get rf fits for cells in visual area
         fitrf_ = project_soma_position_in_fov(dk, va, experiment=experiment, 
                                 traceid=traceid, response_type=response_type,
                                 do_spherical_correction=do_spherical_correction, 
                                 ecc_center=ecc_center, abs_value=abs_value)
+        rfs_ = fitrf_[fitrf_.reliable].copy()
+        rfs_.index = rfs_['cell'].values
+        reliable_ = rfs_['cell'].unique()        
         if len(reliable_)>0: #itrf_.shape[0]>0:
             bootdata = eval_results['bootdf'].copy()
-            rois_ = np.intersect1d(reliable_, fitrf_['cell'].unique()) # reliable + in area
-            boot_ = bootdata[bootdata['cell'].isin(rois_)]
-            cis_ = eval_results['cis'].loc[rois_]
-            rfs_ = fitrf_[fitrf_['cell'].isin(rois_)]
-            rfs_.index = rfs_['cell'].values
+            #rois_ = np.intersect1d(reliable_, fitrf_['cell'].unique()) # reliable + in area
+            boot_ = bootdata[bootdata['cell'].isin(reliable_)]
+            cis_ = eval_results['cis'].loc[reliable_]
+            #rfs_ = fitrf_[fitrf_['cell'].isin(reliable_)]
             
-            #if len(reliable_)>0:
             for cond in ['az', 'el']:
                 xname = 'ml_proj' if cond=='az' else 'ap_proj'
                 yname = 'x0' if cond=='az' else 'y0'
                 try:
-                    fig, ax = pl.subplots(figsize=(5,5))
-                    
+                    fig, ax = pl.subplots(figsize=(5,5))                    
                     if rfs_.shape[0]>0:
                         # Get projected cortical position
                         ax, devs_ = fit_with_deviants(boot_, cis_, rfs_, 
@@ -423,7 +419,7 @@ def aggregate_deviant_cells(response_type='dff', do_spherical_correction=False,
             with open(aggr_deviants_fpath, 'rb') as f:
                 res = pkl.load(f, encoding='latin1')
             deviants = res['deviants']
-            no_results = res['no_results']
+            no_deviants = res['no_deviants']
         except Exception as e:
             traceback.print_exc()
             create_new=True
@@ -434,15 +430,15 @@ def aggregate_deviant_cells(response_type='dff', do_spherical_correction=False,
             sdata = aggr.get_aggregate_info(visual_areas=visual_areas)
             meta = sdata[sdata.experiment.isin(['rfs', 'rfs10'])].copy()
         d_=[]
-        no_results=[]
+        no_deviants=[]
         for (va, dk, exp), g in meta.groupby(['visual_area', 'datakey', 'experiment']):
             df_ = get_deviants_in_fov(dk, va, experiment=exp, traceid=traceid,
                                    response_type=response_type,
                                    do_spherical_correction=do_spherical_correction,
                                     ecc_center=ecc_center, 
                                    redo_fov=redo_fov, verbose=verbose, save_plots=save_plots)
-            if df_ is None:
-                no_results.append((va, dk, exp))
+            if not df_['deviants'].any(): # is None:
+                no_deviants.append((va, dk, exp))
                 continue
             df_['visual_area'] = va
             df_['datakey'] = dk
@@ -450,9 +446,9 @@ def aggregate_deviant_cells(response_type='dff', do_spherical_correction=False,
             d_.append(df_)
         deviants = pd.concat(d_, axis=0).reset_index(drop=True)
         with open(aggr_deviants_fpath, 'wb') as f:
-            pkl.dump({'deviants': deviants, 'no_results': no_results}, f, protocol=2)
+            pkl.dump({'deviants': deviants, 'no_deviants': no_deviants}, f, protocol=2)
             
-    return deviants, no_results
+    return deviants, no_deviants
 
 
 # --------------------------------------------------------------------
@@ -915,7 +911,9 @@ def load_gradients(dk, va, retinorun='retino_run1', create_new=False,
                 results = pkl.load(f, encoding='latin1')
             if len(list(results.keys()))>1:
                 print('    found: %s, %s' % (dk, va), results.keys())
-            assert va in list(results.keys()), "Area <%s> not in results. creating now." % va
+            curr_results = results[va].copy()
+
+            #assert va in list(results.keys()), "Area <%s> not in results. creating now." % va
         except Exception as e:
             create_new=True
             traceback.print_exc()
@@ -952,8 +950,9 @@ def load_gradients(dk, va, retinorun='retino_run1', create_new=False,
         results.update({va: curr_results})
         with open(gradients_fpath, 'wb') as f:
             pkl.dump(results, f, protocol=2)
-            
-    return results[va]
+           
+         
+    return curr_results #results[va]
 
 
 # --------------------------------------------------------------------
@@ -1247,8 +1246,9 @@ def project_soma_position_in_fov(dk, va, experiment='rfs', traceid='traces001',
         Set to also return transformation matrix to go bw projected and true coords.
 
     '''
-
+    # Load gradient vectors
     GVECTORS = load_vectors(dk, va, create_new=False)
+    # Load soma data w/ RF fits
     df_soma = load_soma_data(dk, experiment=experiment,
                                 protocol='TILE', traceid=traceid,
                                 response_type=response_type,
@@ -1257,7 +1257,7 @@ def project_soma_position_in_fov(dk, va, experiment='rfs', traceid='traces001',
     if df_soma is None:
         return None
 
-    #### Align soma coords to gradient
+    # Align soma coords to gradient
     curr_somas = df_soma[df_soma.visual_area==va].copy()
     aligned_, M = project_onto_gradient(curr_somas, GVECTORS,
                                       xlabel='ml_pos', ylabel='ap_pos', abs_value=abs_value)
@@ -1274,10 +1274,10 @@ def load_soma_data(dk, experiment='rfs', retinorun='retino_run1',
                         protocol='TILE', traceid='traces001',
                         response_type='dff', 
                         do_spherical_correction=False, fit_thr=0.5,
-                        mag_thr=0.01, ecc_center=(0, 0)):
+                        mag_thr=0.01, ecc_center=(0, 0), verbose=False):
     '''
-    Load SOMA data (and visual_area assignemnts)
-    **Specify RETINORUN for correct roi assignments 
+    Load SOMA data (and visual_area assignemnts) -- if TILE, includes reliable or not.
+    **Specify RETINORUN for correct roi assignments .
     (even if protocol is TILE).
     ''' 
     df=None
@@ -1307,10 +1307,9 @@ def load_soma_data(dk, experiment='rfs', retinorun='retino_run1',
 
         fitdf_soma['cell'] = fitdf_soma.index.tolist()
         assert 'eccentricity' in fitdf_soma.columns
-
         # Get reliable
         reliable_rois=[]
-        try: #### Load eval results 
+        try: # Load eval results 
             eval_results, eval_params = rfutils.load_eval_results(dk,
                                             experiment=experiment, 
                                             traceid=traceid, 
@@ -1323,33 +1322,13 @@ def load_soma_data(dk, experiment='rfs', retinorun='retino_run1',
             raise e
             
         cells_ = fitdf_soma['cell'].unique()
-        #keep_rois = np.intersect1d(cells_, reliable_rois) 
-        print("    %i of %i reliable" % (len(reliable_rois), len(cells_)))
+        if verbose:
+            print("    %s, %s: %i of %i reliable" % (va, dk, len(reliable_rois), len(cells_)))
         fitdf_soma['reliable'] = False 
         fitdf_soma.loc[reliable_rois, 'reliable'] = True
         
-        # "un-scale" size, if flagged
- 
-
-#        fit_results, fit_params = rfutils.load_fit_results(dk, 
-#                        experiment=experiment,
-#                        traceid=traceid, response_type=response_type,
-#                        is_neuropil=False,
-#                        do_spherical_correction=do_spherical_correction)
-#        if fit_results is None:
-#            print("%s - NO FIT RESULTS (%s)" % (dk, experiment))
-#            return None
-#
-#        fitdf_all = rfutils.rfits_to_df(fit_results, fit_params, 
-#                                convert_coords=True, scale_sigma=True)
-#        fitdf_soma = fitdf_all[fitdf_all['r2']>fit_thr].copy()
-        # Add position info
-
-        df = fitdf_soma.dropna()
-
     # Add pos info to NP masks
-    #print("adding pos")
-    df = add_position_info(df, dk, experiment, retinorun=retinorun)
+    df = add_position_info(fitdf_soma.copy(), dk, experiment, retinorun=retinorun)
 
     return df.reset_index(drop=True)
 
@@ -1380,35 +1359,93 @@ def check_inbounds(df):
 
     return df
 
-def calculate_scatter(df):
+def combined_axis_colum_names(x_cols):
+    name_lut={}
+    for name in x_cols:
+        if  'scatter' in name or 'gradient' in name:
+            if '0' in name:
+                new_name = name.split('_x0')[0] if 'x0' in name \
+                            else name.split('_y0')[0] 
+            else:
+                new_name = name.split('_ml')[0] if 'ml' in name \
+                            else name.split('_ap')[0] 
+        elif 'x0' in name or 'y0' in name:
+            new_name = name.replace('x0', 'rf_pos') if 'x0' in name \
+                            else name.replace('y0', 'rf_pos')
+        elif 'x' in name or 'y' in name:
+            new_name = name.split('_x')[0] if 'x' in name \
+                            else name.split('_y')[0] 
+        elif 'ml' in name or 'ap' in name:
+            new_name = name.replace('ml', 'ctx') if 'ml' in name \
+                            else name.replace('ap', 'ctx')
+        name_lut.update({name: new_name})
+    return name_lut
+
+def stack_axes(df):
     '''
-    Calculate scatter (in degrees for VF and distance for CTX). 
-    Redundant with 'aligned_soma' but just creates simplified dataframe that is stacked
-    prev. called get_deviations()
+    Stack so that "axis" is a column for az/el. Rename variables appropriately.
     '''
+    ignore_cols = ['fov_xpos', 'fov_ypos', 'fov_xpos_pix', 'fov_ypos_pix']
+    non_cond_cols = ['experiment', 'visual_area', 'datakey', 'cell', 'r2',
+                    'theta', 'offset', 'amplitude', 'aniso_index',
+                    'ratio_xy', 'major_axis', 'minor_axis', 'anisotropy', 
+                    'eccentricity', 'eccentricity_ctr', 'area', 
+                    'rf_theta_deg', 'reliable', 'inbounds']
+    df = df.rename(columns={'fx': 'vectorproj_x', 'fy': 'vectorproj_y'})
     if 'cell' not in df.columns:
         df['cell'] = np.arange(0, df.shape[0])
     if 'inbounds' not in df.columns:
-        df['inbounds'] = True
+        df = check_inbounds(df)
+        
+    x_cols = [c for c in df.columns if ('x' in c or 'ml' in c) \
+                  and (c not in non_cond_cols) and (c not in ignore_cols)]
+    y_cols = [c for c in df.columns if ('y' in c or 'ap' in c) \
+                  and (c not in non_cond_cols) and (c not in ignore_cols)]
 
-    df['deg_scatter_x0'] = abs(df['x0']-df['predicted_x0'])
-    df['deg_scatter_y0'] = abs(df['y0']-df['predicted_y0'])
-    df['dist_scatter_ml'] = abs(df['ml_proj']-df['predicted_ml_proj'])
-    df['dist_scatter_ap'] = abs(df['ap_proj']-df['predicted_ap_proj'])
-    dev_az = df[['cell', 'deg_scatter_x0', 'dist_scatter_ml', 'inbounds']].copy()\
-                    .rename(columns={'deg_scatter_x0': 'deg_scatter', 
-                                     'dist_scatter_ml': 'dist_scatter'})
-    dev_az['axis'] = 'az'
+    curr_cols = non_cond_cols.copy()
+    curr_cols.extend(x_cols)
+    name_lut_x =  combined_axis_colum_names(x_cols)
+    x_df = df[curr_cols].rename(columns=name_lut_x)
+    x_df['axis'] = 'az'
 
-    dev_el = df[['cell', 'deg_scatter_y0', 'dist_scatter_ap', 'inbounds']].copy()\
-                    .rename(columns={'deg_scatter_y0': 'deg_scatter', 
-                                     'dist_scatter_ap': 'dist_scatter'})
-    dev_el['axis'] = 'el'
-    deviations = pd.concat([dev_az, dev_el], axis=0).reset_index(drop=True)
+    curr_cols = non_cond_cols.copy()
+    curr_cols.extend(y_cols)
+    name_lut_y =  combined_axis_colum_names(y_cols)
+    y_df = df[curr_cols].rename(columns=name_lut_y)
+    y_df['axis'] = 'el'
 
-    #deviations = check_inbounds(deviations)
+    projdf = pd.concat([x_df, y_df], axis=0, ignore_index=True)
+    return projdf
 
-    return deviations
+# def calculate_scatter(df):
+#     '''
+#     Calculate scatter (in degrees for VF and distance for CTX). 
+#     Redundant with 'aligned_soma' but just creates simplified dataframe that is stacked
+#     prev. called get_deviations()
+#     '''
+#     if 'cell' not in df.columns:
+#         df['cell'] = np.arange(0, df.shape[0])
+#     if 'inbounds' not in df.columns:
+#         df = check_inbounds(df)
+#     projdf = stack_axes(df)
+# #     df['deg_scatter_x0'] = abs(df['x0']-df['predicted_x0'])
+# #     df['deg_scatter_y0'] = abs(df['y0']-df['predicted_y0'])
+# #     df['dist_scatter_ml'] = abs(df['ml_proj']-df['predicted_ml_proj'])
+# #     df['dist_scatter_ap'] = abs(df['ap_proj']-df['predicted_ap_proj'])
+# #     dev_az = df[['cell', 'deg_scatter_x0', 'dist_scatter_ml', 'inbounds', 'reliable']].copy()\
+# #                     .rename(columns={'deg_scatter_x0': 'deg_scatter', 
+# #                                      'dist_scatter_ml': 'dist_scatter'})
+# #     dev_az['axis'] = 'az'
+
+# #     dev_el = df[['cell', 'deg_scatter_y0', 'dist_scatter_ap', 'inbounds']].copy()\
+# #                     .rename(columns={'deg_scatter_y0': 'deg_scatter', 
+# #                                      'dist_scatter_ap': 'dist_scatter'})
+# #     dev_el['axis'] = 'el'
+# #     deviations = pd.concat([dev_az, dev_el], axis=0).reset_index(drop=True)
+
+#     #deviations = check_inbounds(deviations)
+
+#     return deviations
 
 
 #---------------------------------------------------------------------
@@ -1630,7 +1667,7 @@ def get_gradient_results(dk, va, return_best=False,
     if plot:
         fig = plot_gradients(dk, va, retinorun, cmap=cmap)
         fig.text(0.05, 0.95, 'Gradients, est. from MOVINGBAR\n(%s, %s)' % (dk, va), fontsize=8)
-        pl.savefig(os.path.join(plot_dst_dir, 'pixelmap_gradients.svg'))
+        pl.savefig(os.path.join(plot_dst_dir, 'pixelmap_gradients_%s.svg' % va))
         #pl.savefig(os.path.join(plot_dst_dir, 'np_gradients.svg'))
         pl.close()
 
@@ -1669,7 +1706,7 @@ def get_gradient_results(dk, va, return_best=False,
             fig.text(0.05, 0.95, 'Pre/Post-aligned pixel map correlation\n[%s] %s, %s' \
                             % (va, dk, retinorun), fontsize=8)
             # save
-            figname = 'pixelmap_pre_post_alignment'
+            figname = 'pixelmap_pre_post_alignment_%s' % va
             pl.savefig(os.path.join(plot_dst_dir, '%s.svg' % figname))
             pl.close()
 
@@ -1702,13 +1739,15 @@ def transform_and_fit_pixels(dk, va, retinorun, GVECTORS, create_new=False,
                     'FOV%i_*' % fovn))[0]
     dst_dir = os.path.join(fovdir, 'segmentation')
     alignment_file = os.path.join(dst_dir, 'projected_pixels.pkl')
+
+    res={}
     if not create_new:
         try:
             with open(alignment_file, 'rb') as f:
                 res = pkl.load(f, encoding='latin1')
-            aligned_pix = res['aligned_pixels']
-            regr_proj = res['regr_projected']
-            regr_meas = res['regr_measured']
+            aligned_pix = res[va]['aligned_pixels']
+            regr_proj = res[va]['regr_projected']
+            regr_meas = res[va]['regr_measured']
         except Exception as e:
             # traceback.print_exc()
             print("    error loading alignment results (%s, %s)" %(dk, va))
@@ -1756,9 +1795,10 @@ def transform_and_fit_pixels(dk, va, retinorun, GVECTORS, create_new=False,
         aligned_pix['predicted_ap_pos_ix'] = [d1+int(round(i)) if i<0 else i\
                                      for i in aligned_pix['predicted_ap_pos']]
 
-        res = {'aligned_pixels': aligned_pix, 
+        curr_res = {'aligned_pixels': aligned_pix, 
                'regr_projected': regr_proj, 'regr_measured': regr_meas}
 
+        res.update({va: curr_res})
         with open(alignment_file, 'wb') as f:
             pkl.dump(res, f, protocol=2)
 
@@ -1849,7 +1889,7 @@ def predict_soma_from_gradient(dk, va, REGR_NP, experiment='rfs',
     If protocol=='TILE', then will also calculate deg/dist scatter.
     Prev. called:  get_aligned_soma()
     '''
-#    #### Load soma
+    # Get soma fits (aligned to gradient) 
     aligned_soma, M = project_soma_position_in_fov(dk, va, experiment=experiment, 
                             traceid=traceid, 
                             response_type=response_type, 
@@ -1859,7 +1899,7 @@ def predict_soma_from_gradient(dk, va, REGR_NP, experiment='rfs',
     if aligned_soma.shape[0]<2:
         return None
 
-    #### Align SOMA coords
+    # Do linear fit (proj should be better) 
     regr_soma_meas = regress_cortex_and_retino_pos(aligned_soma, 
                                                        xvar='pos', model='ridge')
     regr_soma_proj = regress_cortex_and_retino_pos(aligned_soma, 
@@ -1878,21 +1918,11 @@ def predict_soma_from_gradient(dk, va, REGR_NP, experiment='rfs',
         pl.savefig(os.path.join(plot_dst_dir, '%s.svg' % figname))
         pl.close()
 
-    # Predict positions
+    # Predict positions and calculate scatter
     aligned_soma = predict_positions(aligned_soma, M, REGR_NP)
-
-    # Calculate scatter
-    if 'x0' in aligned_soma.keys():
-        aligned_soma.loc[:, 'deg_scatter_x0'] = aligned_soma['x0'] - aligned_soma['predicted_x0']
-        aligned_soma.loc[:, 'deg_scatter_y0'] = aligned_soma['y0'] - aligned_soma['predicted_y0']
-
-    aligned_soma.loc[:, 'dist_scatter_ml'] = abs(aligned_soma['ml_proj'] - aligned_soma['predicted_ml_proj'])
-    aligned_soma.loc[:, 'dist_scatter_ap'] = abs(aligned_soma['ap_proj'] - aligned_soma['predicted_ap_proj'])
-
 
     # Check inbounds
     aligned_soma = check_inbounds(aligned_soma)
-
         
     return aligned_soma.reset_index(drop=True)
 
@@ -1927,6 +1957,14 @@ def predict_positions(aligned_soma, M, REGR_NP):
     aligned_soma['predicted_ml_pos'] = pred_inv_df['pred_inv_x']
     aligned_soma['predicted_ap_pos'] = pred_inv_df['pred_inv_y']
 
+      # Calculate scatter
+    if 'x0' in aligned_soma.keys():
+        aligned_soma.loc[:, 'deg_scatter_x0'] = aligned_soma['x0']-aligned_soma['predicted_x0']
+        aligned_soma.loc[:, 'deg_scatter_y0'] = aligned_soma['y0']-aligned_soma['predicted_y0']
+
+    aligned_soma.loc[:, 'dist_scatter_ml'] = abs(aligned_soma['ml_proj']-aligned_soma['predicted_ml_proj'])
+    aligned_soma.loc[:, 'dist_scatter_ap'] = abs(aligned_soma['ap_proj']-aligned_soma['predicted_ap_proj'])
+    
     return aligned_soma
 
 
@@ -2022,22 +2060,16 @@ def do_scatter_analysis(dk, va, experiment='rfs',
                 
             if has_rfs and plot:
                 # FOV scatter coords 
-                markersize=50
-                lw=0.6
-                alpha=1
-                plot_true=True
-                plot_predicted=True
-                plot_lines=True
                 overlay_scatter(dk, va, aligned_soma, AZMAP_NP, ELMAP_NP, 
                                 experiment=experiment, traceid=traceid, 
-                                markersize=50, lw=0.5, alpha=1, cmap=cmap, single_axis=True,
+                                markersize=30, lw=0.5, alpha=1, cmap=cmap, single_axis=True,
                                 plot_true=True, plot_predicted=True, plot_lines=True,
                                 plot_dst_dir=soma_dst_dir, data_id=data_id)
-
             if has_rfs:
-                # # Calculate scatter
-                print("... calculating deviations")
-                scatter_df = calculate_scatter(aligned_soma)
+                # Calculate scatter
+                #print("... calculating deviations")
+                #scatter_df = calculate_scatter(aligned_soma)
+                scatter_df = stack_axes(aligned_soma)
             if has_rfs and plot:
                 # Plot
                 fig, axn = pl.subplots(1,2, figsize=(6.5, 3))
@@ -2057,7 +2089,7 @@ def do_scatter_analysis(dk, va, experiment='rfs',
                 pl.savefig(os.path.join(soma_dst_dir, 'scatter_%s.svg' % va))
                 pl.close()
             
-            update_results(dk, va, scatter_df, soma_dst_dir) #, create_new=create_new)
+            update_scatter_results(dk, va, scatter_df, soma_dst_dir) #, create_new=create_new)
 
     except Exception as e:
         print("ERROR in %s, %s (%s)" % (dk, va, experiment))
@@ -2070,7 +2102,7 @@ def do_scatter_analysis(dk, va, experiment='rfs',
   
     return scatter_df
 
-def update_results(dk, va, soma_results, soma_dst_dir): #, create_new=False):
+def update_scatter_results(dk, va, soma_results, soma_dst_dir): #, create_new=False):
     scatter_fpath = os.path.join(soma_dst_dir, 'scatter_results.pkl')
 
     results={}
