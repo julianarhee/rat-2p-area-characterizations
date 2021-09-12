@@ -20,6 +20,9 @@ import analyze2p.utils as hutils
 import analyze2p.plotting as pplot
 
 import scipy.stats as spstats
+import analyze2p.gratings.bootstrap_osi as osi
+import analyze2p.objects.selectivity as sel
+from scipy import signal
 
 
 # do fiting
@@ -113,27 +116,30 @@ def fit_decay_on_binned(cc_, use_binned=False, func='halflife', estimator='media
 
     #cc_ = cc0.dropna(axis=1)
 
+    #x_var = 'binned_%s' % to_quartile
+    x_var = '%s_label' % to_quartile
+
     if use_binned:
         if estimator=='median':
-            data = cc_.groupby('binned_%s' % to_quartile).mean().reset_index()
+            data = cc_.groupby(x_var).median().reset_index()
         else:
-            data = cc_.groupby('binned_%s' % to_quartile).median().reset_index()
-           
+            data = cc_.groupby(x_var).mean().reset_index() 
         #normalize_x = True
     else:
         data = cc_.copy()
         #normalize_x = False
+    
     if estimator=='median':
-        meanvs = cc_.groupby('binned_%s' % to_quartile).median()\
+        meanvs = cc_.groupby(x_var).median()\
                 .reset_index().dropna()
     else:
-        meanvs = cc_.groupby('binned_%s' % to_quartile).mean()\
+        meanvs = cc_.groupby(x_var).mean()\
                 .reset_index().dropna()
-    incl_bins = list(set(meanvs['binned_%s' % to_quartile].values))
+    incl_bins = list(set(meanvs[x_var].values))
   
-    xdata = data[data['binned_%s' % to_quartile].isin(incl_bins)]\
+    xdata = data[data[x_var].isin(incl_bins)]\
                 .sort_values(by=to_quartile)[to_quartile].values
-    ydata = data[data['binned_%s' % to_quartile].isin(incl_bins)]\
+    ydata = data[data[x_var].isin(incl_bins)]\
                 .sort_values(by=to_quartile)[metric].values
     # ----------------
     mean_y = meanvs.sort_values(by=to_quartile)[metric].values
@@ -259,14 +265,27 @@ def trial_averaged_responses(zscored, sdf, params=['ori', 'sf', 'size', 'speed']
     return tuning_
 
 
-def get_roi_pos_and_rfs(neuraldf, curr_rfs=None, rfs_only=True):
-    wpos = aggr.add_roi_positions(neuraldf.copy())
-    roi_pos = wpos[['cell', 'ml_pos', 'ap_pos']].drop_duplicates().copy()
+def get_roi_pos_and_rfs(neuraldf, curr_rfs=None, rfs_only=True,
+                        merge_cols=['cell']):
+    '''
+    For a given dataset, return the position (and RF fit info) for each cell.
+    Specify merge_cols to include visual_area and datakey if neuraldf is aggregate.
+    Returns:
+
+    roidf: (pd.DataFrame)
+        Dataframe, each row is a cell, with cortical position (and RF fit position)
+
+    '''
+    if 'ml_pos' not in neuraldf.columns:
+        wpos = aggr.add_roi_positions(neuraldf.copy())
+    else:
+        wpos = neuraldf.copy()
+    roi_pos = wpos[['visual_area', 'datakey', 'cell', 'ml_pos', 'ap_pos']].drop_duplicates().copy()
 
     if curr_rfs is not None:    
 
         cells_with_rfs = curr_rfs[['visual_area', 'datakey', 'cell', 'x0', 'y0']].copy()
-        roidf = pd.merge(roi_pos, cells_with_rfs, on=['cell'], how='left')
+        roidf = pd.merge(roi_pos, cells_with_rfs, on=merge_cols, how='left')
 
         #has_rfs = np.intersect1d(roi_pos['cell'].unique(), curr_rfs['cell'].unique())
         #pos_ = roi_pos[roi_pos.cell.isin(has_rfs)].copy()
@@ -549,14 +568,8 @@ def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, SDF=None, min_ncel
             if rfdf_.shape[0]==0:
                 no_rfs.append((va, dk, exp))
                 continue
-            # rois_ = np.intersect1d(ndf['cell'].unique(), rfdf_['cell'].unique())
-        #else:
         rois_ = ndf['cell'].unique()
         # Select cells
-#         if selective_only:
-#             rois_ = gdata_u[(gdata_u.visual_area==va) & (gdata_u.datakey==dk) 
-#                           & (gdata_u.experiment==exp)]['cell'].unique()
-#         else:
         if len(rois_)<min_ncells:
             print("Skipping - (%s, %s)" % (va, dk))
             continue
@@ -633,9 +646,6 @@ def get_pw_diffs(df_, metric='response_pref'):
 
 
 
-import analyze2p.gratings.bootstrap_osi as osi
-from scipy import signal
-
 def cosine_similarity(v1, v2):
     return (v1.dot(v2)) / (np.sqrt(np.sum(v1**2)) * np.sqrt(np.sum(v2**2)))
 
@@ -665,44 +675,89 @@ def get_paired_tuning_metrics(fitdf, r1, r2):
     return d0, cosim_m
     #print(cosim_m1, cosim_m)
 
-def cross_correlate_curves(thetas, fitdf, a=0, b=1):
-    '''Given fit params (gratings fits), get tuning curves, calculate corrs'''
-    # Tuning curves
-    params = ['response_pref', 'response_null', 'theta_pref', 
-              'sigma', 'response_offset']
-    fitr1 = osi.double_gaussian(thetas, *fitdf[params].loc[a])
-    fitr2 = osi.double_gaussian(thetas, *fitdf[params].loc[b])
+
+def compare_curves(curve1, curve2, a=0, b=1):
+    '''
+    Calculate metrics of similarity between 2 vectors (curve1, curve2), 
+    corresponding to neuron a and b.
+    
+    Returns:
+    
+    res: pd.DataFrame()
+    
+    '''
     # cross-correlation
-    ccorr = signal.correlate(fitr1, fitr2)
-    lags = signal.correlation_lags(len(fitr1), len(fitr2))
+    ccorr = signal.correlate(curve1, curve2)
+    lags = signal.correlation_lags(len(curve1), len(curve2))
     lagzero = list(lags).index(0)
     xcorr = ccorr[lagzero]
     # do pearson's corr
-    cc, pv = spstats.pearsonr(fitr1, fitr2)
+    cc, pv = spstats.pearsonr(curve1, curve2)
     # do cosine similarity
-    cosim = cosine_similarity(fitr1, fitr2)
-
+    cosim = cosine_similarity(curve1, curve2)
     # combine
     res = pd.Series({'xcorr': xcorr, 'pearsons': cc,  'cosim': cosim,
                       'cell_1': int(a), 'cell_2': int(b), 
                       'neuron_pair': '%i_%i' % (a, b)})
+
     return res
 
-def get_pw_curve_correlations(fitdf, n_intervals=3):
-    '''Calculate cross-corr (0 lag) and pearsons corr for tuning curves'''
 
-    fitdf.index = fitdf['cell'].values
-    tested_thetas = np.arange(0, 360, 45)
-    thetas = osi.interp_values(tested_thetas, n_intervals=n_intervals, wrap_value=360)
+def compare_direction_tuning_curves(thetas, fitdf, a=0, b=1):
+    '''Given fit params (gratings fits), get tuning curves, calculate corrs'''
+    # Tuning curves
+    params = ['response_pref', 'response_null', 'theta_pref', 
+              'sigma', 'response_offset']
+    curve1 = osi.double_gaussian(thetas, *fitdf[params].loc[a])
+    curve2 = osi.double_gaussian(thetas, *fitdf[params].loc[b])
+
+    res = compare_curves(curve1, curve2, a=a, b=b)
+
+    return res
+
+
+def get_pw_curve_correlations(fitdf, n_intervals=3, stimulus='gratings'):
+    '''
+    Cycle thru cell pairs and calculate cross-corr (0 lag), pearson's corr, and cosine similarity
+    for tuning curves.
+    '''
     # Get pairs
-    col_pairs = list(itertools.combinations(fitdf['cell'], 2))
-    # do corrs for all pairs
-    t = [cross_correlate_curves(thetas, fitdf, a=a, b=b) for (a, b) in col_pairs]
-    df_ = pd.concat(t, axis=1).T
+    rois_ = fitdf['cell'].unique()
+    col_pairs = list(itertools.combinations(rois_, 2))
+
+    if stimulus=='gratings':
+        fitdf.index = fitdf['cell'].values
+        tested_thetas = np.arange(0, 360, 45)
+        thetas = osi.interp_values(tested_thetas, n_intervals=n_intervals, wrap_value=360)
+        # do corrs for all pairs
+        t = [compare_direction_tuning_curves(thetas, fitdf, a=a, b=b) for (a, b) in col_pairs]
+        df_ = pd.concat(t, axis=1).T
+
+    elif stimulus=='blobs':
+        # stuff
+        morph_mat, size_mat = sel.get_object_tuning_curves(fitdf, 
+                                                sort_best_size=True, normalize=True)
+        m_list = [compare_curves(morph_mat[a].values, \
+                                    morph_mat[b].values, a=a, b=b) \
+                                for (a, b) in col_pairs]
+        df_morph = pd.concat(m_list, axis=1).T
+        for p in ['xcorr', 'pearsons', 'cosim']:  
+            df_morph[p] = df_morph[p].astype(float)
+            
+        s_list = [compare_curves(size_mat[a].values, \
+                                    size_mat[b].values, a=a, b=b) \
+                                for (a, b) in col_pairs]
+        df_size = pd.concat(s_list, axis=1).T
+        for p in ['xcorr', 'pearsons', 'cosim']:  
+            df_size[p] = df_size[p].astype(float)
+
+        df_ = pd.merge(df_morph, df_size, on=['cell_1', 'cell_2', 'neuron_pair'],
+                        suffixes=('_morph', '_size'))
+
     return df_
 
 
-def aggregate_tuning_curve_ccdist(df, n_intervals=3, min_ncells=5):
+def aggregate_tuning_curve_ccdist(df, rfdf=None, n_intervals=3, min_ncells=5, stimulus='gratings'):
     '''
     Calculate PW diffs for GRATINGS (+ RFs, if have).
 
@@ -715,43 +770,40 @@ def aggregate_tuning_curve_ccdist(df, n_intervals=3, min_ncells=5):
         N vals to interp steps (0, 45, 90, etc.), Default is 9.
 
     '''
-
+    no_rfs=[]
     a_=[]
     for (va, dk), df_ in df.groupby(['visual_area', 'datakey']):
         if len(df_['cell'].unique())<min_ncells:
             print("too few cells: %s, %s" % (va, dk))
             continue
-        # diff in pref. thteas       
-        #resp_diff = get_pw_diffs(df_, metric='response_pref') 
-        #sigma_diff = get_pw_diffs(df_, metric='sigma') 
-        #nonang_diff = pd.merge(resp_diff, sigma_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
- 
-        #gratings_diff = pd.merge(ang_diff, nonang_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
-        cc = get_pw_curve_correlations(df_, n_intervals=n_intervals)
 
-        if 'rf_theta_deg' in df_.columns:
-            # RF angle diffs
-            rf_diff = get_pw_angular_dist(df_, tau=180,
-                                          in_name='rf_theta_deg', out_name='rf_angle_diff')
-            diffs_ = pd.merge(cc, rf_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
-        else:
-            diffs_ = cc.copy()
-
-        # Cortical and RF difff
-        if 'x0' in df_.columns:
-            adist = get_pw_distance(cc, df_, xcoord='x0', ycoord='y0', 
+        posdf_ = aggr.add_roi_positions(df_)
+        if rfdf is not None:
+            posdf0 = posdf_.copy()
+            curr_rfs = rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk)].copy()
+            posdf_ = get_roi_pos_and_rfs(posdf0, curr_rfs, rfs_only=False, 
+                                        merge_cols=['visual_area', 'datakey', 'cell'])
+            if posdf_.shape[0]==0:
+                no_rfs.append((va, dk, exp))
+                continue
+        # Calculate CCs
+        cc = get_pw_curve_correlations(df_, n_intervals=n_intervals, stimulus=stimulus)
+        diffs_ = cc.copy()
+        # Calculate distances
+        if 'x0' in posdf_.columns:
+            adist = get_pw_distance(diffs_, posdf_, xcoord='x0', ycoord='y0', 
                                      label='rf_distance', add_eccentricity=True)
         else:
-            adist = get_pw_distance(cc, df_, xcoord='ml_pos', ycoord='ap_pos', 
+            adist = get_pw_distance(diffs_, posdf_, xcoord='ml_pos', ycoord='ap_pos', 
                                      label='cortical_distance', add_eccentricity=False)
-
+        # check and add
         assert adist.shape[0]==cc.shape[0], 'Bad merging: %s, %s' (va, dk)
         adist['visual_area'] = va
         adist['datakey'] = dk
         adist['n_cells'] = len(df_['cell'].unique())
         a_.append(adist)
     angdists = pd.concat(a_, axis=0, ignore_index=True)
-
+    print(no_rfs)
     return angdists
 
 
