@@ -679,7 +679,10 @@ def plot_tuning_fits(roi, bootr, df_traces, labels, sdf, trace_type='dff'):
     # curr_resps = responses_df.mean()
     mean_responses = responses_df.mean(axis=0)
     #curr_resps = np.abs(mean_responses - mean_responses.mean())
-    curr_resps = (mean_responses - mean_responses.min()) #- (mean_responses-mean_responses.mean()).min()
+    if mean_responses.min()<0:
+        curr_resps = (mean_responses - mean_responses.min()) #- (mean_responses-mean_responses.mean()).min()
+    else
+        curr_resps = mean_responses.copy()
     curr_sems = responses_df.sem(axis=0)
     fig, ax1 = tuning_curve_roi(curr_oris, curr_resps, curr_sems=curr_sems, 
                                      response_type=trace_type,
@@ -1214,7 +1217,10 @@ def plot_evaluation_results(roi, bootr, fitparams, param_str='curr params'):
     thetas = xv[0::n_intervals_interp] #[0:-1]
     orig0 = bootr['data']['responses'].mean(axis=0)
     #origr = np.abs(orig0 - orig0.mean())
-    origr = (orig0-orig0.min()) #- (orig0-orig0.mean()).min()
+    if orig0.min()<0:
+        origr = (orig0-orig0.min()) #- (orig0-orig0.mean()).min()
+    else:
+        origr = orig0.copy()
     fitv = bootr['fits']['fitv'].mean(axis=1)[0::n_intervals_interp][0:-1]
  
     r2comb, gof, fitr = evaluate_fits(bootr, interp=False)        
