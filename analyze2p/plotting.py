@@ -856,6 +856,38 @@ def polar_ticks_gratings(ax, ylim=0.13, ytick_lim=0.1, n_yticks=3):
 
 
 
+def create_theta_legend(ax=None, ori_colors=None):
+    if ax is None:
+        fig, ax = pl.subplots()
+    if ori_colors is None:
+        ori_colors = sns.color_palette('husl', n=8)
+    n=8
+    tested_thetas = np.linspace(0, 315, 8)
+    theta_radians = np.array([np.deg2rad(t) for t in tested_thetas])
+    x = np.cos(theta_radians)
+    y = np.sin(theta_radians)
+    for (th, xv, yv, col) in zip(tested_thetas, x, y, ori_colors):
+    #     ax.plot([np.zeros_like(x), x], [np.zeros_like(y), y], lw=3)
+        ax.plot([0, xv], [0, yv], color=col, lw=3)
+        ax.text(xv, yv, th)
+    ax.set_aspect(1)
+    return ax
+
+def polar_theta_legend(ax, ori_colors):
+    #fig = pl.figure()
+    #ax = fig.add_subplot(1, 1, 1, polar=True)
+    tested_thetas = np.linspace(0, 315, 8)
+    n=8
+    theta_radians = np.array([np.deg2rad(t) for t in tested_thetas])
+    for (th, xv, yv, col) in zip(tested_thetas, theta_radians, np.ones((8,1)), ori_colors):
+        ax.plot([0, xv], [0, yv], color=col, lw=3)
+        ax.text(xv, yv, th)
+        ylim = 1#
+        ytick_lim = np.floor(ylim*10)/10.
+        polar_ticks_gratings(ax, ylim=ylim, ytick_lim=ytick_lim, n_yticks=0)
+    ax.set_aspect(1)
+
+    return ax
 
 
 import matplotlib.gridspec as gridspec

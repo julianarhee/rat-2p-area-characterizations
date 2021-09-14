@@ -681,7 +681,7 @@ def plot_tuning_fits(roi, bootr, df_traces, labels, sdf, trace_type='dff'):
     #curr_resps = np.abs(mean_responses - mean_responses.mean())
     if mean_responses.min()<0:
         curr_resps = (mean_responses - mean_responses.min()) #- (mean_responses-mean_responses.mean()).min()
-    else
+    else:
         curr_resps = mean_responses.copy()
     curr_sems = responses_df.sem(axis=0)
     fig, ax1 = tuning_curve_roi(curr_oris, curr_resps, curr_sems=curr_sems, 

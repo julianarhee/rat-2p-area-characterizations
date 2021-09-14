@@ -598,10 +598,12 @@ def append_neuropil_subtraction(maskdict_path, cfactor,
 # Data grouping and calculations
 # --------------------------------------------------------------------
 
-def get_mean_and_std_traces(roi, traces, labels, curr_cfgs, stimdf):
+def get_mean_and_std_traces(roi, traces, labels, curr_cfgs, stimdf, return_stacked=False,
+                            smooth=False, win_size=5):
     import scipy.stats as spstats
 
     cfg_groups = labels[labels['config'].isin(curr_cfgs)].groupby(['config'])
+    tested_thetas = sorted(stimdf['ori'].unique())
 
     mean_traces = np.array([np.nanmean(np.array([traces[roi][trials.index]\
                 for rep, trials in cfg_df.groupby(['trial'])]), axis=0) \
@@ -619,7 +621,30 @@ def get_mean_and_std_traces(roi, traces, labels, curr_cfgs, stimdf):
                 for cfg, cfg_df \
                 in sorted(cfg_groups, key=lambda x: stimdf['ori'][x[0]])]).mean(axis=0).astype(float)
 
-    return mean_traces, std_traces, tpoints
+    if smooth:
+        meandf = pd.DataFrame(mean_traces.T, columns=tested_thetas)
+        smoothdf = meandf.apply(smooth_timecourse, win_size=win_size)
+        mean_traces = smoothdf.T.values
+
+        semdf = pd.DataFrame(std_traces.T, columns=tested_thetas)
+        smoothdf2 = semdf.apply(smooth_timecourse, win_size=win_size)
+        std_traces = smoothdf2.T.values
+       
+
+    if return_stacked:
+        tested_thetas = sorted(stimdf['ori'].unique())
+        trace_df = pd.DataFrame(mean_traces.T, columns=tested_thetas)
+        trace_df['time'] = tpoints
+        tdf_mean = trace_df.melt(id_vars=['time'], var_name='ori', value_name='mean')
+
+        err_df = pd.DataFrame(std_traces.T, columns=tested_thetas)
+        err_df['time'] = tpoints
+        tdf_sem = err_df.melt(id_vars=['time'], var_name='ori', value_name='sem')
+        tdf = pd.merge(tdf_mean, tdf_sem, on=['time', 'ori'])
+
+        return tdf
+    else:
+        return mean_traces, std_traces, tpoints
 
 
 def group_roidata_stimresponse(roidata, labels, roi_list=None, 
