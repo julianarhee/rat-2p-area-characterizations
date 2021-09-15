@@ -598,28 +598,28 @@ def append_neuropil_subtraction(maskdict_path, cfactor,
 # Data grouping and calculations
 # --------------------------------------------------------------------
 
-def get_mean_and_std_traces(roi, traces, labels, curr_cfgs, stimdf, return_stacked=False,
-                            smooth=False, win_size=5):
+def get_mean_and_std_traces(roi, traces, labels, curr_cfgs, stimdf, param='ori', 
+                            return_stacked=False, smooth=False, win_size=5):
     import scipy.stats as spstats
 
     cfg_groups = labels[labels['config'].isin(curr_cfgs)].groupby(['config'])
-    tested_thetas = sorted(stimdf['ori'].unique())
+    tested_thetas = sorted(stimdf[param].unique())
 
     mean_traces = np.array([np.nanmean(np.array([traces[roi][trials.index]\
                 for rep, trials in cfg_df.groupby(['trial'])]), axis=0) \
                 for cfg, cfg_df in \
-                sorted(cfg_groups, key=lambda x: stimdf['ori'][x[0]])])
+                sorted(cfg_groups, key=lambda x: stimdf[param][x[0]])])
 
     std_traces = np.array([spstats.sem(np.array([traces[roi][trials.index]\
                 for rep, trials \
                 in cfg_df.groupby(['trial'])]), axis=0, nan_policy='omit') \
                 for cfg, cfg_df \
-                in sorted(cfg_groups, key=lambda x: stimdf['ori'][x[0]])])
+                in sorted(cfg_groups, key=lambda x: stimdf[param][x[0]])])
 
     tpoints = np.array([np.array([trials['tsec'] for rep, trials \
                 in cfg_df.groupby(['trial'])]).mean(axis=0) \
                 for cfg, cfg_df \
-                in sorted(cfg_groups, key=lambda x: stimdf['ori'][x[0]])]).mean(axis=0).astype(float)
+                in sorted(cfg_groups, key=lambda x: stimdf[param][x[0]])]).mean(axis=0).astype(float)
 
     if smooth:
         meandf = pd.DataFrame(mean_traces.T, columns=tested_thetas)
@@ -632,15 +632,14 @@ def get_mean_and_std_traces(roi, traces, labels, curr_cfgs, stimdf, return_stack
        
 
     if return_stacked:
-        tested_thetas = sorted(stimdf['ori'].unique())
         trace_df = pd.DataFrame(mean_traces.T, columns=tested_thetas)
         trace_df['time'] = tpoints
-        tdf_mean = trace_df.melt(id_vars=['time'], var_name='ori', value_name='mean')
+        tdf_mean = trace_df.melt(id_vars=['time'], var_name=param, value_name='mean')
 
         err_df = pd.DataFrame(std_traces.T, columns=tested_thetas)
         err_df['time'] = tpoints
-        tdf_sem = err_df.melt(id_vars=['time'], var_name='ori', value_name='sem')
-        tdf = pd.merge(tdf_mean, tdf_sem, on=['time', 'ori'])
+        tdf_sem = err_df.melt(id_vars=['time'], var_name=param, value_name='sem')
+        tdf = pd.merge(tdf_mean, tdf_sem, on=['time', param])
 
         return tdf
     else:
