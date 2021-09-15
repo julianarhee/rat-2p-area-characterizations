@@ -445,6 +445,7 @@ def get_included_stimconfigs(sdf, experiment='blobs', select_stimuli='images'):
  
 
 def get_stimulus_coordinates(dk, experiment):
+    '''Get x0, y0 of stimuli for session. Returns: x, y'''
     sdf = get_stimuli(dk, experiment, match_names=True)
     if len(sdf['xpos'].unique())>1 or len(sdf['ypos'].unique())>1:
         print("*Warning* <%s> More than 1 pos? x: %s, y: %s" \
