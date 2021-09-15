@@ -185,7 +185,7 @@ def get_lum_corr(rd):
 
     return df
 
-def get_object_tuning_curves(rdf, sort_best_size=True, normalize=True):
+def get_object_tuning_curves(rdf, sort_best_size=True, normalize=True, return_stacked=False):
     '''
     Given trial-avg responses to all conditions (morph, size),
     calculate tuning curves.
@@ -193,11 +193,13 @@ def get_object_tuning_curves(rdf, sort_best_size=True, normalize=True):
     Returns:
     
     morph_mat: pd.DataFrame()
-        Morph tuning curve at best size. Each col is tuning curve for a cell. Rows are morph levels.
+        Default:  Morph tuning curve at best size. 
+                  Each col is tuning curve for a cell. Rows are morph levels.
+        return_stacked:  Stacked dataframe, cols are cell, morphlevel, response, best_size.
     
     size_mat: pd.DataFrame()
         Size tuning curves at best morphlevel. Each col is size-tuning curve.
-
+        if return_stacked:  COls are cell, size, response, best_morphlevel
 
     Args:
 
@@ -211,20 +213,28 @@ def get_object_tuning_curves(rdf, sort_best_size=True, normalize=True):
     normalize: bool, default True
         Normalize so max value is 1.
 
+    return_stacked: bool
+        Don't unstack into table of values. Return w columns:  cell, morphlevel, responses.
 
     '''
-    # Morph curves at best size
+    # Morph curves at best size: 
     morph_curves = rdf.groupby(['cell']).apply(get_x_curves_at_best_y, 
                     x='morphlevel', y='size', normalize=normalize).reset_index(drop=True)
-    morph_mat = morph_curves[['cell', 'response', 'morphlevel']]\
-                    .pivot(columns='cell', index='morphlevel') 
-    morph_mat.columns = morph_mat.columns.droplevel()
-    morph_mat = morph_mat.sort_index(ascending=True)
- 
     # Size curves
     size_curves = rdf.groupby(['cell']).apply(get_x_curves_at_best_y, 
                                                x='size', y='morphlevel', normalize=normalize)\
                      .reset_index(drop=True)
+
+    if return_stacked:
+        return morph_curves, size_curves
+
+    # Un-stack so each column is a cell, rows are morphlevels
+    morph_mat = morph_curves[['cell', 'response', 'morphlevel']]\
+                    .pivot(columns='cell', index='morphlevel') 
+    morph_mat.columns = morph_mat.columns.droplevel()
+    morph_mat = morph_mat.sort_index(ascending=True)
+
+    # Un-stack: columns are cells, rows are size levels (size-tuning at best morph)
     size_mat0 = size_curves[['cell', 'response', 'size']].pivot(columns='cell', index='size')
     xx = size_mat0.copy()
     xx.values.sort(axis=0) #[::-1]
