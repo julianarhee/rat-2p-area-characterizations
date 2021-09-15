@@ -22,12 +22,12 @@ import analyze2p.plotting as pplot
 import scipy.stats as spstats
 import analyze2p.gratings.bootstrap_osi as osi
 import analyze2p.objects.selectivity as sel
+import analyze2p.receptive_fields.utils as rfutils
+
 from scipy import signal
-
-
-# do fiting
 from scipy.optimize import curve_fit
 
+# fitting functions
 def func_halflife(t, a, tau, c):
     return a * 2**(-t / tau) + c
 
@@ -164,7 +164,8 @@ def bootstrap_fitdecay(bcorrs, use_binned=False, func='halflife',
     Return df of bootstrapped params.
     '''
 
-    cnt_grouper = ['binned_%s' % to_quartile] #, 'datakey']
+    # cnt_grouper = ['binned_%s' % to_quartile] #, 'datakey']
+    cnt_grouper = ['%s_label' % to_quartile]
     if fit_sites:
         cnt_grouper.extend(['datakey']) 
 
@@ -270,14 +271,39 @@ def get_roi_pos_and_rfs(neuraldf, curr_rfs=None, rfs_only=True, position_only=Fa
     '''
     For a given dataset, return the position (and RF fit info) for each cell.
     Specify merge_cols to include visual_area and datakey if neuraldf is aggregate.
+    
     Returns:
 
     roidf: (pd.DataFrame)
         Dataframe, each row is a cell, with cortical position (and RF fit position)
 
-    '''
-    rf_params = ['visual_area', 'datakey', 'cell', 'x0', 'y0']
+    Args:
+    
+    neuraldf:  (pd.DataFrame)
+        Stacked trial metrics for either 1 datakey, or aggregate (*specific merge_cols)
+    
+    curr_rfs: (pd.DataFrame or None)
+        Provide rfdf (RF fits) 
 
+    rfs_only: (bool)
+        If true, drops cells in neuraldf that do not have RFs. 
+
+    position_only: (bool)
+       If true, ignore all non-position parameters for RF fits (return x0, y0 only).
+    
+    merge_cols: (list)
+        Merges on cell. If neuraldf is aggregate, *must* specific ['visual_area', 'datakey', 'cell']
+     
+    '''
+    if 'datakey' in neuraldf.columns:
+        found_ids = neuraldf['datakey'].unique()
+        if len(found_ids)>1 and ('datakey' not in merge_cols):
+            if 'experiment' in neuraldf.columns:
+                merge_cols = ['visual_area', 'datakey', 'experiment', 'cell']
+            else:
+                merge_cols = ['visual_area', 'datakey', 'cell']
+    # Don't need ALL Rf params, get the min. 
+    rf_params = ['visual_area', 'datakey', 'cell', 'x0', 'y0']
     if not position_only:
         non_pos_params = ['fwhm_x', 'fwhm_y', 'theta', 'offset',
                            'amplitude', 'std_x', 'std_y', 'fwhm_avg', 'std_avg', 'area',
@@ -285,18 +311,16 @@ def get_roi_pos_and_rfs(neuraldf, curr_rfs=None, rfs_only=True, position_only=Fa
                            'minor_axis', 'anisotropy', 'aniso_index', 'eccentricity',
                            'eccentricity_ctr', 'rf_theta_deg', 'aspect_ratio']
         rf_params.extend(non_pos_params)
-
+    # Add position info to neuraldata dataframe
     if 'ml_pos' not in neuraldf.columns:
         wpos = aggr.add_roi_positions(neuraldf.copy())
     else:
         wpos = neuraldf.copy()
     roi_pos = wpos[['visual_area', 'datakey', 'cell', 'ml_pos', 'ap_pos']].drop_duplicates().copy()
-
+    # If provided, get RF fit info for cells that have fits
     if curr_rfs is not None:    
-
         cells_with_rfs = curr_rfs[rf_params].copy()
         roidf = pd.merge(roi_pos, cells_with_rfs, on=merge_cols, how='left')
-
         #has_rfs = np.intersect1d(roi_pos['cell'].unique(), curr_rfs['cell'].unique())
         #pos_ = roi_pos[roi_pos.cell.isin(has_rfs)].copy()
         #rfs_ = curr_rfs[curr_rfs.cell.isin(has_rfs)].copy()
@@ -512,7 +536,7 @@ def get_pw_distance(cc_, pos_, xcoord='ml_pos', ycoord='ap_pos', label='cortical
     return cc_
 
 def do_pairwise_diffs_melt(df_, metric_name='morph_sel', include_diagonal=False):
-    '''Calculate DIFFERENCE in metric_name for all pairs of cells'''
+    '''Calculate DIFFERENCE in metric_name for all pairs of cells---untested.'''
 
     pairwise_diffs = pd.DataFrame(abs(df_[metric_name].values \
                                   - df_[metric_name].values[:, None]), 
@@ -524,10 +548,6 @@ def do_pairwise_diffs_melt(df_, metric_name='morph_sel', include_diagonal=False)
     diffs['neuron_pair'] = ['%i_%i' % (c1, c2) for \
                          c1, c2 in diffs[['cell_1', 'cell_2']].values]
     return diffs
-
-
-
-
 
 def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, SDF=None, min_ncells=10, 
                 select_stimuli='fullfield', distance_var='rf_distance', verbose=False):
@@ -615,16 +635,16 @@ def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, SDF=None, min_ncel
             
     return CORRS
 
-
-#  Gratings-specific
-
+# --------------------------------------------------------------------
+# Tuning similarity calculations  (specific to blobs, gratings)
+# --------------------------------------------------------------------
 def smallest_signed_angle(x, y, TAU=360):
     a = (x - y) % TAU
     b = (y - x) % TAU
     return -a if a < b else b
 
 def get_pw_angular_dist(df_, tau=180, in_name='input', out_name='output'):
-    '''Calculate angular diffs (corrected), both signed and abs'''
+    '''Calculate ANGULAR diffs (corrected), both signed and abs'''
 
     col_pairs = list(itertools.combinations(df_['cell'], 2))
     pairdf = pd.DataFrame(['%i_%i' % (a, b) for a, b \
@@ -642,7 +662,7 @@ def get_pw_angular_dist(df_, tau=180, in_name='input', out_name='output'):
     return pairdf
 
 def get_pw_diffs(df_, metric='response_pref'):
-    '''Get abs diff for a given metric for all pairs of cells
+    '''Get abs DIFFERENCE for a given metric for all pairs of cells
     '''
     col_pairs = list(itertools.combinations(df_['cell'], 2))
     pairdf = pd.DataFrame(['%i_%i' % (a, b) for a, b \
@@ -654,13 +674,15 @@ def get_pw_diffs(df_, metric='response_pref'):
                         for a, b in col_pairs]
     return pairdf
 
-
-
 def cosine_similarity(v1, v2):
+    '''Cosine similarity bw two vectors'''
     return (v1.dot(v2)) / (np.sqrt(np.sum(v1**2)) * np.sqrt(np.sum(v2**2)))
 
 
 def get_paired_tuning_metrics(fitdf, r1, r2):
+    '''
+    Unused for now. Creates a "tuning curve" of all fit metrics from OSI-curve fitting.
+    '''
     tuning_params = ['response_pref', 'response_null', 'theta_pref', 'sigma',
                      'response_offset', 'asi', 'dsi', 'circvar_asi', 'circvar_dsi', 
                      'sf', 'size', 'speed', 'tf']
@@ -683,7 +705,6 @@ def get_paired_tuning_metrics(fitdf, r1, r2):
     cosim_m = cosine_similarity(d0[d0['cell']==r1]['value'].values, 
                                 d0[d0['cell']==r2]['value'].values)
     return d0, cosim_m
-    #print(cosim_m1, cosim_m)
 
 
 def compare_curves(curve1, curve2, a=0, b=1):
@@ -745,68 +766,80 @@ def get_pw_tuning(fitdf, n_intervals=3, stimulus='gratings'):
         df_ = pd.concat(t, axis=1).T
 
     elif stimulus=='blobs':
-        # stuff
+        # morph and size tuning curves
         morph_mat, size_mat = sel.get_object_tuning_curves(fitdf, 
-                                                sort_best_size=True, normalize=True)
-        m_list = [compare_curves(morph_mat[a].values, \
-                                    morph_mat[b].values, a=a, b=b) \
-                                for (a, b) in col_pairs]
+                                                sort_best_size=True, normalize=True, 
+                                                return_stacked=False)
+        # pw morph tuning similarities 
+        m_list = [compare_curves(morph_mat[a].values, morph_mat[b].values, a=a, b=b) \
+                                                for (a, b) in col_pairs]
         df_morph = pd.concat(m_list, axis=1).T
         for p in ['xcorr', 'pearsons', 'cosim']:  
             df_morph[p] = df_morph[p].astype(float)
-            
+        # pw size tuning similarities 
         s_list = [compare_curves(size_mat[a].values, \
                                     size_mat[b].values, a=a, b=b) \
                                 for (a, b) in col_pairs]
         df_size = pd.concat(s_list, axis=1).T
         for p in ['xcorr', 'pearsons', 'cosim']:  
             df_size[p] = df_size[p].astype(float)
-
+        # combine
         df_ = pd.merge(df_morph, df_size, on=['cell_1', 'cell_2', 'neuron_pair'],
                         suffixes=('_morph', '_size'))
 
     return df_
 
 
-def correlate_pw_tuning_in_fov(df_, posdf_, n_intervals=3, stimulus='gratings'):
+def correlate_pw_tuning_in_fov(df_, n_intervals=3, stimulus='gratings'):
     '''
     Calculate correlations and distances for cell pairs in FOV.
     posdf_ must be a subset of df_.
     '''
     # Calculate CCs
-    cc = get_pw_tuning(df_, n_intervals=n_intervals, stimulus=stimulus)
-    diffs_ = cc.copy()
+    tuning_cc = get_pw_tuning(df_, n_intervals=n_intervals, stimulus=stimulus)
+    #diffs_ = cc.copy()
     # Calculate distances
-    if 'x0' in posdf_.columns:
-        adist = get_pw_distance(diffs_, posdf_, xcoord='x0', ycoord='y0', 
-                                 label='rf_distance', add_eccentricity=True)
-    else:
-        adist = get_pw_distance(diffs_, posdf_, xcoord='ml_pos', ycoord='ap_pos', 
-                                 label='cortical_distance', add_eccentricity=False)
-    # check and return
-    assert adist.shape[0]==cc.shape[0], 'Bad merging: %s, %s' (va, dk)
+#    if 'x0' in posdf_.columns:
+#        dists = get_pw_distance(tuning_cc.copy(), posdf_, xcoord='x0', ycoord='y0', 
+#                                 label='rf_distance', add_eccentricity=True)
+#    else:
+#        dists = get_pw_distance(tuning_cc.copy(), posdf_, xcoord='ml_pos', ycoord='ap_pos', 
+#                                 label='cortical_distance', add_eccentricity=False)
+#    # check and return
+#    assert dists.shape[0]==tuning_cc.shape[0], 'Bad merging: %s, %s' (va, dk)
 
     if stimulus=='gratings':
+        # Calculate angular diffs
         dir_diff = get_pw_angular_dist(df_, tau=360,
                                        in_name='theta_pref', out_name='pref_dir_diff')
         ori_diff = get_pw_angular_dist(df_, tau=180,
                                        in_name='theta_pref', out_name='pref_ori_diff')
-        ang_diff = pd.merge(dir_diff, ori_diff, on=['neuron_pair', 'cell_1', 'cell_2'])      
+        ang_diff = pd.merge(dir_diff, ori_diff, on=['neuron_pair', 'cell_1', 'cell_2'],
+                           how='outer')      
+        # Calculate standard diffs
         resp_diff = get_pw_diffs(df_, metric='response_pref') 
         sigma_diff = get_pw_diffs(df_, metric='sigma') 
-        diffs0 = pd.merge(ang_diff, resp_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
-        diffs1 = pd.merge(diffs0, sigma_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
-        
-        assert adist.shape[0] == diffs1.shape[0], "bad merging"
-        dists = pd.merge(adist, diffs1, on=['neuron_pair', 'cell_1', 'cell_2'])
+        std_diff = pd.merge(sigma_diff, resp_diff, on=['neuron_pair', 'cell_1', 'cell_2'],
+                            how='outer')
+        # merge diffs
+        diffs = pd.merge(ang_diff, std_diff, on=['neuron_pair', 'cell_1', 'cell_2'],
+                         how='outer')
+        #assert dists.shape[0] == diffs.shape[0], "bad merging"
+        pw_df = pd.merge(tuning_cc, diffs, on=['neuron_pair', 'cell_1', 'cell_2'],
+                        how='outer')
     else:
-        dists = adist.copy()
+#         # Calculate standard diffs
+        max_resp = df_.groupby('cell')['response'].max().reset_index()
+        resp_diff = get_pw_diffs(max_resp, metric='response') 
+        resp_diff = resp_diff.rename(columns={'response': 'max_response'})
+        pw_df = pd.merge(tuning_cc, resp_diff, on=['neuron_pair', 'cell_1', 'cell_2'],
+                        how='outer')
 
-    cols = [k for k in dists.columns if k not in ['visual_area', 'datakey', 'neuron_pair']]
+    cols = [k for k in pw_df.columns if k not in ['visual_area', 'datakey', 'neuron_pair']]
     for c in cols:
-        dists[c] = dists[c].astype(float)
+        pw_df[c] = pw_df[c].astype(float)
     
-    return dists
+    return pw_df
 
 
 def aggregate_tuning_curve_ccdist(df, rfdf=None, rfpolys=None, n_intervals=3, 
@@ -831,63 +864,104 @@ def aggregate_tuning_curve_ccdist(df, rfdf=None, rfpolys=None, n_intervals=3,
             continue
 
         if rfdf is not None:
-            curr_cells = df_[['visual_area', 'datakey', 'experiment', 'cell']].drop_duplicates().copy()
             curr_rfs = rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk)].copy()
-            # Add roi positions and RF fits
+            curr_cells = df_[['visual_area', 'datakey', 'experiment', 'cell']].drop_duplicates().copy()
+            # Add roi positions and RF fits -- need to sub-select for indexing.
             posdf_ = get_roi_pos_and_rfs(curr_cells, curr_rfs, rfs_only=False, #position_only=False,
                                         merge_cols=['visual_area', 'datakey', 'cell'])
             # to merge:
             # fits_nd_rfs = pd.merge(df_, posdf_, on=['visual_area', 'datakey', 'cell'], how='outer')
-            if posdf_.shape[0]==0:
+            if posdf_.shape[0]<2:
                 no_rfs.append((va, dk, exp))
                 continue
         else:
             posdf_ = aggr.add_roi_positions(df_)
 
-        tuning_dists = correlate_pw_tuning_in_fov(df_, posdf_, 
-                                            n_intervals=n_intervals, stimulus=stimulus)
-       
-        #overlaps_=None
-        rf_diffs = tuning_dists[['neuron_pair', 'cell_1', 'cell_2']].copy()
-        rf_diffs['area_overlap'] = None
-        rf_diffs['perc_overlap'] = None
+        # Get PW differences (tuning) and distances (position)
+        tuning_dists = correlate_pw_tuning_in_fov(df_, # posdf_, 
+                                            n_intervals=n_intervals, stimulus=stimulus) 
+        # Cortical and RF position distances
+        dists = get_pw_distance(tuning_dists, posdf_, xcoord='x0', ycoord='y0', 
+                                 label='rf_distance', add_eccentricity=True)
 
+        # RF-to-RF overlaps, if relevant
+        curr_polys = None
         if rfpolys is not None:
-            try:
-                rois_ = df_['cell'].unique()
-                curr_polys = rfpolys[(rfpolys.datakey==dk) & (rfpolys['cell'].isin(rois_))]
-                #print(dk, curr_polys.shape)
-                if len(curr_polys)<=1:
-                    print("    (%s NONE, skipping overlaps)" % dk) 
-                    
-                overlaps_ = rfutils.get_rf_overlaps(curr_polys)
-                overlaps_ = overlaps_.rename(columns={'poly1': 'cell_1', 'poly2': 'cell_2'})
-                overlaps_['neuron_pair'] = ['%i_%i' % (c1, c2) for c1, c2 \
-                                                in overlaps_[['cell_1', 'cell_2']].values] 
-                # RF angle diffs
-                rf_ang_ = get_pw_angular_dist(posdf_, tau=180,
-                                          in_name='rf_theta_deg', out_name='rf_angle_diff')
-                rf_diffs = pd.merge(overlaps_, rf_ang_, on=['neuron_pair', 'cell_1', 'cell_2'])
-            except Exception as e:
-                pass 
-        dists = pd.merge(tuning_dists, rf_diffs, 
-                            on=['neuron_pair', 'cell_1', 'cell_2'], how='outer') 
+            dists0 = dists.copy()
+            rois_ = df_['cell'].unique() 
+            curr_polys = rfpolys[(rfpolys.datakey==dk) & (rfpolys['cell'].isin(rois_))] 
+            if len(curr_polys)<=1: # need >1 to compare
+                print("    (%s NONE, skipping overlaps)" % dk)  
+                curr_polys=None
+        if rfdf is not None:
+            rf_diffs = rf_diffs_and_dists_in_fov(dists0, posdf_, curr_polys=curr_polys)
+            pw_df= pd.merge(dists, rf_diffs, on=['neuron_pair', 'cell_1', 'cell_2'], 
+                            how='outer')
+        else:
+            pw_df = dists.copy()
 
-        if dists is not None:
-            dists['visual_area'] = va
-            dists['datakey'] = dk
-            dists['n_cells'] = len(df_['cell'].unique())
-            a_.append(dists)
+        if pw_df is not None:
+            pw_df['visual_area'] = va
+            pw_df['datakey'] = dk
+            pw_df['n_cells'] = len(df_['cell'].unique())
+            a_.append(pw_df)
 
-    angdists = pd.concat(a_, axis=0, ignore_index=True)
+    aggr_dists = pd.concat(a_, axis=0, ignore_index=True)
     print(no_rfs)
-    return angdists
+    return aggr_dists
+
+
+def rf_diffs_and_dists_in_fov(dists, df_, curr_polys=None):
+    '''
+    For 1 dataset, calculate RF-to-RF VF and CX distances, 
+    plus:
+    area_overlap	perc_overlap	rf_angle_diff	rf_angle_diff_abs	std_x	std_y
+    aspect_ratio	neuron_pair
+    '''
+
+    # RF-to-RF overlaps
+    overlaps_ = dists[['neuron_pair', 'cell_1', 'cell_2']].copy()
+    overlaps_['area_overlap'] = None
+    overlaps_['perc_overlap'] = None
+    if curr_polys is not None and len(curr_polys)>1:
+        try:
+            overlaps_ = rfutils.get_rf_overlaps(curr_polys)
+            overlaps_ = overlaps_.rename(columns={'poly1': 'cell_1', 'poly2': 'cell_2'})
+            overlaps_['neuron_pair'] = ['%i_%i' % (c1, c2) for c1, c2 \
+                                            in overlaps_[['cell_1', 'cell_2']].values] 
+        except Exception as e:
+            pass
+    pos_and_overlaps = pd.merge(dists, overlaps_, on=['neuron_pair', 'cell_1', 'cell_2'])
+           
+    # RF angle diffs, merge w overlap
+    angles_ = get_pw_angular_dist(df_, tau=180,
+                                  in_name='rf_theta_deg', out_name='rf_angle_diff')
+    angles_['rf_angle_diff_abs'] = angles_['rf_angle_diff'].abs()
+
+    ang_diffs = pd.merge(pos_and_overlaps, angles_, on=['neuron_pair', 'cell_1', 'cell_2'])
+
+    # Standard difference metrics, merge 
+    sz_x = get_pw_diffs(df_, metric='std_x')
+    sz_y = get_pw_diffs(df_, metric='std_y')
+    sz_diff = pd.merge(sz_x, sz_y, on=['neuron_pair', 'cell_1', 'cell_2'])
+    # non-size stuff
+    asp_diff = get_pw_diffs(df_, metric='aspect_ratio')
+    sz_and_aspect = pd.merge(sz_diff, asp_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+
+    # Final df
+    pw_df0 = pd.merge(ang_diffs, sz_and_aspect, on=['neuron_pair', 'cell_1', 'cell_2'])
+    # Get rid of extra columns for merge
+    new_cols = [k for k in pw_df0.columns if k not in dists.columns]
+    new_cols.extend(['neuron_pair', 'cell_1', 'cell_2'])
+    pw_df = pw_df0[new_cols]
+
+    return pw_df
 
 
 
 def aggregate_angular_dists(df, min_ncells=5):
     '''
-    Calculate PW diffs for GRATINGS (+ RFs, if have).
+    Calculate PW diffs for GRATINGS (+ RFs, if have). Not used.
     '''
     a_=[]
     for (va, dk), df_ in df.groupby(['visual_area', 'datakey']):
@@ -933,64 +1007,65 @@ def aggregate_angular_dists(df, min_ncells=5):
     return angdists
 
 
-import analyze2p.receptive_fields.utils as rfutils
 
-def aggregate_rf_dists(df, rfpolys=None, min_ncells=5):
+def aggregate_rf_dists(rfdf, rfpolys=None, min_ncells=5):
     '''
     Calculate PW diffs for RFs
     '''
     a_=[]
-    for (va, dk), df_ in df.groupby(['visual_area', 'datakey']):
+    for (va, dk), df_ in rfdf.groupby(['visual_area', 'datakey']):
         if len(df_['cell'].unique())<min_ncells:
             print("too few cells: %s, %s" % (va, dk))
             continue
-        overlaps_=None
+        # Cortical and RF position distances
+        dists = get_pw_distance(diffs_, df_, xcoord='x0', ycoord='y0', 
+                                 label='rf_distance', add_eccentricity=True)
+
+        # RF-to-RF overlaps
+        overlaps_ = dists[['neuron_pair', 'cell_1', 'cell_2']].copy()
+        overlaps_['area_overlap'] = None
+        overlaps_['perc_overlap'] = None
+
         if rfpolys is not None:
             try:
                 rois_ = df_['cell'].unique()
                 curr_polys = rfpolys[(rfpolys.datakey==dk) & (rfpolys['cell'].isin(rois_))]
                 print(dk, curr_polys.shape)
                 if len(curr_polys)<=1:
-                    print("NONE, skipping overlaps") 
-                    
+                    print("NONE, skipping overlaps")  
                 overlaps_ = rfutils.get_rf_overlaps(curr_polys)
                 overlaps_ = overlaps_.rename(columns={'poly1': 'cell_1', 'poly2': 'cell_2'})
                 overlaps_['neuron_pair'] = ['%i_%i' % (c1, c2) for c1, c2 \
                                                 in overlaps_[['cell_1', 'cell_2']].values] 
             except Exception as e:
-                overlaps_ = df_[['neuron_pair', 'cell_1', 'cell_2']].copy()
-                overlaps_['area_overlap'] = None
-                overlaps_['perc_overlap'] = None
-                
-        # RF angle diffs
-        ang_diff0 = get_pw_angular_dist(df_, tau=180,
+                pass
+        pos_and_overlaps = pd.merge(dists, overlaps_, on=['neuron_pair', 'cell_1', 'cell_2'])
+               
+        # RF angle diffs, merge w overlap
+        angles_ = get_pw_angular_dist(df_, tau=180,
                                       in_name='rf_theta_deg', out_name='rf_angle_diff')
-        ang_diff0['rf_angle_diff_abs'] = ang_diff0['rf_angle_diff'].abs()
+        angles_['rf_angle_diff_abs'] = angles_['rf_angle_diff'].abs()
 
-        if overlaps_ is not None:
-            ang_diff = pd.merge(overlaps_, ang_diff0, on=['neuron_pair', 'cell_1', 'cell_2'])
-        else:
-            ang_diff = ang_diff0.copy()
+        ang_diffs = pd.merge(pos_and_overlaps, angles_, on=['neuron_pair', 'cell_1', 'cell_2'])
 
-        # Difference metrics
+        # Standard difference metrics, merge 
         sz_x = get_pw_diffs(df_, metric='std_x')
         sz_y = get_pw_diffs(df_, metric='std_y')
         sz_diff = pd.merge(sz_x, sz_y, on=['neuron_pair', 'cell_1', 'cell_2'])
+        # non-size stuff
         asp_diff = get_pw_diffs(df_, metric='aspect_ratio')
-        resp_diff = pd.merge(sz_diff, asp_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+        sz_and_aspect = pd.merge(sz_diff, asp_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
 
-        diffs_ = pd.merge(ang_diff, resp_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
-        # Cortical and RF difff
-        adist = get_pw_distance(diffs_, df_, xcoord='x0', ycoord='y0', 
-                                 label='rf_distance', add_eccentricity=True)
-        assert adist.shape[0]==ang_diff.shape[0], 'Bad merging: %s, %s' (va, dk)
-        adist['visual_area'] = va
-        adist['datakey'] = dk
-        adist['n_cells'] = len(df_['cell'].unique())
-        a_.append(adist)
-    angdists = pd.concat(a_, axis=0, ignore_index=True)
+        # Final df
+        pw_df = pd.merge(ang_diffs, sz_and_aspect, on=['neuron_pair', 'cell_1', 'cell_2'])
+        assert dists.shape[0]==pw_df.shape[0], 'Bad merging: %s, %s' (va, dk)
+        pw_df['visual_area'] = va
+        pw_df['datakey'] = dk
+        pw_df['n_cells'] = len(df_['cell'].unique())
+        a_.append(pw_df)
+    aggr_dists = pd.concat(a_, axis=0, ignore_index=True)
 
-    return angdists
+    return aggr_dists
 
 
 
