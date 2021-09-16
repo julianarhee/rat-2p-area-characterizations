@@ -38,7 +38,7 @@ def func_decay(t, a, tau, c):
     return a * np.exp(-t * tau) + c
 
 
-def fit_decay(xdata, ydata, p0=None, func='halflife', return_inputs=False, normalize_x=True):
+def fit_decay(xdata, ydata, p0=None, func='halflife', return_inputs=False, normalize_x=True, ymax=None):
     in_x = xdata.copy()
     in_y = ydata.copy()
     if normalize_x:
@@ -58,7 +58,8 @@ def fit_decay(xdata, ydata, p0=None, func='halflife', return_inputs=False, norma
     #tau_ = 1 #2000 / 2. # divide by 2 since corr coef range [-1, 1]
     #a_lim = 1  
     tau_lim = 1 if normalize_x else 1500 
-    bounds = ((-1, 0., -np.inf), (1, tau_lim, np.inf))
+    ylim = (-1, 1) if ymax is None else (0, ymax)
+    bounds = ((ylim[0], 0., -np.inf), (ylim[1], tau_lim, np.inf))
     a_0, tau_0, c_0 = p0
     try:
         popt4, pcov4 = curve_fit(pfunc_, in_x_norm, in_y, 
@@ -105,7 +106,7 @@ def init_decay_params(ydata):
 
 def fit_decay_on_binned(cc_, use_binned=False, func='halflife', estimator='median',
                        metric='signal_cc', to_quartile='cortical_distance',
-                       bin_column='bin_value', normalize_x=True,
+                       bin_column='bin_value', normalize_x=True, ymax=None,
                        return_inputs=False):
     '''
     Fit exponential decay (returns half-life).
@@ -144,8 +145,10 @@ def fit_decay_on_binned(cc_, use_binned=False, func='halflife', estimator='media
     # ----------------
     mean_y = meanvs.sort_values(by=to_quartile)[metric].values
     p0 = init_decay_params(mean_y)
+    ymax = 180 if metric=='pref_dir_diff_abs' else None
+
     initv, tau, const, r2, xvals, yvals = fit_decay(xdata, ydata, func=func,
-                                            normalize_x=normalize_x,
+                                            normalize_x=normalize_x, ymax=ymax,
                                             return_inputs=True, p0=p0)
     res_ = pd.Series({'init': initv, 'tau': tau, 'constant': const, 'R2': r2})
     
@@ -157,7 +160,7 @@ def fit_decay_on_binned(cc_, use_binned=False, func='halflife', estimator='media
 def bootstrap_fitdecay(bcorrs, use_binned=False, func='halflife',
                       estimator='median', min_npairs=5, fit_sites=False,
                       metric='signal_cc', to_quartile='cortical_distance',
-                      bin_column='bin_value', normalize_x=True,
+                      bin_column='bin_value', normalize_x=True, ymax=None,
                       n_iterations=500):
     '''
     Cycle thru visual areas, sample w replacement, fit decay func.
@@ -180,6 +183,9 @@ def bootstrap_fitdecay(bcorrs, use_binned=False, func='halflife',
         nsamples_per = dict((k, v) for k, v \
                             in zip(cnts[cnts>min_npairs].index.tolist(),
                                    cnts[cnts>min_npairs].values))
+        if len(nsamples_per)==0:
+            continue
+
         for n_iter in np.arange(0, n_iterations):
             # Sample
             cc_ = pd.concat([cg.sample(nsamples_per[c], 
@@ -198,7 +204,7 @@ def bootstrap_fitdecay(bcorrs, use_binned=False, func='halflife',
                                             metric=metric, 
                                             bin_column=bin_column,
                                             to_quartile=to_quartile,
-                                            normalize_x=normalize_x,
+                                            normalize_x=normalize_x, ymax=ymax,
                                             return_inputs=True)
             res_['iteration'] = n_iter
             res_['visual_area'] = va
@@ -747,7 +753,8 @@ def compare_direction_tuning_curves(thetas, fitdf, a=0, b=1):
     return res
 
 
-def get_pw_tuning(fitdf, n_intervals=3, stimulus='gratings'):
+def get_pw_tuning(fitdf, n_intervals=3, stimulus='gratings',
+                    sort_best_size=True, normalize=True):
     '''
     Cycle thru cell pairs and calculate cross-corr (0 lag), pearson's corr, and cosine similarity
     for tuning curves.
@@ -768,7 +775,7 @@ def get_pw_tuning(fitdf, n_intervals=3, stimulus='gratings'):
     elif stimulus=='blobs':
         # morph and size tuning curves
         morph_mat, size_mat = sel.get_object_tuning_curves(fitdf, 
-                                                sort_best_size=True, normalize=True, 
+                                                sort_best_size=sort_best_size, normalize=normalize, 
                                                 return_stacked=False)
         # pw morph tuning similarities 
         m_list = [compare_curves(morph_mat[a].values, morph_mat[b].values, a=a, b=b) \
@@ -790,13 +797,15 @@ def get_pw_tuning(fitdf, n_intervals=3, stimulus='gratings'):
     return df_
 
 
-def correlate_pw_tuning_in_fov(df_, n_intervals=3, stimulus='gratings'):
+def correlate_pw_tuning_in_fov(df_, n_intervals=3, stimulus='gratings',
+                        sort_best_size=True, normalize=True):
     '''
     Calculate correlations and distances for cell pairs in FOV.
     posdf_ must be a subset of df_.
     '''
     # Calculate CCs
-    tuning_cc = get_pw_tuning(df_, n_intervals=n_intervals, stimulus=stimulus)
+    tuning_cc = get_pw_tuning(df_, n_intervals=n_intervals, stimulus=stimulus,
+                            sort_best_size=sort_best_size, normalize=normalize)
     #diffs_ = cc.copy()
     # Calculate distances
 #    if 'x0' in posdf_.columns:
@@ -843,7 +852,8 @@ def correlate_pw_tuning_in_fov(df_, n_intervals=3, stimulus='gratings'):
 
 
 def aggregate_tuning_curve_ccdist(df, rfdf=None, rfpolys=None, n_intervals=3, 
-                                min_ncells=5, stimulus='gratings'):
+                                min_ncells=5, stimulus='gratings',
+                                sort_best_size=True, normalize=True):
     '''
     Calculate PW diffs for GRATINGS (+ RFs, if have).
 
@@ -879,7 +889,8 @@ def aggregate_tuning_curve_ccdist(df, rfdf=None, rfpolys=None, n_intervals=3,
 
         # Get PW differences (tuning) and distances (position)
         tuning_dists = correlate_pw_tuning_in_fov(df_, # posdf_, 
-                                            n_intervals=n_intervals, stimulus=stimulus) 
+                                            n_intervals=n_intervals, stimulus=stimulus,
+                                            sort_best_size=sort_best_size, normalize=normalize) 
         # Cortical and RF position distances
         dists = get_pw_distance(tuning_dists, posdf_, xcoord='x0', ycoord='y0', 
                                  label='rf_distance', add_eccentricity=True)
@@ -1073,12 +1084,24 @@ def aggregate_rf_dists(rfdf, rfpolys=None, min_ncells=5):
 
 # Data binning
 # ----------------------------------------------------------------------------
-def cut_bins(DF, bins, metric='cortical_distance'):
-    DF['binned_%s' % metric] = pd.cut(DF[metric], bins, include_lowest=True,
+def cut_bins(DF, bins, metric='cortical_distance', include_lowest=True):
+    DF['binned_%s' % metric] = pd.cut(DF[metric], bins, include_lowest=include_lowest,
                                                 labels=bins[0:-1])
     DF['%s_label' % metric] = [float(d) if not np.isnan(d) else d \
                                 for d in DF['binned_%s' % metric].values]
+
+    DF = get_bin_values(DF, bin_var=metric)
+
     return DF
+
+def get_bin_values(DF, bin_var='cortical_distance'):
+    grouped_meds = DF.groupby('%s_label' % bin_var).median().reset_index()
+    bin_lut = dict((k, float(v[bin_var])) for k, v \
+               in grouped_meds.groupby('%s_label' % bin_var))
+    DF['%s_value' % bin_var] = [bin_lut[i] if not np.isnan(i) else i \
+                                for i in DF['%s_label' % bin_var].values]
+    return DF
+
 
 def get_bins_within_limits(bcorrs, bin_name='cortical_distance', 
                     upper_lim=None, lower_lim=None):
@@ -1377,11 +1400,15 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
 #     ylabel = 'cortical dist. (um)'
     # ---------------------------
     cols=['init', 'tau', 'constant', 'R2']
-    fig, axn = pl.subplots(1, 3, figsize=(7,2.5), sharex=True, sharey=True, dpi=150)
+    fig, axn = pl.subplots(1, 3, figsize=(7,3), sharex=True, sharey=True, dpi=150)
 
     for va, cc_ in bcorrs.groupby('visual_area'):
         ai=visual_areas.index(va)
         ax=axn[ai]
+        if len(cc_.dropna())==0:
+            ax.set_title('%s (no fit)' % va)
+            ax.set_box_aspect(1)
+            continue
         # plot data
         data = cc_.groupby(cnt_grouper).median()
         xdata = data.sort_values(by=to_quartile)[to_quartile].values
@@ -1404,9 +1431,10 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
         n_fovs = len(cc_['datakey'].unique())
         ax.set_box_aspect(0.8)
 
-        pars_m = finalres[finalres.visual_area==va][cols].median()
+        
+        pars_m = finalres[finalres.visual_area==va][cols].dropna().median()
         init_med, tau_med = pars_m.init, pars_m.tau
-        pars_sd = finalres[finalres.visual_area==va][cols].std()
+        pars_sd = finalres[finalres.visual_area==va][cols].dropna().std()
         init_sd, tau_sd = pars_sd.init, pars_sd.tau
         res_str = 'tau=%.2f+/-%.2f\ncc0=%.2f+/-%.2f' %  (tau_med, tau_sd, init_med, init_sd)
 
@@ -1414,6 +1442,7 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
         #ax.legend(bbox_to_anchor=(x_pos, 1), loc='upper left', frameon=False, fontsize=6)
         
         ax.set_title("%s (n=%i sites)\n%s" % (va,  n_fovs, res_str), loc='left', fontsize=6)
+        ax.set_box_aspect(1)
 
         # param distns
         paramdf = finalres[finalres.visual_area==va]
@@ -1424,6 +1453,8 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
                        color=area_colors[va], s=param_size)
         else: # just plot med. and CI
             for par in ['tau', 'init']:
+                if len(paramdf[par].dropna())==0:
+                    continue
                 med = paramdf[par].median()
                 xpos = med if par=='tau' else x_pos
                 ypos = y_pos if par=='tau' else med
@@ -1441,7 +1472,57 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
         for ax in axn:
             ax.set_ylim(ylim)
     sns.despine(trim=True)
-    pl.subplots_adjust(left=0.1, right=0.8, bottom=0.25, wspace=0.2, top=0.8)
+    pl.subplots_adjust(left=0.1, right=0.8, bottom=0.25, wspace=0.2, top=0.7)
     return fig
 
+
+
+
+def heatmap_tuning_v_distance(df_, x_bins, y_bins, ax=None,
+                    x_var='cortical_distance', y_var='area_overlap', 
+                    hue_var='pearsons', hue_norm=(-1, 1), 
+                    cmap=None, cbar=False, cbar_ax=[0.87, 0.3, 0.01, 0.3] ):
+    #x_var = 'cortical_distance'
+    #y_var = 'area_overlap'
+    #hue_var = 'pearsons'
+    #hue_min, hue_max = (-.8, 0.8)
+    if cmap is None:
+        cmap=sns.diverging_palette(145, 300, s=60, as_cmap=True)
+    #'coolwarm'
+    #x_bins = ctx_bins.copy()
+    #y_bins = perc_bins.copy()
+    
+    # x_var_name = 'binned_%s' % x_var
+    # y_var_name = 'binned_%s' % y_var
+    x_var_name = '%s_label' % x_var
+    y_var_name = '%s_label' % y_var
+
+    hue_min, hue_max = hue_norm
+    # 
+    if ax is None:
+        fig, ax = pl.subplots(figsize=(6, 5), dpi=150)
+        fig.patch.set_alpha(1)
+    means_ = df_.groupby([y_var_name, x_var_name])\
+               .mean().reset_index()
+    hmat = means_.pivot(y_var_name, x_var_name, hue_var)
+    sns.heatmap(hmat, cmap=cmap, ax=ax, vmin=hue_min, vmax=hue_max,
+                cbar=cbar, cbar_ax=cbar_ax, cbar_kws={'label': hue_var}) 
+    ax.set_box_aspect(0.75)
+    #, center=0)
+    ax.set_yticks(np.arange(0, len(y_bins)))
+    ax.set_yticklabels([round(i, 2) if i in y_bins[0::2] else '' for i in y_bins])
+
+    ax.set_xticks(np.arange(0, len(x_bins)))
+    ax.set_xticklabels([int(i) if i in x_bins[0::3] else '' for i in x_bins])
+    ax.invert_yaxis()
+   
+    ax.tick_params(which='both', axis='both', size=0)
+
+
+    # make frame visible
+    for _, spine in ax.spines.items():
+        spine.set_visible(True)
+
+ 
+    return ax
 
