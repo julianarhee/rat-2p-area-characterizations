@@ -2015,91 +2015,101 @@ def do_scatter_analysis(dk, va, experiment='rfs',
     create_new to completely overwrite scatter analysis results
     '''
     scatter_df=None
-
     scatter_kws={'s':2}
 
-    #### Select output dirs
-    session, animalid, fovn = hutils.split_datakey_str(dk)
-    fovdir = glob.glob(os.path.join(rootdir, animalid, session, \
-                    'FOV%i_*' % fovn))[0]
-    curr_dst_dir = os.path.join(fovdir, 'segmentation')
-    if not os.path.exists(curr_dst_dir):
-        os.makedirs(curr_dst_dir)
 
-    fit_desc = rfutils.get_fit_desc(response_type=response_type,
-                                    do_spherical_correction=do_spherical_correction)
-    data_id = '%s|%s|%s, %s' % (fit_desc, va, dk, experiment)
-    has_retino=True
-    has_rfs=True
-    try:
-        retinorun, AZMAP_NP, ELMAP_NP, GVECTORS, REGR_NP = get_gradient_results(dk, va, 
-                                return_best=return_best_model,
-                                do_gradients=do_gradients, do_model=do_model, 
-                                np_mag_thr=np_mag_thr, 
-                                np_delay_map_thr=np_delay_map_thr, 
-                                np_ds_factor=np_ds_factor,
-                                plot=plot, cmap=cmap, plot_dst_dir=curr_dst_dir,
-                                verbose=verbose)  
-        if REGR_NP is None:
-            has_retino=False
+    if not create_new:
+        try:
+            scatter_df = load_scatter_results(dk, va, experiment=experiment,verbose=verbose)
+        except Exception as e:
+            # traceback.print_exc()
+            create_new=True
 
-        if has_retino:
-            protocol = 'TILE' if 'rfs' in experiment else 'BAR'
-            soma_dst_dir = os.path.join(curr_dst_dir, 'scatter_%s' % experiment)
-            if not os.path.exists(soma_dst_dir):
-                os.makedirs(soma_dst_dir)
-            aligned_soma = predict_soma_from_gradient(dk, va, REGR_NP, 
-                                    experiment=experiment,
-                                    traceid=traceid, protocol=protocol, 
-                                    response_type=response_type,
-                                    do_spherical_correction=do_spherical_correction,
-                                    ecc_center=ecc_center,  abs_value=abs_value,
-                                    verbose=verbose, plot=plot, plot_dst_dir=soma_dst_dir)
-            if aligned_soma is None:
-                has_rfs=False
-                
-            if has_rfs and plot:
-                # FOV scatter coords 
-                overlay_scatter(dk, va, aligned_soma, AZMAP_NP, ELMAP_NP, 
-                                experiment=experiment, traceid=traceid, 
-                                markersize=30, lw=0.5, alpha=1, cmap=cmap, single_axis=True,
-                                plot_true=True, plot_predicted=True, plot_lines=True,
-                                plot_dst_dir=soma_dst_dir, data_id=data_id)
-            if has_rfs:
-                # Calculate scatter
-                #print("... calculating deviations")
-                #scatter_df = calculate_scatter(aligned_soma)
-                scatter_df = stack_axes(aligned_soma)
-            if has_rfs and plot:
-                # Plot
-                fig, axn = pl.subplots(1,2, figsize=(6.5, 3))
-                ax=axn[0]
-                sns.histplot(scatter_df, x='deg_scatter', hue='axis', ax=ax,
-                            stat='probability', cumulative=False )
-                ax.set_title('visual field scatter (deg)')
-                ax=axn[1]
-                sns.histplot(scatter_df, x='dist_scatter', hue='axis', ax=ax,
-                            stat='probability', cumulative=False)
-                ax.set_title('cortical scatter (um)')
-                pl.subplots_adjust(left=0.1, right=0.8, bottom=0.25, top=0.85, 
-                                    wspace=0.5, hspace=0.5)
-                if os.path.exists(os.path.join(soma_dst_dir, 'deviations.svg')):
-                    os.remove(os.path.join(soma_dst_dir, 'deviations.svg'))
-                pplot.label_figure(fig, data_id)
-                pl.savefig(os.path.join(soma_dst_dir, 'scatter_%s.svg' % va))
-                pl.close()
-            
-            update_scatter_results(dk, va, scatter_df, soma_dst_dir) #, create_new=create_new)
+    if create_new:
+        #### Select output dirs
+        session, animalid, fovn = hutils.split_datakey_str(dk)
+        fovdir = glob.glob(os.path.join(rootdir, animalid, session, \
+                        'FOV%i_*' % fovn))[0]
+        curr_dst_dir = os.path.join(fovdir, 'segmentation')
+        if not os.path.exists(curr_dst_dir):
+            os.makedirs(curr_dst_dir)
 
-    except Exception as e:
-        print("ERROR in %s, %s (%s)" % (dk, va, experiment))
-        traceback.print_exc()
+        fit_desc = rfutils.get_fit_desc(response_type=response_type,
+                                        do_spherical_correction=do_spherical_correction)
+        data_id = '%s|%s|%s, %s' % (fit_desc, va, dk, experiment)
+        has_retino=True
+        has_rfs=True
+        try:
+            retinorun, AZMAP_NP, ELMAP_NP, GVECTORS, REGR_NP = get_gradient_results(dk, va, 
+                                    return_best=return_best_model,
+                                    do_gradients=do_gradients, do_model=do_model, 
+                                    np_mag_thr=np_mag_thr, 
+                                    np_delay_map_thr=np_delay_map_thr, 
+                                    np_ds_factor=np_ds_factor,
+                                    plot=plot, cmap=cmap, plot_dst_dir=curr_dst_dir,
+                                    verbose=verbose)  
+            if REGR_NP is None:
+                has_retino=False
 
-    if not has_retino:
-        print("ERROR: no retino")
-    if not has_rfs:
-        print("ERROR: no rfs")
-  
+            if has_retino:
+                protocol = 'TILE' if 'rfs' in experiment else 'BAR'
+                soma_dst_dir = os.path.join(curr_dst_dir, 'scatter_%s' % experiment)
+                if not os.path.exists(soma_dst_dir):
+                    os.makedirs(soma_dst_dir)
+                aligned_soma = predict_soma_from_gradient(dk, va, REGR_NP, 
+                                        experiment=experiment,
+                                        traceid=traceid, protocol=protocol, 
+                                        response_type=response_type,
+                                        do_spherical_correction=do_spherical_correction,
+                                        ecc_center=ecc_center,  abs_value=abs_value,
+                                        verbose=verbose, plot=plot, 
+                                        plot_dst_dir=soma_dst_dir)
+                if aligned_soma is None:
+                    has_rfs=False
+                    
+                if has_rfs and plot:
+                    # FOV scatter coords 
+                    overlay_scatter(dk, va, aligned_soma, AZMAP_NP, ELMAP_NP, 
+                                    experiment=experiment, traceid=traceid, 
+                                    markersize=30, lw=0.5, alpha=1, cmap=cmap, 
+                                    single_axis=True,
+                                    plot_true=True, plot_predicted=True, plot_lines=True,
+                                    plot_dst_dir=soma_dst_dir, data_id=data_id)
+                if has_rfs:
+                    # Calculate scatter
+                    #print("... calculating deviations")
+                    #scatter_df = calculate_scatter(aligned_soma)
+                    scatter_df = stack_axes(aligned_soma)
+                if has_rfs and plot:
+                    # Plot
+                    fig, axn = pl.subplots(1,2, figsize=(6.5, 3))
+                    ax=axn[0]
+                    sns.histplot(scatter_df, x='deg_scatter', hue='axis', ax=ax,
+                                stat='probability', cumulative=False )
+                    ax.set_title('visual field scatter (deg)')
+                    ax=axn[1]
+                    sns.histplot(scatter_df, x='dist_scatter', hue='axis', ax=ax,
+                                stat='probability', cumulative=False)
+                    ax.set_title('cortical scatter (um)')
+                    pl.subplots_adjust(left=0.1, right=0.8, bottom=0.25, top=0.85, 
+                                        wspace=0.5, hspace=0.5)
+                    if os.path.exists(os.path.join(soma_dst_dir, 'deviations.svg')):
+                        os.remove(os.path.join(soma_dst_dir, 'deviations.svg'))
+                    pplot.label_figure(fig, data_id)
+                    pl.savefig(os.path.join(soma_dst_dir, 'scatter_%s.svg' % va))
+                    pl.close()
+                # save                
+                update_scatter_results(dk, va, scatter_df, soma_dst_dir)
+
+        except Exception as e:
+            print("ERROR in %s, %s (%s)" % (dk, va, experiment))
+            traceback.print_exc()
+
+        if not has_retino:
+            print("ERROR: no retino")
+        if not has_rfs:
+            print("ERROR: no rfs")
+      
     return scatter_df
 
 def update_scatter_results(dk, va, soma_results, soma_dst_dir): #, create_new=False):
