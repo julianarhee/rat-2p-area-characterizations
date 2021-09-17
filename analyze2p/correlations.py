@@ -26,6 +26,7 @@ import analyze2p.receptive_fields.utils as rfutils
 
 from scipy import signal
 from scipy.optimize import curve_fit
+from functools import reduce
 
 # fitting functions
 def func_halflife(t, a, tau, c):
@@ -58,7 +59,7 @@ def fit_decay(xdata, ydata, p0=None, func='halflife', return_inputs=False, norma
     #tau_ = 1 #2000 / 2. # divide by 2 since corr coef range [-1, 1]
     #a_lim = 1  
     tau_lim = 1 if normalize_x else 1500 
-    ylim = (-1, 1) if ymax is None else (0, ymax)
+    ylim = (-2, 2) if ymax is None else (0, ymax)
     bounds = ((ylim[0], 0., -np.inf), (ylim[1], tau_lim, np.inf))
     a_0, tau_0, c_0 = p0
     try:
@@ -775,8 +776,9 @@ def get_pw_tuning(fitdf, n_intervals=3, stimulus='gratings',
     elif stimulus=='blobs':
         # morph and size tuning curves
         morph_mat, size_mat = sel.get_object_tuning_curves(fitdf, 
-                                                sort_best_size=sort_best_size, normalize=normalize, 
-                                                return_stacked=False)
+                                            sort_best_size=sort_best_size, 
+                                            normalize=normalize, 
+                                            return_stacked=False)
         # pw morph tuning similarities 
         m_list = [compare_curves(morph_mat[a].values, morph_mat[b].values, a=a, b=b) \
                                                 for (a, b) in col_pairs]
@@ -1017,7 +1019,32 @@ def aggregate_angular_dists(df, min_ncells=5):
 
     return angdists
 
-
+def get_pw_rf_diffs(df_):
+    '''Calculate standard PW diffs for RF dataframe (1 fov)'''
+    diffs=None
+    dfs_to_merge=[]
+    # RF angle diffs, merge w overlap
+    angles_ = get_pw_angular_dist(df_, tau=180,
+                                  in_name='rf_theta_deg', out_name='rf_angle_diff')
+    angles_['rf_angle_diff_abs'] = angles_['rf_angle_diff'].abs()
+    dfs_to_merge.append(angles_)
+    # Standard difference metrics, merge 
+    sz_x = get_pw_diffs(df_, metric='std_x')
+    sz_y = get_pw_diffs(df_, metric='std_y')
+    #sz_diff = pd.merge(sz_x, sz_y, on=['neuron_pair', 'cell_1', 'cell_2'])
+    # non-size stuff
+    asp_diff = get_pw_diffs(df_, metric='aspect_ratio')
+    dfs_to_merge.extend([sz_x, sz_y, asp_diff])
+    # Cortical and RF position distances
+    diffs_for_ix = angles_[['neuron_pair', 'cell_1', 'cell_2']].copy()
+    dists = get_pw_distance(diffs_for_ix, df_, xcoord='x0', ycoord='y0', 
+                             label='rf_distance', add_eccentricity=True)
+    dfs_to_merge.append(dists)
+    
+    diffs = reduce(lambda  left,right: pd.merge(left,right,\
+                                            on=['neuron_pair', 'cell_1', 'cell_2'],
+                                            how='outer'), dfs_to_merge)
+    return diffs
 
 def aggregate_rf_dists(rfdf, rfpolys=None, min_ncells=5):
     '''
@@ -1028,15 +1055,12 @@ def aggregate_rf_dists(rfdf, rfpolys=None, min_ncells=5):
         if len(df_['cell'].unique())<min_ncells:
             print("too few cells: %s, %s" % (va, dk))
             continue
-        # Cortical and RF position distances
-        dists = get_pw_distance(diffs_, df_, xcoord='x0', ycoord='y0', 
-                                 label='rf_distance', add_eccentricity=True)
-
+        # Standard RF diffs
+        diffs = get_pw_rf_diffs(df_)
         # RF-to-RF overlaps
-        overlaps_ = dists[['neuron_pair', 'cell_1', 'cell_2']].copy()
+        overlaps_ = diffs[['neuron_pair', 'cell_1', 'cell_2']].copy()
         overlaps_['area_overlap'] = None
         overlaps_['perc_overlap'] = None
-
         if rfpolys is not None:
             try:
                 rois_ = df_['cell'].unique()
@@ -1050,26 +1074,15 @@ def aggregate_rf_dists(rfdf, rfpolys=None, min_ncells=5):
                                                 in overlaps_[['cell_1', 'cell_2']].values] 
             except Exception as e:
                 pass
-        pos_and_overlaps = pd.merge(dists, overlaps_, on=['neuron_pair', 'cell_1', 'cell_2'])
-               
-        # RF angle diffs, merge w overlap
-        angles_ = get_pw_angular_dist(df_, tau=180,
-                                      in_name='rf_theta_deg', out_name='rf_angle_diff')
-        angles_['rf_angle_diff_abs'] = angles_['rf_angle_diff'].abs()
-
-        ang_diffs = pd.merge(pos_and_overlaps, angles_, on=['neuron_pair', 'cell_1', 'cell_2'])
-
-        # Standard difference metrics, merge 
-        sz_x = get_pw_diffs(df_, metric='std_x')
-        sz_y = get_pw_diffs(df_, metric='std_y')
-        sz_diff = pd.merge(sz_x, sz_y, on=['neuron_pair', 'cell_1', 'cell_2'])
-        # non-size stuff
-        asp_diff = get_pw_diffs(df_, metric='aspect_ratio')
-        sz_and_aspect = pd.merge(sz_diff, asp_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+        dfs_to_merge = [diffs, overlaps_]
+        # combine
+        pw_df = reduce(lambda  left,right: pd.merge(left,right,\
+                                            on=['neuron_pair', 'cell_1', 'cell_2'],
+                                            how='outer'), dfs_to_merge)
 
         # Final df
-        pw_df = pd.merge(ang_diffs, sz_and_aspect, on=['neuron_pair', 'cell_1', 'cell_2'])
-        assert dists.shape[0]==pw_df.shape[0], 'Bad merging: %s, %s' (va, dk)
+        # pw_df = pd.merge(ang_diffs, sz_and_aspect, on=['neuron_pair', 'cell_1', 'cell_2'])
+        assert diffs.shape[0]==pw_df.shape[0], 'Bad merging: %s, %s' (va, dk)
         pw_df['visual_area'] = va
         pw_df['datakey'] = dk
         pw_df['n_cells'] = len(df_['cell'].unique())
@@ -1400,7 +1413,7 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
 #     ylabel = 'cortical dist. (um)'
     # ---------------------------
     cols=['init', 'tau', 'constant', 'R2']
-    fig, axn = pl.subplots(1, 3, figsize=(7,3), sharex=True, sharey=True, dpi=150)
+    fig, axn = pl.subplots(1, 3, figsize=(6,3), sharex=True, sharey=True, dpi=150)
 
     for va, cc_ in bcorrs.groupby('visual_area'):
         ai=visual_areas.index(va)
@@ -1429,9 +1442,8 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
         ax.set_ylabel(ylabel)
         ax.set_xlabel(xlabel)
         n_fovs = len(cc_['datakey'].unique())
-        ax.set_box_aspect(0.8)
-
-        
+        ax.set_box_aspect(1)
+ 
         pars_m = finalres[finalres.visual_area==va][cols].dropna().median()
         init_med, tau_med = pars_m.init, pars_m.tau
         pars_sd = finalres[finalres.visual_area==va][cols].dropna().std()
@@ -1473,6 +1485,7 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
             ax.set_ylim(ylim)
     sns.despine(trim=True)
     pl.subplots_adjust(left=0.1, right=0.8, bottom=0.25, wspace=0.2, top=0.7)
+
     return fig
 
 
