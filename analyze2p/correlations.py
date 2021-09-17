@@ -39,7 +39,8 @@ def func_decay(t, a, tau, c):
     return a * np.exp(-t * tau) + c
 
 
-def fit_decay(xdata, ydata, p0=None, func='halflife', return_inputs=False, normalize_x=True, ymax=None):
+def fit_decay(xdata, ydata, p0=None, func='halflife', 
+                return_inputs=False, normalize_x=True, ymax=None):
     in_x = xdata.copy()
     in_y = ydata.copy()
     if normalize_x:
@@ -107,7 +108,7 @@ def init_decay_params(ydata):
 
 def fit_decay_on_binned(cc_, use_binned=False, func='halflife', estimator='median',
                        metric='signal_cc', to_quartile='cortical_distance',
-                       bin_column='bin_value', normalize_x=True, ymax=None,
+                       normalize_x=True, ymax=None,
                        return_inputs=False):
     '''
     Fit exponential decay (returns half-life).
@@ -157,11 +158,59 @@ def fit_decay_on_binned(cc_, use_binned=False, func='halflife', estimator='media
         return res_, xvals, yvals
     else:
         return res_
+   
+
+def sample_bins_and_fit(vg, nsamples_per, cnt_groups, resample=True,
+                        to_quartile='cortical_distance', metric='signal_cc', 
+                        use_binned=False, normalize_x=True, fit_sites=True, ymax=None,
+                        func='halflife', estimator='median', randi=None):
+    '''
+    Resample within bin and site, take <median> across pairs per site.
+    Fit decay func to sites (N points per bin is the number of sites in that bin).
+
+    Returns:
+    -------
+    res_: pd.DataFrame()
+        Results of decay fit: init, tau, constant, R2
     
+    xvals, yvals: np.ndarray()
+        Bin values and fit data values for plotting fit.
+    
+    '''
+    if resample:
+        cc_sample = pd.concat([cgrp.sample(nsamples_per[dbin], 
+                                 random_state=randi, replace=True) \
+                                 for dbin, cgrp in vg.groupby(cnt_groups) \
+                                 if dbin in nsamples_per.keys()])
+    else:
+        cc_sample = pd.concat([cgrp for dbin, cgrp in vg.groupby(cnt_groups) \
+                                 if dbin in nsamples_per.keys()])
+       
+    # data to fit
+    if fit_sites:
+        fit_cc = cc_sample.groupby(cnt_groups).median().reset_index().dropna()
+    else:
+        fit_cc = cc_.copy()
+    # fit
+    res_, xvals, yvals = fit_decay_on_binned(fit_cc, use_binned=use_binned,
+                                        normalize_x=normalize_x, ymax=ymax,
+                                        func=func,
+                                        estimator=estimator, metric=metric,
+                                        to_quartile=to_quartile, return_inputs=True)
+    return res_, xvals, yvals
+
+
+def count_nsamples_per_bin(vg, cnt_groups, min_npairs=5):
+    cnts = vg.groupby(cnt_groups)['neuron_pair'].count()  
+    nsamples_per = dict((k, v) for k, v in zip(\
+                                cnts[cnts>=min_npairs].index.tolist(),
+                                cnts[cnts>=min_npairs].values)) 
+    return nsamples_per 
+ 
 def bootstrap_fitdecay(bcorrs, use_binned=False, func='halflife',
                       estimator='median', min_npairs=5, fit_sites=False,
                       metric='signal_cc', to_quartile='cortical_distance',
-                      bin_column='bin_value', normalize_x=True, ymax=None,
+                      normalize_x=True, ymax=None, resample=True,
                       n_iterations=500):
     '''
     Cycle thru visual areas, sample w replacement, fit decay func.
@@ -169,9 +218,8 @@ def bootstrap_fitdecay(bcorrs, use_binned=False, func='halflife',
     '''
 
     # cnt_grouper = ['binned_%s' % to_quartile] #, 'datakey']
-    cnt_grouper = ['%s_label' % to_quartile]
-    if fit_sites:
-        cnt_grouper.extend(['datakey']) 
+    x_var = '%s_label' % to_quartile
+    cnt_groups = [x_var, 'datakey'] if fit_sites else [x_var]
 
     col_selector = ['visual_area', 'cell_1', 'cell_2', 'neuron_pair', to_quartile, metric]
     col_selector.extend(cnt_grouper)
@@ -179,34 +227,19 @@ def bootstrap_fitdecay(bcorrs, use_binned=False, func='halflife',
     r_=[]
     for va, vg in bcorrs.groupby('visual_area'):
         cc0 = vg[col_selector].copy()
-        cnts = cc0.groupby(cnt_grouper)['neuron_pair'].count()  
-        # How many resample per group
-        nsamples_per = dict((k, v) for k, v \
-                            in zip(cnts[cnts>min_npairs].index.tolist(),
-                                   cnts[cnts>min_npairs].values))
+        # How many to resample per group/bin
+        nsamples_per = count_nsamples_per_bin(vg, cnt_groups, min_npairs=min_npairs)
         if len(nsamples_per)==0:
             continue
 
         for n_iter in np.arange(0, n_iterations):
             # Sample
-            cc_ = pd.concat([cg.sample(nsamples_per[c], 
-                                 random_state=n_iter, replace=True) \
-                                 for c, cg in cc0.groupby(cnt_grouper) \
-                                 if c in nsamples_per.keys()])
-            if fit_sites:
-                # fov mean for visualizing
-                curr_cc = cc_.groupby(cnt_grouper).median().reset_index().dropna()
-            else:
-                curr_cc = cc_.copy()
-            # fit  
-            res_, xvals, yvals = fit_decay_on_binned(curr_cc, 
-                                            use_binned=use_binned, 
+            res_, xvals, yvals = sample_bins_and_fit(cc0, nsamples_per, cnt_groups, 
+                                            use_binned=use_binned, resample=resample,
                                             func=func, estimator=estimator,
                                             metric=metric, 
-                                            bin_column=bin_column,
-                                            to_quartile=to_quartile,
-                                            normalize_x=normalize_x, ymax=ymax,
-                                            return_inputs=True)
+                                            to_quartile=to_quartile,randi=n_iter,
+                                            normalize_x=normalize_x, ymax=ymax)
             res_['iteration'] = n_iter
             res_['visual_area'] = va
             r_.append(res_)
