@@ -17,6 +17,8 @@ import math
 import tifffile as tf
 import numpy as np
 import pandas as pd
+import seaborn as sns
+import pylab as pl
 import pprint
 pp = pprint.PrettyPrinter(indent=4)
 
@@ -597,6 +599,68 @@ def append_neuropil_subtraction(maskdict_path, cfactor,
 # --------------------------------------------------------------------
 # Data grouping and calculations
 # --------------------------------------------------------------------
+def roi_traces_df(rid, processed, labels, sdf, params=[], cfgs_=[], smooth_win_size=None):
+    if cfgs_ is None:
+        roidf = labels.copy()
+    else:
+        roidf = labels[labels.config.isin(cfgs_)].copy()
+    roidf['response'] = processed.loc[roidf.index][rid]
+    for p in params:
+        roidf[p] = sdf.loc[roidf['config'].values][p].values
+        
+    trial_lut = dict((k, list(g['trial'].unique())) \
+                     for k, g in roidf.groupby('config'))
+    
+    if smooth_win_size is not None:
+        for (c, tn), tr in roidf.groupby(['config', 'trial']):
+            smoothed_ = smooth_timecourse(tr['response'], win_size=smooth_win_size)
+            roidf.loc[tr.index, 'smoothed'] = smoothed_
+            roidf.loc[tr.index, 'trial_ix'] = trial_lut[c].index(tn)
+
+    return roidf
+
+def plot_raw_traces_tuning_curve(roidf, response_var='smoothed', 
+                                param='morphlevel', color='k',
+                                lw=2, trial_lw=0.5, trial_alpha=0.5):
+    '''
+    Plot PSTHs from stacked dataframe.
+    Args.
+    
+    roidf: (pd.DataFrame)
+        Traces for 1 roi (from traceutils.roi_traces_df())
+        Expects columns to include stim params (grouping for columns), responses, tsec.
+
+    response_var: (str)
+        Should be 'response' or 'smoothed'
+    
+    param: (str)
+        SDF config name to group by (e.g., morphlevel, size, etc.)
+
+    ''' 
+    param_levels = sorted(roidf[param].unique())
+    max_ntrials = roidf['trial_ix'].max()+1
+    trial_cols = dict((k, color) for k in np.arange(0, max_ntrials))
+
+    fg = sns.FacetGrid(col=param, col_order=param_levels, data=roidf, 
+                       height=2.5, aspect=0.5)
+    fg.map(sns.lineplot, 'tsec', response_var, 'trial_ix', 
+          palette=trial_cols, lw=trial_lw, alpha=0.5)
+    fg.set_titles('{col_name}')
+    fg.fig.patch.set_alpha(1)
+    for ax in fg.fig.axes:
+        mp = float(ax.get_title())
+        tmat = np.squeeze(np.dstack(roidf[roidf[param]==mp]\
+                    .groupby('trial_ix')[response_var]\
+                    .apply(np.array).values))
+        mean_ = np.nanmean(tmat, axis=1)
+        tsecs = np.squeeze(np.dstack(roidf[roidf[param]==mp]\
+                    .groupby('trial_ix')['tsec']\
+                    .apply(np.array).values))
+        tsec_ = np.nanmean(tsecs, axis=1)
+        ax.plot(tsec_, mean_, lw=lw, color=color)
+    
+    return fg.fig
+
 
 def get_mean_and_std_traces(roi, traces, labels, curr_cfgs, stimdf, param='ori', 
                             return_stacked=False, smooth=False, win_size=5):

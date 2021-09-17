@@ -792,7 +792,7 @@ def adjust_image_contrast(img, clip_limit=2.0, tile_size=10):#(10,10)):
 # Experiment-specific plotting funca
 def stripplot_metric_by_area(plotdf, metric='morph_sel', markersize=1,
                 area_colors=None, posthoc='fdr_bh', 
-                y_loc=1.01, offset=0.01, ylim=(0, 1.03), aspect=4,
+                y_loc=1.01, offset=0.01, ylim=None, aspect=4,
                 sig_fontsize=6, sig_lw=0.25, errwidth=0.5, scale=1, 
                 jitter=True, return_stats=False, plot_means=True,
                 mean_style='point', mean_type='median',axis_offset=2,
@@ -830,7 +830,7 @@ def stripplot_metric_by_area(plotdf, metric='morph_sel', markersize=1,
     ax.legend_.remove()
     if ylim is not None:
         ax.set_ylim(ylim)
-    sns.despine(bottom=True, trim=True, ax=ax, offset=axis_offset)
+    sns.despine(bottom=True, trim=False, ax=ax, offset=axis_offset)
     ax.tick_params(which='both', axis='x', size=0)
     ax.set_xlabel('')
     pl.subplots_adjust(left=0.05, right=0.95, bottom=0.2, top=0.8)

@@ -236,17 +236,51 @@ def get_object_tuning_curves(rdf, sort_best_size=True, normalize=True, return_st
 
     # Un-stack: columns are cells, rows are size levels (size-tuning at best morph)
     size_mat0 = size_curves[['cell', 'response', 'size']].pivot(columns='cell', index='size')
-    xx = size_mat0.copy()
-    xx.values.sort(axis=0) #[::-1]
-    size_mat = xx[::-1]
-    size_mat.columns = size_mat.columns.droplevel()    
-    if normalize:
+    size_mat0.columns = size_mat0.columns.droplevel()    
+
+    if sort_best_size:
+        xx = size_mat0.copy()
+        xx.values.sort(axis=0) #[::-1]
+        size_mat = xx[::-1]
         size_mat.index = np.linspace(1, size_mat.shape[0], size_mat.shape[0])
     else:
+        size_mat = size_mat0.copy()
         size_mat = size_mat.sort_index(ascending=True)
 
     return morph_mat, size_mat
 
+
+# plotting
+def plot_overlaid_tuning_curves(morph_mat, rank_order=False, ax=None,
+                               rois_plot=None, roi_styles=None, roi_colors=None,
+                               roi_labels=None, lw=0.5, lc='gray', roi_lw=2):
+    morph_labels = sorted(morph_mat.index.tolist())
+    if ax is None:
+        fig, ax = pl.subplots(figsize=(4,4), dpi=100)
+    if rank_order:
+        xx = morph_mat.copy()
+        xx.values.sort(axis=0)
+        mm = xx[::-1]
+    else:
+        mm = morph_mat.copy()
+    ax.plot(mm.values, color=lc, alpha=1, lw=lw)
+    
+    if rois_plot is not None:
+        if roi_labels is None:
+            roi_labels = rois_plot
+        for ls, col, rid, rlabel in zip(roi_styles, roi_colors, rois_plot, roi_labels):
+            ax.plot(mm[rid].values, color=col, lw=roi_lw, linestyle=ls, label=rlabel)
+        ax.legend(bbox_to_anchor=(0.5, 1.2), loc='lower center', fontsize=6)
+
+    # xtick_ixs = np.linspace(0, len(morph_labels)-2, 3, endpoint=True)
+    xticks = np.arange(0, len(morph_labels)) # if rank_order else morph_labels
+    xtick_labels = np.linspace(1, len(morph_labels), len(morph_labels))\
+                        if rank_order else morph_labels
+    ax.set_xticks(xticks)
+    # xticks = xtick_ixs+1 if rank_order else [0, 0.5, 1]
+    ax.set_xticklabels(xticks)
+    ax.set_ylim([0, 1.01])
+    return ax
 
 
 # plotting
