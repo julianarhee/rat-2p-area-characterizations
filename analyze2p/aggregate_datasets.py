@@ -32,6 +32,7 @@ import itertools
 from matplotlib.lines import Line2D
 import statsmodels as sm
 #import statsmodels.api as sm
+from functools import reduce
 
 np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)       
 
@@ -2017,7 +2018,7 @@ def process_traces(raw_traces, labels, trace_type='zscore',
         else:
             metric_ixs = np.arange(stim_on_frame, stim_on_frame+nframes_on).astype(int)
 
-
+    bad_responses={}
     traces_list = []
     metrics_list = []
     base_list=[]
@@ -2029,15 +2030,22 @@ def process_traces(raw_traces, labels, trace_type='zscore',
         bas_std = raw_.iloc[0:stim_on_frame].std(axis=0)
         bas_mean = raw_.iloc[0:stim_on_frame].mean(axis=0)
         stim_mean = raw_.iloc[metric_ixs].mean(axis=0)
-
+       
         if trace_type == 'zscore':
             curr_traces = pd.DataFrame(raw_).subtract(bas_mean)\
                             .divide(bas_std, axis='columns')
+            maxc = curr_traces.max()
+            spurious_ix = maxc[maxc>3].index.tolist()
+
         elif trace_type == 'dff':
             curr_traces = pd.DataFrame(raw_).subtract(bas_mean)\
                             .divide(bas_mean, axis='columns')
+            maxc = curr_traces.max()
+            spurious_ix = maxc[maxc>3].index.tolist()
+
         else:
             curr_traces = pd.DataFrame(raw_) #.subtract(bas_mean)
+            spurious_ix=[]
 
         # Also get zscore (single value) for each trial:
         if response_type=='zscore':
@@ -2051,6 +2059,19 @@ def process_traces(raw_traces, labels, trace_type='zscore',
         else:           
             curr_metrics = stim_mean
 
+        # Check for extreme values, bad parse   
+        neg_mean = stim_mean[stim_mean<0].index.tolist()
+        neg_bas = bas_mean[bas_mean<0].index.tolist()
+        bad_metric = np.intersect1d(neg_mean, neg_bas)
+        neg_ixs = np.union1d(bad_metric, spurious_ix) 
+ 
+        # Check for extreme values, bad parse
+        if len(neg_ixs)>0:
+            bad_responses.update({trial: neg_ixs})
+            for rid in neg_ixs:
+                curr_traces[rid] = np.nan
+                curr_metrics.loc[rid] = np.nan
+
         traces_list.append(curr_traces) 
         curr_metrics['config'] = cfg
         metrics_list.append(curr_metrics)
@@ -2063,6 +2084,12 @@ def process_traces(raw_traces, labels, trace_type='zscore',
     # cols=rois, rows = trials
     roi_list = raw_traces.columns.tolist()
     trial_metrics[roi_list] = trial_metrics[roi_list].astype(float)
+
+    if len(bad_responses)>0:
+        n_bad_trials = len(np.unique(list(bad_responses.keys())))
+        n_bad_cells = len(reduce(np.union1d, list(bad_responses.values())))
+        print("WARNING: Found %i bad trials, across %i cells" % (n_bad_trials, n_bad_cells))
+
 
     if return_baseline:
         trial_bas = pd.concat(base_list, axis=1).T
