@@ -1731,8 +1731,9 @@ def get_centered_screen_points(screen_xlim, nc):
     return (xlim_min, xlim_max)
 
 
-def plot_rfs_to_screen_pretty(fitdf, sdf, screen, sigma_scale=2.35, fit_roi_list=[], ax=None,
-                             ellipse_lw=1, roi_colors=None):
+def plot_rfs_to_screen_pretty(fitdf, sdf, screen, sigma_scale=2.35, 
+                            fit_roi_list=[], ax=None,
+                             ellipse_lw=1, roi_colors=None, stimulated_lc=[0.8]*3):
     '''
     fitdf:  dataframe w/ converted fit params
     '''
@@ -1751,7 +1752,7 @@ def plot_rfs_to_screen_pretty(fitdf, sdf, screen, sigma_scale=2.35, fit_roi_list
                 ( min(col_vals)-tile_sz/2., min(row_vals)-tile_sz/2.), 
                 max(col_vals)-min(col_vals)+tile_sz,
                 max(row_vals)-min(row_vals)+tile_sz, 
-                facecolor='none', edgecolor='k', lw=0.5)
+                facecolor='none', edgecolor=stimulated_lc, lw=0.5)
     ax.add_patch(screen_rect)
     if ax is None:
         fig, ax = pl.subplots(figsize=(12, 6))
