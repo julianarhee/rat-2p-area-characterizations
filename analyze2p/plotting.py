@@ -873,7 +873,7 @@ def create_theta_legend(ax=None, ori_colors=None):
     ax.set_aspect(1)
     return ax
 
-def polar_theta_legend(ax, ori_colors):
+def polar_theta_legend(ax, ori_colors, add_text=True):
     #fig = pl.figure()
     #ax = fig.add_subplot(1, 1, 1, polar=True)
     tested_thetas = np.linspace(0, 315, 8)
@@ -881,7 +881,8 @@ def polar_theta_legend(ax, ori_colors):
     theta_radians = np.array([np.deg2rad(t) for t in tested_thetas])
     for (th, xv, yv, col) in zip(tested_thetas, theta_radians, np.ones((8,1)), ori_colors):
         ax.plot([0, xv], [0, yv], color=col, lw=3)
-        ax.text(xv, yv, th)
+        if add_text:
+            ax.text(xv, yv, th)
         ylim = 1#
         ytick_lim = np.floor(ylim*10)/10.
         polar_ticks_gratings(ax, ylim=ylim, ytick_lim=ytick_lim, n_yticks=0)

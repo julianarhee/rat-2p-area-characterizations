@@ -619,6 +619,126 @@ def roi_traces_df(rid, processed, labels, sdf, params=[], cfgs_=[], smooth_win_s
 
     return roidf
 
+def plot_mean_sem_roi_set(tdf, response_var='smoothed', 
+                        param='morphlevel', hue_var='best_morphlevel', hue_cdict=None,
+                        lw=2, label_rows=True, label_size=6):
+    '''
+    Plot mean and sem with shading (instead of trials)
+
+    roidf: (pd.DataFrame)
+        Traces for ALL rois (from traceutils.roi_traces_df(), concatenated)
+        Expects columns to include stim params (grouping for columns), responses, tsec.
+        Should have sem_lo and sem_hi for each.
+
+    response_var: (str)
+        Should be 'response' or 'smoothed'
+    
+    param: (str)
+        SDF config name to group by (e.g., morphlevel, size, ori, etc.)
+
+    hue_var: (str)
+        Param to color the raw traces by (should provide hue_cdict).
+
+    hue_cdict: (dict)
+        Dict, keys are the different values of hue_var, colors are corresponding colors.
+ 
+    ''' 
+    if hue_cdict is None:
+        rand_cols = sns.color_palette('cubehelix', n_colors=len(roidf[hue_var].unique()))
+        hue_cdict = dict((k, v) for k, v in zip(roidf[hue_var].unique(), rand_cols))
+
+
+    param_levels = sorted(tdf[param].unique())
+
+    fg = sns.FacetGrid(data=tdf, col=param, col_order=param_levels, 
+                   row='cell', height=2, aspect=0.5,
+                   hue=hue_var, palette=hue_cdict)
+
+    fg.map(pl.plot, 'time', 'mean', lw=lw)
+    fg.map(pl.fill_between, 'time', 'sem_lo', 'sem_hi', alpha=0.5)
+    fg.fig.patch.set_alpha(1)
+
+    fg.set_titles('{row_name}|{col_name}')
+    fg.fig.patch.set_alpha(1)
+    for ax in fg.fig.axes:
+        rid, mp =ax.get_title().split('|')
+        mp = float(mp)
+        rid = float(rid)
+        if label_rows and float(mp)==0:
+            ax.set_ylabel(rid,rotation=0, fontsize=label_size)
+
+    return fg.fig
+
+
+
+def plot_raw_traces_roi_set(roidf, response_var='smoothed', 
+                        param='ori', hue_var='pref_theta', hue_cdict=None,
+                        lw=2, trial_lw=0.5, trial_alpha=0.5, 
+                        label_rows=True, label_size=6):
+    '''
+    Plot PSTHs from stacked dataframe.
+    Args.
+    
+    roidf: (pd.DataFrame)
+        Traces for ALL rois (from traceutils.roi_traces_df(), concatenated)
+        Expects columns to include stim params (grouping for columns), responses, tsec.
+
+    response_var: (str)
+        Should be 'response' or 'smoothed'
+    
+    param: (str)
+        SDF config name to group by (e.g., morphlevel, size, ori, etc.)
+
+    hue_var: (str)
+        Param to color the raw traces by (should provide hue_cdict).
+
+    hue_cdict: (dict)
+        Dict, keys are the different values of hue_var, colors are corresponding colors.
+ 
+    ''' 
+    param_levels = sorted(roidf[param].unique())
+    max_ntrials = roidf['trial_ix'].max()+1
+    #trial_cols = dict((k, color) for k in np.arange(0, max_ntrials))
+
+    roidf['ix_%s' % hue_var] = ['%i_%i' % (t, o) for t,o \
+                                in roidf[['trial_ix', hue_var]].values]
+    trial_cols = dict((k, hue_cdict[int(k.split('_')[1])]) \
+                      for k in roidf['ix_%s' % hue_var].unique())
+
+    if hue_cdict is None:
+        rand_cols = sns.color_palette('cubehelix', n_colors=len(roidf[hue_var].unique()))
+        hue_cdict = dict((k, v) for k, v in zip(roidf[hue_var].unique(), rand_cols))
+
+    fg = sns.FacetGrid(col=param, col_order=param_levels, data=roidf, 
+                       height=2.5, aspect=0.5, row='cell')
+    fg.map(sns.lineplot, 'tsec', response_var, 'ix_%s' % hue_var, 
+          palette=trial_cols, lw=trial_lw, alpha=0.5)
+
+    fg.set_titles('{row_name}|{col_name}')
+    fg.fig.patch.set_alpha(1)
+    for ax in fg.fig.axes:
+        rid, mp =ax.get_title().split('|')
+        mp = float(mp)
+        rid = float(rid)
+        df_ = roidf[(roidf[param]==mp) & (roidf['cell']==rid)].copy()
+        pref_v = float(df_[df_['cell']==rid][hue_var].unique())
+
+        tmat = np.squeeze(np.dstack(df_.groupby('trial_ix')[response_var]\
+                    .apply(np.array).values))
+        mean_ = np.nanmean(tmat, axis=1)
+        tsecs = np.squeeze(np.dstack(df_.groupby('trial_ix')['tsec']\
+                    .apply(np.array).values))
+        tsec_ = np.nanmean(tsecs, axis=1)
+        ax.plot(tsec_, mean_, lw=lw, color=hue_cdict[pref_v])
+
+        if float(mp)==0 and label_rows:
+            ax.set_ylabel(rid,rotation=0, fontsize=label_size)
+
+ 
+    return fg.fig
+
+
+
 def plot_raw_traces_tuning_curve(roidf, response_var='smoothed', 
                                 param='morphlevel', color='k',
                                 lw=2, trial_lw=0.5, trial_alpha=0.5):

@@ -1130,6 +1130,53 @@ def aggregate_rf_dists(rfdf, rfpolys=None, min_ncells=5):
 
 # Data binning
 # ----------------------------------------------------------------------------
+
+def get_bins_and_cut(DISTS, equal_bins=False, n_bins=10, 
+                ctx_step=10, rf_step=2.5, area_step=0.05, overlap_step=0.05):
+    #n_bins=10
+    df = DISTS.copy()
+    # Split distances into X um bins
+    ctx_maxdist = np.ceil(DISTS['cortical_distance'].max())
+    # ctx_step=10
+    if equal_bins:
+        ctx_bins = np.linspace(0, ctx_maxdist, n_bins)
+    else:
+        ctx_bins = np.arange(0, ctx_maxdist+ctx_step, ctx_step)
+    #df = cr.cut_bins(df, ctx_bins, 'cortical_distance')
+
+    # rf_step=2.5
+    rf_maxdist = np.ceil(DISTS['rf_distance'].max())
+    if equal_bins:
+        rf_bins = np.linspace(0, rf_maxdist, n_bins)
+    else:
+        rf_bins = np.arange(0, rf_maxdist+rf_step, rf_step)
+    #df = cr.cut_bins(df, rf_bins, 'rf_distance')
+
+    #perc_step = 0.05
+    area_bins = np.arange(0, 1+area_step, area_step)
+    #df = cr.cut_bins(df, area_bins, 'area_overlap')
+
+    #perc_step = 0.02
+    overlap_bins = np.arange(0, 1+overlap_step, overlap_step)
+    #df = cr.cut_bins(df, overlap_bins, 'overlap_index')
+
+    # Split
+    dist_lut = {'cortical_distance': 
+                            {'bins': ctx_bins, 'step': ctx_step, 'max_dist': ctx_maxdist},
+                'rf_distance': 
+                            {'bins': rf_bins, 'step': rf_step, 'max_dist': rf_maxdist},
+                'overlap_index': 
+                            {'bins': overlap_bins, 'step': overlap_step, 'max_dist': 1}, 
+                'area_overlap': 
+                            {'bins': area_bins, 'step': area_step, 'max_dist': 1} 
+               }
+
+    for param, pdict in dist_lut.items():
+        df = cut_bins(df, pdict['bins'], param)
+
+    return df, dist_lut
+
+
 def cut_bins(DF, bins, metric='cortical_distance', include_lowest=True):
     DF['binned_%s' % metric] = pd.cut(DF[metric], bins, include_lowest=include_lowest,
                                                 labels=bins[0:-1])
