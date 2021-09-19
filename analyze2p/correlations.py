@@ -60,7 +60,7 @@ def fit_decay(xdata, ydata, p0=None, func='halflife',
     #tau_ = 1 #2000 / 2. # divide by 2 since corr coef range [-1, 1]
     #a_lim = 1  
     tau_lim = 1 if normalize_x else 1500 
-    ylim = (-2, 2) if ymax is None else (0, ymax)
+    ylim = (-1, 1) if ymax is None else (0, ymax)
     bounds = ((ylim[0], 0., -np.inf), (ylim[1], tau_lim, np.inf))
     a_0, tau_0, c_0 = p0
     try:
@@ -99,9 +99,9 @@ def init_decay_params(ydata):
 #     c_0 = ydata[-1]
 #     tau_0 = 1
 #     a_0 = (ydata[-1] - ydata[0])
-    c_0 = ydata.min() #ydata[-1]
+    c_0 = np.nanmin(ydata) #.min() #ydata[-1]
     tau_0 = 1
-    a_0 = abs(ydata.max() - ydata.min()) #ydata[0] #abs(ydata[0] - ydata[-1])
+    a_0 = abs(np.nanmax(ydata) - np.nanmin(ydata)) #ydata[0] #abs(ydata[0] - ydata[-1])
     p0 = (a_0, tau_0, c_0)
     return p0
 
@@ -147,7 +147,7 @@ def fit_decay_on_binned(cc_, use_binned=False, func='halflife', estimator='media
     # ----------------
     mean_y = meanvs.sort_values(by=to_quartile)[metric].values
     p0 = init_decay_params(mean_y)
-    ymax = 180 if metric=='pref_dir_diff_abs' else None
+    #ymax=180 if metric=='pref_dir_diff_abs' else None
 
     initv, tau, const, r2, xvals, yvals = fit_decay(xdata, ydata, func=func,
                                             normalize_x=normalize_x, ymax=ymax,
@@ -222,7 +222,7 @@ def bootstrap_fitdecay(bcorrs, use_binned=False, func='halflife',
     cnt_groups = [x_var, 'datakey'] if fit_sites else [x_var]
 
     col_selector = ['visual_area', 'cell_1', 'cell_2', 'neuron_pair', to_quartile, metric]
-    col_selector.extend(cnt_grouper)
+    col_selector.extend(cnt_groups)
 
     r_=[]
     for va, vg in bcorrs.groupby('visual_area'):
@@ -943,6 +943,10 @@ def aggregate_tuning_curve_ccdist(df, rfdf=None, rfpolys=None, n_intervals=3,
             rf_diffs = rf_diffs_and_dists_in_fov(dists0, posdf_, curr_polys=curr_polys)
             pw_df= pd.merge(dists, rf_diffs, on=['neuron_pair', 'cell_1', 'cell_2'], 
                             how='outer')
+            pw_df['area_overlap'] = pw_df['area_overlap'].astype(float)
+            pw_df['perc_overlap'] = pw_df['perc_overlap'].astype(float) 
+            pw_df['overlap_index'] = 1-pw_df['area_overlap']
+            
         else:
             pw_df = dists.copy()
 
@@ -1000,6 +1004,10 @@ def rf_diffs_and_dists_in_fov(dists, df_, curr_polys=None):
     new_cols = [k for k in pw_df0.columns if k not in dists.columns]
     new_cols.extend(['neuron_pair', 'cell_1', 'cell_2'])
     pw_df = pw_df0[new_cols]
+
+    pw_df['area_overlap'] = pw_df['area_overlap'].astype(float)
+    pw_df['perc_overlap'] = pw_df['perc_overlap'].astype(float) 
+    pw_df['overlap_index'] = 1-pw_df['area_overlap']
 
     return pw_df
 
@@ -1469,7 +1477,7 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
                             metric='signal_cc', use_best_r2=False, fit_sites=True,
                             lw=1, scatter_params=False, x_pos=-50, y_pos=-0.4,
                             markersize=10, param_size=5,
-                            elinewidth=1, capsize=2, ylim=None,
+                            elinewidth=1, capsize=2, ylim=None, xlim=None,
                             ylabel='corr. coef.', xlabel='cortical dist. (um)',
                             visual_areas=['V1', 'Lm', 'Li'],
                             area_colors=None):
@@ -1563,6 +1571,10 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
     if ylim is not None:
         for ax in axn:
             ax.set_ylim(ylim)
+    if xlim is not None:
+        for ax in axn:
+            ax.set_xlim(xli)
+
     sns.despine(trim=True)
     pl.subplots_adjust(left=0.1, right=0.8, bottom=0.25, wspace=0.2, top=0.7)
 
