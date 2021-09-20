@@ -589,7 +589,8 @@ def do_pairwise_diffs_melt(df_, metric_name='morph_sel', include_diagonal=False)
                          c1, c2 in diffs[['cell_1', 'cell_2']].values]
     return diffs
 
-def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, SDF=None, min_ncells=10, 
+def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, rfpolys=None,
+                SDF=None, min_ncells=10, 
                 select_stimuli='fullfield', distance_var='rf_distance', verbose=False):
     '''
     Cycle thru all datasets and calculate CCs and PW distances.
@@ -632,17 +633,27 @@ def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, SDF=None, min_ncel
     no_rfs=[]
     c_list=[]
     for (va, dk, exp), ndf in NDATA.groupby(['visual_area', 'datakey', 'experiment']):
-        rfdf_=None
-        if rfdf is not None:
-            rfdf_ = rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk)].copy()
-            if rfdf_.shape[0]==0:
-                no_rfs.append((va, dk, exp))
-                continue
+        # Exclude too few cells
         rois_ = ndf['cell'].unique()
-        # Select cells
         if len(rois_)<min_ncells:
             print("Skipping - (%s, %s)" % (va, dk))
             continue
+
+        # Get cell positions (and RF fits, if provided) 
+        if rfdf is not None:
+            curr_rfs = rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk)].copy()
+            curr_cells = ndf[['visual_area', 'datakey', 'experiment', 'cell']]\
+                                        .drop_duplicates().copy()
+            # Add roi positions and RF fits -- need to sub-select for indexing.
+            posdf_ = get_roi_pos_and_rfs(curr_cells, curr_rfs, 
+                                        rfs_only=False, #position_only=False,
+                                        merge_cols=['visual_area', 'datakey', 'cell'])
+            if posdf_.shape[0]<2:
+                no_rfs.append((va, dk, exp))
+                continue
+        else:
+            posdf_ = aggr.add_roi_positions(ndf)
+
         # Select stimuli and trials
         if experiment in ['gratings', 'blobs']:
             sdf=SDF[SDF.datakey==dk].copy()
@@ -653,16 +664,42 @@ def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, SDF=None, min_ncel
                 continue
         else:
             curr_cfgs = sorted(NDATA['config'].unique())
-        roidf_ = get_roi_pos_and_rfs(ndf, curr_rfs=rfdf_, rfs_only=False)
-        cc_ = get_ccdist(ndf, roidf_, return_zscored=False,
-                            curr_cfgs=curr_cfgs,
-                            xcoord=xcoord, ycoord=ycoord, label=distance_var,
-                            add_eccentricity=True)
-        cc_['visual_area'] = va
-        cc_['datakey'] = dk
-        cc_['experiment'] = experiment
-        cc_['n_cells'] = len(rois_)
-        c_list.append(cc_)
+
+        # Calculate signal and noise corrs. 
+        corrs = calculate_corrs(ndf, do_zscore=True, return_zscored=False,
+                                curr_cfgs=curr_cfgs)
+ 
+        # Cortical and RF position distances
+        ccdists = get_pw_distance(corrs, posdf_, xcoord='x0', ycoord='y0', 
+                                 label='rf_distance', add_eccentricity=True)
+
+        # RF-to-RF overlaps, if relevant
+        curr_polys = None
+        if rfpolys is not None:
+            dists0 = ccdists.copy()
+            rois_ = ndf['cell'].unique() 
+            curr_polys = rfpolys[(rfpolys.datakey==dk) & (rfpolys['cell'].isin(rois_))] 
+            if len(curr_polys)<=1: # need >1 to compare
+                print("    (%s NONE, skipping overlaps)" % dk)  
+                curr_polys=None
+        if rfdf is not None:
+            print('    getting rf metrics')
+            rf_diffs = rf_diffs_and_dists_in_fov(dists0, posdf_, curr_polys=curr_polys)
+            pw_df= pd.merge(ccdists, rf_diffs, on=['neuron_pair', 'cell_1', 'cell_2'], 
+                            how='outer')
+            pw_df['area_overlap'] = pw_df['area_overlap'].astype(float)
+            pw_df['perc_overlap'] = pw_df['perc_overlap'].astype(float) 
+            pw_df['overlap_index'] = 1-pw_df['area_overlap']
+            
+        else:
+            # just add PW cortical distance (no RFs)
+            pw_df = ccdists.copy()
+
+        pw_df['visual_area'] = va
+        pw_df['datakey'] = dk
+        pw_df['experiment'] = experiment
+        pw_df['n_cells'] = len(rois_)
+        c_list.append(pw_df)
     CORRS = pd.concat(c_list, ignore_index=True)
     
     if verbose:
@@ -1140,7 +1177,8 @@ def aggregate_rf_dists(rfdf, rfpolys=None, min_ncells=5):
 # ----------------------------------------------------------------------------
 
 def get_bins_and_cut(DISTS, equal_bins=False, n_bins=10, 
-                ctx_step=10, rf_step=2.5, area_step=0.05, overlap_step=0.05):
+                ctx_step=10, rf_step=2.5, area_step=0.05, overlap_step=0.05,
+                dir_step=45, ori_step=45, cc_step=0.1):
     #n_bins=10
     df = DISTS.copy()
     # Split distances into X um bins
@@ -1168,6 +1206,11 @@ def get_bins_and_cut(DISTS, equal_bins=False, n_bins=10,
     overlap_bins = np.arange(0, 1+overlap_step, overlap_step)
     #df = cr.cut_bins(df, overlap_bins, 'overlap_index')
 
+    dir_bins = np.arange(0, 180+dir_step, dir_step)
+    ori_bins = np.arange(0, 90+ori_step, ori_step)
+
+    cc_bins = np.arange(0, 1+cc_step, cc_step)
+
     # Split
     dist_lut = {'cortical_distance': 
                             {'bins': ctx_bins, 'step': ctx_step, 'max_dist': ctx_maxdist},
@@ -1176,11 +1219,27 @@ def get_bins_and_cut(DISTS, equal_bins=False, n_bins=10,
                 'overlap_index': 
                             {'bins': overlap_bins, 'step': overlap_step, 'max_dist': 1}, 
                 'area_overlap': 
-                            {'bins': area_bins, 'step': area_step, 'max_dist': 1} 
+                            {'bins': area_bins, 'step': area_step, 'max_dist': 1},
+                'pref_dir_diff_abs': 
+                            {'bins': dir_bins, 'step': dir_step, 'max_dist': 180}, 
+                'pref_ori_diff_abs': 
+                            {'bins': ori_bins, 'step': ori_step, 'max_dist': 90},
+                'pearsons': 
+                            {'bins': cc_bins, 'step': cc_step, 'max_dist': 1},
+                'signal_cc': 
+                            {'bins': cc_bins, 'step': cc_step, 'max_dist': 1},
+                'noise_cc': 
+                            {'bins': cc_bins, 'step': cc_step, 'max_dist': 1},
+                'pearsons_morph': 
+                            {'bins': cc_bins, 'step': cc_step, 'max_dist': 1},
+                'pearsons_size': 
+                            {'bins': cc_bins, 'step': cc_step, 'max_dist': 1}
+
                }
 
     for param, pdict in dist_lut.items():
-        df = cut_bins(df, pdict['bins'], param)
+        if param in df.columns:
+            df = cut_bins(df, pdict['bins'], param)
 
     return df, dist_lut
 
