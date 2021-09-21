@@ -200,6 +200,18 @@ def sample_bins_and_fit(vg, nsamples_per, cnt_groups, resample=True,
     return res_, xvals, yvals
 
 
+def check_npairs_per_bin(df, x_var, fit_sites=True, min_npairs=10):
+    '''
+    Count N pairs per bin of x_var and area (+ datakey, if fit_sites).
+    Return df, only if N bins passes min_npairs.
+    '''
+    count_cols = ['visual_area', 'datakey', x_var] if fit_sites \
+                    else ['visual_area', x_var]
+    nsamples_per = count_nsamples_per_bin(df, count_cols, min_npairs=min_npairs)
+    cc_ = pd.concat([cg for c, cg in df.groupby(count_cols) \
+                         if c in nsamples_per.keys()])
+    return cc_
+
 def count_nsamples_per_bin(vg, cnt_groups, min_npairs=5):
     cnts = vg.groupby(cnt_groups)['neuron_pair'].count()  
     nsamples_per = dict((k, v) for k, v in zip(\
@@ -633,27 +645,12 @@ def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, rfpolys=None,
     no_rfs=[]
     c_list=[]
     for (va, dk, exp), ndf in NDATA.groupby(['visual_area', 'datakey', 'experiment']):
+        print(va, dk, exp)
         # Exclude too few cells
         rois_ = ndf['cell'].unique()
         if len(rois_)<min_ncells:
             print("Skipping - (%s, %s)" % (va, dk))
             continue
-
-        # Get cell positions (and RF fits, if provided) 
-        if rfdf is not None:
-            curr_rfs = rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk)].copy()
-            curr_cells = ndf[['visual_area', 'datakey', 'experiment', 'cell']]\
-                                        .drop_duplicates().copy()
-            # Add roi positions and RF fits -- need to sub-select for indexing.
-            posdf_ = get_roi_pos_and_rfs(curr_cells, curr_rfs, 
-                                        rfs_only=False, #position_only=False,
-                                        merge_cols=['visual_area', 'datakey', 'cell'])
-            if posdf_.shape[0]<2:
-                no_rfs.append((va, dk, exp))
-                continue
-        else:
-            posdf_ = aggr.add_roi_positions(ndf)
-
         # Select stimuli and trials
         if experiment in ['gratings', 'blobs']:
             sdf=SDF[SDF.datakey==dk].copy()
@@ -669,20 +666,44 @@ def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, rfpolys=None,
         corrs = calculate_corrs(ndf, do_zscore=True, return_zscored=False,
                                 curr_cfgs=curr_cfgs)
  
-        # Cortical and RF position distances
-        ccdists = get_pw_distance(corrs, posdf_, xcoord='x0', ycoord='y0', 
-                                 label='rf_distance', add_eccentricity=True)
+        # Get cell positions (and RF fits, if provided) 
+        if rfdf is not None:
+            curr_rfs = rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk)].copy()
+            curr_cells = ndf[['visual_area', 'datakey', 'experiment', 'cell']]\
+                                        .drop_duplicates().copy()
+            # Add roi positions and RF fits -- need to sub-select for indexing.
+            posdf_ = get_roi_pos_and_rfs(curr_cells, curr_rfs, 
+                                        rfs_only=False, #position_only=False,
+                                        merge_cols=['visual_area', 'datakey', 'cell'])
+            if posdf_.shape[0]<2:
+                no_rfs.append((va, dk, exp))
+                continue
+        else:
+            curr_cells = ndf[['visual_area', 'datakey', 'experiment', 'cell']]\
+                                        .drop_duplicates().copy()
+            posdf_ = aggr.add_roi_positions(curr_cells)
+            
+#         # Cortical and RF position distances
+#         ccdists = get_pw_distance(corrs, posdf_, xcoord='x0', ycoord='y0', 
+#                                  label='rf_distance', add_eccentricity=True)
+        # Cortical and RF difff
+        if 'x0' in posdf_.columns:
+            ccdists = get_pw_distance(corrs, posdf_, xcoord='x0', ycoord='y0', 
+                                     label='rf_distance', add_eccentricity=True)
+        else:
+            ccdists = get_pw_distance(corrs, posdf_, xcoord='ml_pos', ycoord='ap_pos', 
+                                     label='cortical_distance', add_eccentricity=False)
 
         # RF-to-RF overlaps, if relevant
         curr_polys = None
         if rfpolys is not None:
-            dists0 = ccdists.copy()
             rois_ = ndf['cell'].unique() 
             curr_polys = rfpolys[(rfpolys.datakey==dk) & (rfpolys['cell'].isin(rois_))] 
             if len(curr_polys)<=1: # need >1 to compare
                 print("    (%s NONE, skipping overlaps)" % dk)  
                 curr_polys=None
         if rfdf is not None:
+            dists0 = ccdists.copy()
             print('    getting rf metrics')
             rf_diffs = rf_diffs_and_dists_in_fov(dists0, posdf_, curr_polys=curr_polys)
             pw_df= pd.merge(ccdists, rf_diffs, on=['neuron_pair', 'cell_1', 'cell_2'], 
@@ -690,7 +711,6 @@ def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, rfpolys=None,
             pw_df['area_overlap'] = pw_df['area_overlap'].astype(float)
             pw_df['perc_overlap'] = pw_df['perc_overlap'].astype(float) 
             pw_df['overlap_index'] = 1-pw_df['area_overlap']
-            
         else:
             # just add PW cortical distance (no RFs)
             pw_df = ccdists.copy()
@@ -944,6 +964,10 @@ def aggregate_tuning_curve_ccdist(df, rfdf=None, rfpolys=None, n_intervals=3,
         if len(df_['cell'].unique())<min_ncells:
             print("too few cells: %s, %s" % (va, dk))
             continue
+        # Get PW differences (tuning) and distances (position)
+        tuning_dists = correlate_pw_tuning_in_fov(df_, # posdf_, 
+                                          n_intervals=n_intervals, stimulus=stimulus,
+                                          sort_best_size=sort_best_size, normalize=normalize)
 
         if rfdf is not None:
             curr_rfs = rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk)].copy()
@@ -958,15 +982,17 @@ def aggregate_tuning_curve_ccdist(df, rfdf=None, rfpolys=None, n_intervals=3,
                 continue
         else:
             posdf_ = aggr.add_roi_positions(df_)
-
-        # Get PW differences (tuning) and distances (position)
-        tuning_dists = correlate_pw_tuning_in_fov(df_, # posdf_, 
-                                            n_intervals=n_intervals, stimulus=stimulus,
-                                            sort_best_size=sort_best_size, normalize=normalize) 
+            
         # Cortical and RF position distances
-        dists = get_pw_distance(tuning_dists, posdf_, xcoord='x0', ycoord='y0', 
-                                 label='rf_distance', add_eccentricity=True)
-
+#         dists = get_pw_distance(tuning_dists, posdf_, xcoord='x0', ycoord='y0', 
+#                                  label='rf_distance', add_eccentricity=True)
+        # Cortical and RF difff
+        if 'x0' in posdf_.columns:
+            dists = get_pw_distance(tuning_dists, posdf_, xcoord='x0', ycoord='y0', 
+                                     label='rf_distance', add_eccentricity=True)
+        else:
+            dists = get_pw_distance(tuning_dists, posdf_, xcoord='ml_pos', ycoord='ap_pos', 
+                                     label='cortical_distance', add_eccentricity=False)
         # RF-to-RF overlaps, if relevant
         curr_polys = None
         if rfpolys is not None:
@@ -1191,7 +1217,11 @@ def get_bins_and_cut(DISTS, equal_bins=False, n_bins=10,
     #df = cr.cut_bins(df, ctx_bins, 'cortical_distance')
 
     # rf_step=2.5
-    rf_maxdist = np.ceil(DISTS['rf_distance'].max())
+    if 'rf_distance' in DISTS.columns:
+        rf_maxdist = np.ceil(DISTS['rf_distance'].max())
+    else:
+        rf_maxdist = 60
+
     if equal_bins:
         rf_bins = np.linspace(0, rf_maxdist, n_bins)
     else:
@@ -1209,7 +1239,7 @@ def get_bins_and_cut(DISTS, equal_bins=False, n_bins=10,
     dir_bins = np.arange(0, 180+dir_step, dir_step)
     ori_bins = np.arange(0, 90+ori_step, ori_step)
 
-    cc_bins = np.arange(0, 1+cc_step, cc_step)
+    cc_bins = np.arange(-1, 1+cc_step, cc_step)
 
     # Split
     dist_lut = {'cortical_distance': 
