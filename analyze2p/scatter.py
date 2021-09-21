@@ -1233,6 +1233,7 @@ def add_position_info(df, dk, experiment, retinorun='retino_run1'):
 # --------------------------------------------------------------------
 def project_soma_position_in_fov(dk, va, experiment='rfs', traceid='traces001', 
         response_type='dff', do_spherical_correction=False, 
+        pass_criterion='position', 
         return_transformation=False, ecc_center=(0, 0), abs_value=False):
     '''
     Simplified function: load G-vectors only, align soma coords. 
@@ -1253,7 +1254,7 @@ def project_soma_position_in_fov(dk, va, experiment='rfs', traceid='traces001',
                                 protocol='TILE', traceid=traceid,
                                 response_type=response_type,
                                 do_spherical_correction=do_spherical_correction, 
-                                ecc_center=ecc_center)
+                                ecc_center=ecc_center, pass_criterion=pass_criterion)
     if df_soma is None:
         return None
 
@@ -1274,6 +1275,7 @@ def load_soma_data(dk, experiment='rfs', retinorun='retino_run1',
                         protocol='TILE', traceid='traces001',
                         response_type='dff', 
                         do_spherical_correction=False, fit_thr=0.5,
+                        pass_criterion='position',
                         mag_thr=0.01, ecc_center=(0, 0), verbose=False):
     '''
     Load SOMA data (and visual_area assignemnts) -- if TILE, includes reliable or not.
@@ -1317,7 +1319,7 @@ def load_soma_data(dk, experiment='rfs', retinorun='retino_run1',
             if eval_results is not None:                
                 # check if all params within 95% CI
                 reliable_rois = rfutils.get_reliable_fits(eval_results['pass_cis'],
-                                                     pass_criterion='position')
+                                                     pass_criterion=pass_criterion)
         except Exception as e: 
             raise e
             
@@ -1882,6 +1884,7 @@ def transform_and_fit_neuropil(dk, va, retinorun, GVECTORS,abs_value=False,
 def predict_soma_from_gradient(dk, va, REGR_NP, experiment='rfs',
                      traceid='traces001', protocol='TILE',
                     response_type='dff', do_spherical_correction=False,
+                    pass_criterion='position',
                     ecc_center=(0, 0), abs_value=False,
                     verbose=False, plot=False, plot_dst_dir='/tmp'):
     '''
@@ -1894,6 +1897,7 @@ def predict_soma_from_gradient(dk, va, REGR_NP, experiment='rfs',
                             traceid=traceid, 
                             response_type=response_type, 
                             do_spherical_correction=do_spherical_correction,
+                            pass_criterion=pass_criterion,
                             return_transformation=True, ecc_center=ecc_center, 
                             abs_value=abs_value)
     if aligned_soma.shape[0]<2:
