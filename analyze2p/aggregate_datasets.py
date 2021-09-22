@@ -2035,7 +2035,7 @@ def process_traces(raw_traces, labels, trace_type='zscore',
             curr_traces = pd.DataFrame(raw_).subtract(bas_mean)\
                             .divide(bas_std, axis='columns')
             maxc = curr_traces.max()
-            spurious_ix = maxc[maxc>3].index.tolist()
+            spurious_ix = maxc[maxc>5].index.tolist()
 
         elif trace_type == 'dff':
             curr_traces = pd.DataFrame(raw_).subtract(bas_mean)\
