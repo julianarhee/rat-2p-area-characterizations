@@ -1662,9 +1662,9 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
             ax.set_ylim(ylim)
     if xlim is not None:
         for ax in axn:
-            ax.set_xlim(xli)
+            ax.set_xlim(xlim)
 
-    sns.despine(trim=True)
+    #sns.despine(trim=True)
     pl.subplots_adjust(left=0.1, right=0.8, bottom=0.25, wspace=0.2, top=0.7)
 
     return fig
@@ -1675,11 +1675,15 @@ def plot_fit_distance_curves(bcorrs, finalres, to_quartile='cortical_distance',
 def heatmap_tuning_v_distance(df_, x_bins, y_bins, ax=None,
                     x_var='cortical_distance', y_var='area_overlap', 
                     hue_var='pearsons', hue_norm=(-1, 1), 
-                    cmap=None, cbar=False, cbar_ax=[0.87, 0.3, 0.01, 0.3] ):
+                    cmap=None, cbar=False, cbar_ax=None, #[0.87, 0.3, 0.01, 0.3],
+                    cbar_kws={'shrink': 0.5}):
     #x_var = 'cortical_distance'
     #y_var = 'area_overlap'
     #hue_var = 'pearsons'
     #hue_min, hue_max = (-.8, 0.8)
+
+    cbar_kws.update({'label': hue_var})
+
     if cmap is None:
         cmap=sns.diverging_palette(145, 300, s=60, as_cmap=True)
     #'coolwarm'
@@ -1700,7 +1704,7 @@ def heatmap_tuning_v_distance(df_, x_bins, y_bins, ax=None,
                .mean().reset_index()
     hmat = means_.pivot(y_var_name, x_var_name, hue_var)
     sns.heatmap(hmat, cmap=cmap, ax=ax, vmin=hue_min, vmax=hue_max,
-                cbar=cbar, cbar_ax=cbar_ax, cbar_kws={'label': hue_var}) 
+                cbar=cbar, cbar_ax=cbar_ax, cbar_kws=cbar_kws) 
     ax.set_box_aspect(0.75)
     #, center=0)
     ax.set_yticks(np.arange(0, len(y_bins)))
@@ -1711,7 +1715,6 @@ def heatmap_tuning_v_distance(df_, x_bins, y_bins, ax=None,
     ax.invert_yaxis()
    
     ax.tick_params(which='both', axis='both', size=0)
-
 
     # make frame visible
     for _, spine in ax.spines.items():
