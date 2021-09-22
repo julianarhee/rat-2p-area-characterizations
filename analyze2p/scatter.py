@@ -2005,11 +2005,11 @@ def overlay_scatter(dk, va, df_, AZMAP_NP, ELMAP_NP, experiment='rfs',
 
 
 
-def do_scatter_analysis(dk, va, experiment='rfs', 
+def do_scatter_analysis(dk, va, experiment='rfs', do_spherical_correction=False,
                         do_gradients=False, do_model=False,
                         np_mag_thr=0.001, np_delay_map_thr=1.0, 
                         np_ds_factor=2., return_best_model=False,
-                        response_type='dff', do_spherical_correction=False, 
+                        response_type='dff', 
                         ecc_center=(0, 0), abs_value=False,
                         traceid='traces001',
                         cmap='Spectral', plot=True,
@@ -2021,10 +2021,14 @@ def do_scatter_analysis(dk, va, experiment='rfs',
     scatter_df=None
     scatter_kws={'s':2}
 
+    rf_str = '_sphrcorr' if do_spherical_correction else ''
 
     if not create_new:
         try:
-            scatter_df = load_scatter_results(dk, va, experiment=experiment,verbose=verbose)
+            print("    loading existing scatter results")
+            scatter_df = load_scatter_results(dk, va, experiment=experiment,
+                                        do_spherical_correction=do_spherical_correction,
+                                        verbose=verbose)
         except Exception as e:
             # traceback.print_exc()
             create_new=True
@@ -2044,6 +2048,7 @@ def do_scatter_analysis(dk, va, experiment='rfs',
         has_retino=True
         has_rfs=True
         try:
+            # Load gradient results from moving bar (background smoothed)
             retinorun, AZMAP_NP, ELMAP_NP, GVECTORS, REGR_NP = get_gradient_results(dk, va, 
                                     return_best=return_best_model,
                                     do_gradients=do_gradients, do_model=do_model, 
@@ -2057,15 +2062,19 @@ def do_scatter_analysis(dk, va, experiment='rfs',
 
             if has_retino:
                 protocol = 'TILE' if 'rfs' in experiment else 'BAR'
-                soma_dst_dir = os.path.join(curr_dst_dir, 'scatter_%s' % experiment)
+                soma_dst_dir = os.path.join(curr_dst_dir, 
+                                            'scatter_%s%s' % (experiment, rf_str))
+                #soma_dst_dir = os.path.join(curr_dst_dir, 'scatter_%s' % experiment)
                 if not os.path.exists(soma_dst_dir):
                     os.makedirs(soma_dst_dir)
+                print("    calculating scatter. saves to:\n%s" % soma_dst_dir)
+
                 aligned_soma = predict_soma_from_gradient(dk, va, REGR_NP, 
                                         experiment=experiment,
                                         traceid=traceid, protocol=protocol, 
                                         response_type=response_type,
                                         do_spherical_correction=do_spherical_correction,
-                                        ecc_center=ecc_center,  abs_value=abs_value,
+                                        ecc_center=ecc_center, abs_value=abs_value,
                                         verbose=verbose, plot=plot, 
                                         plot_dst_dir=soma_dst_dir)
                 if aligned_soma is None:
@@ -2134,7 +2143,8 @@ def update_scatter_results(dk, va, soma_results, soma_dst_dir): #, create_new=Fa
     return
 
        
-def load_scatter_results(dk, va, experiment='rfs', verbose=False,
+def load_scatter_results(dk, va, experiment='rfs', 
+                    do_spherical_correction=False, verbose=False,
                     rootdir='/n/coxfs01/2p-data'):
     '''
     Loads dataframe: 'cell', 'deg_scatter', 'dist_scatter', 'axis'.
@@ -2142,11 +2152,13 @@ def load_scatter_results(dk, va, experiment='rfs', verbose=False,
 
      soma_dst_dir = os.path.join(curr_dst_dir, 'scatter_%s' % experiment)
     '''
+    rf_str = '_sphrcorr' if do_spherical_correction else ''
     currdf=None
     try:
         session, animalid, fovn = hutils.split_datakey_str(dk)
         fovdir = glob.glob(os.path.join(rootdir, animalid, session, 'FOV%i_*' % fovn))[0]
-        soma_dst_dir = os.path.join(fovdir, 'segmentation', 'scatter_%s' % experiment)
+        soma_dst_dir = os.path.join(fovdir, 'segmentation', 
+                                            'scatter_%s%s' % (experiment, rf_str))
         results_fpath = os.path.join(soma_dst_dir, 'scatter_results.pkl')
         with open(results_fpath, 'rb') as f:
             results = pkl.load(f, encoding='latin1')
