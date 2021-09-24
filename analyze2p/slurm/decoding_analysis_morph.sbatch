@@ -34,6 +34,7 @@ MATCHRF="$9"
 OVERLAP="${10}"
 RESPTEST="${11}"
 EPOCH="${12}"
+NITER="${13}"
 
 # run processing on raw data
 echo "CLASS: ${CLASSNAME}"
@@ -49,18 +50,18 @@ if [[ ${BREAK} == "True" ]]; then
     echo "breaking corrs..."
     if [[ ${MATCHRF} == "True" ]]; then
         echo "matching RF size!"
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP  -d dff -X $ANALYSIS -T $TEST -R $RESPTEST --epoch $EPOCH -C 1 -N 500 -S $NCELLS -O $OVERLAP --break --match-rfs --class-name $CLASSNAME -n 8
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP  -d dff -X $ANALYSIS -T $TEST -R $RESPTEST --epoch $EPOCH -C 1 -N $NITER -S $NCELLS -O $OVERLAP --break --match-rfs --class-name $CLASSNAME -n 8
     else
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -d dff -X $ANALYSIS -T $TEST -R $RESPTEST --epoch $EPOCH -C 1 -N 500 -S $NCELLS -O $OVERLAP --break --class-name $CLASSNAME -n 8
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -d dff -X $ANALYSIS -T $TEST -R $RESPTEST --epoch $EPOCH -C 1 -N $NITER -S $NCELLS -O $OVERLAP --break --class-name $CLASSNAME -n 8
     fi
 
 else
     echo "Corrs intact..."
     if [[ ${MATCHRF} == "True" ]]; then
         echo "matching RF size!"
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -d dff -X $ANALYSIS -T $TEST -R $RESPTEST --epoch $EPOCH -C 1 -N 500 -S $NCELLS -O $OVERLAP --match-rfs --class-name $CLASSNAME -n 8
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -d dff -X $ANALYSIS -T $TEST -R $RESPTEST --epoch $EPOCH -C 1 -N $NITER -S $NCELLS -O $OVERLAP --match-rfs --class-name $CLASSNAME -n 8
     else
         echo "No match"
-        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -d dff -X $ANALYSIS -T $TEST -R $RESPTEST --epoch $EPOCH -C 1 -N 500 -S $NCELLS -O $OVERLAP --class-name $CLASSNAME -n 8
+        python /n/coxfs01/2p-pipeline/repos/rat-2p-area-characterizations/analyze2p/decoding.py -V $VAREA -k $DATAKEY -E $EXP -d dff -X $ANALYSIS -T $TEST -R $RESPTEST --epoch $EPOCH -C 1 -N $NITER -S $NCELLS -O $OVERLAP --class-name $CLASSNAME -n 8
     fi
 fi
