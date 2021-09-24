@@ -10,6 +10,8 @@ import glob
 import copy
 import itertools
 
+import matplotlib as mpl
+
 import pandas as pd
 import numpy as np
 import pylab as pl
@@ -414,6 +416,9 @@ def get_ccdist(neuraldf, roidf, return_zscored=False, curr_cfgs=None,
 
 def calculate_corrs(ndf, do_zscore=True, return_zscored=False, 
                     curr_cells=None, curr_cfgs=None):
+    '''
+    Z-score trial data (each cell), then calculate pw pearsons corr.
+    '''
     if curr_cells is None: 
         curr_cells = ndf['cell'].unique()
     if curr_cfgs is None:
@@ -428,6 +433,7 @@ def calculate_corrs(ndf, do_zscore=True, return_zscored=False,
         zscored['config'] = cfgs_by_trial
     else:
         zscored = trial_means0.copy() #ndf.copy()
+
     # Get signal correlations
     signal_corrs = calculate_signal_corrs(zscored)
     # Get Noise correlations
@@ -517,9 +523,16 @@ def do_pairwise_cc_melt(df_, metric_name='cc', include_diagonal=False):
     assert len(cc)==ncombos, "bad merging when creating pw combos (expected %i, have %i)" % (ncombos, len(cc))
 
     cc[['cell_1', 'cell_2']] = cc[['cell_1', 'cell_2']].astype(int)
-    cc['neuron_pair'] = ['%i_%i' % (c1, c2) for \
-                         c1, c2 in cc[['cell_1', 'cell_2']].values]
-    return cc
+    for ix, (v1, v2) in cc[['cell_1', 'cell_2']].iterrows():
+        swap = v2<v1
+        if swap:
+            cc.loc[ix, 'cell_1'] = v2
+            cc.loc[ix, 'cell_2'] = v1
+
+    cc0 = cc.sort_values(by=['cell_1', 'cell_2'])
+    cc0['neuron_pair'] = ['%i_%i' % (c1, c2) for \
+                         c1, c2 in cc0[['cell_1', 'cell_2']].values]
+    return cc0
     
 def melt_square_matrix(df, metric_name='value', add_values={}, include_diagonal=False):
     '''Melt square matrix into unique values only'''
@@ -531,11 +544,14 @@ def melt_square_matrix(df, metric_name='value', add_values={}, include_diagonal=
 
     df = df0[df0['row']!=df0['col']].reset_index(drop=True)
 
+
     if len(add_values) > 0:
         for k, v in add_values.items():
             df[k] = [v for _ in np.arange(0, df.shape[0])]
 
-    return df
+    #df_sorted = df.sort_values(by=['row', 'col'])
+
+    return df #df_sorted
 
 
 def get_pw_distance(cc_, pos_, xcoord='ml_pos', ycoord='ap_pos', label='cortical_distance',
@@ -703,9 +719,10 @@ def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, rfpolys=None,
                 print("    (%s NONE, skipping overlaps)" % dk)  
                 curr_polys=None
         if rfdf is not None:
+            curr_rfs = rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk)].copy()
             dists0 = ccdists.copy()
             print('    getting rf metrics')
-            rf_diffs = rf_diffs_and_dists_in_fov(dists0, posdf_, curr_polys=curr_polys)
+            rf_diffs = rf_diffs_and_dists_in_fov(curr_rfs, curr_polys=curr_polys)
             pw_df= pd.merge(ccdists, rf_diffs, on=['neuron_pair', 'cell_1', 'cell_2'], 
                             how='outer')
             pw_df['area_overlap'] = pw_df['area_overlap'].astype(float)
@@ -721,9 +738,9 @@ def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, rfpolys=None,
         pw_df['n_cells'] = len(rois_)
         c_list.append(pw_df)
     CORRS = pd.concat(c_list, ignore_index=True)
-    
+   
+    print('%i datasets w wrong configs:' % len(wrong_configs))
     if verbose:
-        print('%i datasets w wrong configs:' % len(wrong_configs))
         for w in wrong_configs:
             print("    %s" % str(w))
         print('%i datasets w/out RF fits:' % len(no_rfs))
@@ -743,7 +760,8 @@ def smallest_signed_angle(x, y, TAU=360):
 def get_pw_angular_dist(df_, tau=180, in_name='input', out_name='output'):
     '''Calculate ANGULAR diffs (corrected), both signed and abs'''
 
-    col_pairs = list(itertools.combinations(df_['cell'], 2))
+    rois_ = sorted(df_['cell'].unique())
+    col_pairs = list(itertools.combinations(rois_, 2))
     pairdf = pd.DataFrame(['%i_%i' % (a, b) for a, b \
                            in col_pairs], columns=['neuron_pair'])
     pairdf['cell_1'] = [a for a, b in col_pairs]
@@ -761,7 +779,8 @@ def get_pw_angular_dist(df_, tau=180, in_name='input', out_name='output'):
 def get_pw_diffs(df_, metric='response_pref'):
     '''Get abs DIFFERENCE for a given metric for all pairs of cells
     '''
-    col_pairs = list(itertools.combinations(df_['cell'], 2))
+    rois_ = sorted(df_['cell'].unique())
+    col_pairs = list(itertools.combinations(rois_, 2))
     pairdf = pd.DataFrame(['%i_%i' % (a, b) for a, b \
                            in col_pairs], columns=['neuron_pair'])
     pairdf['cell_1'] = [a for a, b in col_pairs]
@@ -790,8 +809,8 @@ def get_paired_tuning_metrics(fitdf, r1, r2):
         d1['cell'] = ri
         d_.append(d1)
     d0 = pd.concat(d_, axis=0)
-    cosim_m1 = cosine_similarity(d0[d0['cell']==r1]['value'].values, 
-                                d0[d0['cell']==r2]['value'].values)
+    #cosim_m1 = cosine_similarity(d0[d0['cell']==r1]['value'].values, 
+    #                            d0[d0['cell']==r2]['value'].values)
     # normalize values
     d0.loc[d0.param=='size', 'value'] = d0[d0.param=='size']['value'] /200. 
     d0.loc[d0.param=='speed', 'value'] = d0[d0.param=='speed']['value'] /20. 
@@ -852,7 +871,7 @@ def get_pw_tuning(fitdf, n_intervals=3, stimulus='gratings',
     Prev. called get_pw_curve_correlations()
     '''
     # Get pairs
-    rois_ = fitdf['cell'].unique()
+    rois_ = sorted(fitdf['cell'].unique())
     col_pairs = list(itertools.combinations(rois_, 2))
 
     if stimulus=='gratings':
@@ -961,7 +980,8 @@ def aggregate_tuning_curve_ccdist(df, rfdf=None, rfpolys=None, n_intervals=3,
     no_rfs=[]
     a_=[]
     for (va, dk), df_ in df.groupby(['visual_area', 'datakey']):
-        if len(df_['cell'].unique())<min_ncells:
+        rois_ = df_['cell'].unique() 
+        if len(rois_)<min_ncells:
             print("too few cells: %s, %s" % (va, dk))
             continue
         # Get PW differences (tuning) and distances (position)
@@ -993,23 +1013,25 @@ def aggregate_tuning_curve_ccdist(df, rfdf=None, rfpolys=None, n_intervals=3,
         else:
             dists = get_pw_distance(tuning_dists, posdf_, xcoord='ml_pos', ycoord='ap_pos', 
                                      label='cortical_distance', add_eccentricity=False)
-        # RF-to-RF overlaps, if relevant
+
+        # RF-to-RF metrics
+        dists0 = dists.copy()
+        # Overlaps, if relevant 
         curr_polys = None
-        if rfpolys is not None:
-            dists0 = dists.copy()
-            rois_ = df_['cell'].unique() 
+        if rfpolys is not None: 
             curr_polys = rfpolys[(rfpolys.datakey==dk) & (rfpolys['cell'].isin(rois_))] 
             if len(curr_polys)<=1: # need >1 to compare
                 print("    (%s NONE, skipping overlaps)" % dk)  
                 curr_polys=None
+        # Distance metrics (RFs)
         if rfdf is not None:
-            rf_diffs = rf_diffs_and_dists_in_fov(dists0, posdf_, curr_polys=curr_polys)
+            curr_rfs = rfdf[(rfdf.visual_area==va) & (rfdf.datakey==dk)].copy()
+            rf_diffs = rf_diffs_and_dists_in_fov(curr_rfs, curr_polys=curr_polys)
             pw_df= pd.merge(dists, rf_diffs, on=['neuron_pair', 'cell_1', 'cell_2'], 
                             how='outer')
             pw_df['area_overlap'] = pw_df['area_overlap'].astype(float)
             pw_df['perc_overlap'] = pw_df['perc_overlap'].astype(float) 
-            pw_df['overlap_index'] = 1-pw_df['area_overlap']
-            
+            pw_df['overlap_index'] = 1-pw_df['area_overlap'] 
         else:
             pw_df = dists.copy()
 
@@ -1024,53 +1046,68 @@ def aggregate_tuning_curve_ccdist(df, rfdf=None, rfpolys=None, n_intervals=3,
     return aggr_dists
 
 
-def rf_diffs_and_dists_in_fov(dists, df_, curr_polys=None):
+def rf_diffs_and_dists_in_fov(df_, curr_polys=None):
     '''
     For 1 dataset, calculate RF-to-RF VF and CX distances, 
     plus:
     area_overlap	perc_overlap	rf_angle_diff	rf_angle_diff_abs	std_x	std_y
     aspect_ratio	neuron_pair
     '''
+    dfs_to_merge=[]
 
     # RF-to-RF overlaps
-    overlaps_ = dists[['neuron_pair', 'cell_1', 'cell_2']].copy()
-    overlaps_['area_overlap'] = None
-    overlaps_['perc_overlap'] = None
+    #overlaps_ = dists[['neuron_pair', 'cell_1', 'cell_2']].copy()
+    #overlaps_['area_overlap'] = None
+    #overlaps_['perc_overlap'] = None
     if curr_polys is not None and len(curr_polys)>1:
         try:
             overlaps_ = rfutils.get_rf_overlaps(curr_polys)
             overlaps_ = overlaps_.rename(columns={'poly1': 'cell_1', 'poly2': 'cell_2'})
             overlaps_['neuron_pair'] = ['%i_%i' % (c1, c2) for c1, c2 \
                                             in overlaps_[['cell_1', 'cell_2']].values] 
+            dfs_to_merge.append(overlaps_)
         except Exception as e:
             pass
-    pos_and_overlaps = pd.merge(dists, overlaps_, on=['neuron_pair', 'cell_1', 'cell_2'])
-           
+    #pos_and_overlaps = pd.merge(dists, overlaps_, on=['neuron_pair', 'cell_1', 'cell_2'])
+     
     # RF angle diffs, merge w overlap
     angles_ = get_pw_angular_dist(df_, tau=180,
                                   in_name='rf_theta_deg', out_name='rf_angle_diff')
     angles_['rf_angle_diff_abs'] = angles_['rf_angle_diff'].abs()
-
-    ang_diffs = pd.merge(pos_and_overlaps, angles_, on=['neuron_pair', 'cell_1', 'cell_2'])
+    dfs_to_merge.append(angles_)
+    #ang_diffs = pd.merge(pos_and_overlaps, angles_, on=['neuron_pair', 'cell_1', 'cell_2'])
 
     # Standard difference metrics, merge 
     sz_x = get_pw_diffs(df_, metric='std_x')
     sz_y = get_pw_diffs(df_, metric='std_y')
-    sz_diff = pd.merge(sz_x, sz_y, on=['neuron_pair', 'cell_1', 'cell_2'])
+    #sz_diff = pd.merge(sz_x, sz_y, on=['neuron_pair', 'cell_1', 'cell_2'])
+    dfs_to_merge.append(sz_x)
+    dfs_to_merge.append(sz_y)
+
     # non-size stuff
     asp_diff = get_pw_diffs(df_, metric='aspect_ratio')
-    sz_and_aspect = pd.merge(sz_diff, asp_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+    #sz_and_aspect = pd.merge(sz_diff, asp_diff, on=['neuron_pair', 'cell_1', 'cell_2'])
+    dfs_to_merge.append(asp_diff)
 
     # Final df
-    pw_df0 = pd.merge(ang_diffs, sz_and_aspect, on=['neuron_pair', 'cell_1', 'cell_2'])
-    # Get rid of extra columns for merge
-    new_cols = [k for k in pw_df0.columns if k not in dists.columns]
-    new_cols.extend(['neuron_pair', 'cell_1', 'cell_2'])
-    pw_df = pw_df0[new_cols]
+    pw_df = reduce(lambda  left,right: pd.merge(left,right,\
+                                            on=['neuron_pair', 'cell_1', 'cell_2'],
+                                            how='outer'), dfs_to_merge)
 
-    pw_df['area_overlap'] = pw_df['area_overlap'].astype(float)
-    pw_df['perc_overlap'] = pw_df['perc_overlap'].astype(float) 
-    pw_df['overlap_index'] = 1-pw_df['area_overlap']
+    #pw_df0 = pd.merge(d, sz_and_aspect, on=['neuron_pair', 'cell_1', 'cell_2'])
+    # Get rid of extra columns for merge
+    #new_cols = [k for k in pw_df0.columns if k not in dists.columns]
+    #new_cols.extend(['neuron_pair', 'cell_1', 'cell_2'])
+    #pw_df = pw_df0[new_cols]
+   
+    if 'area_overlap' in pw_df.columns: 
+        pw_df['area_overlap'] = pw_df['area_overlap'].astype(float) 
+        pw_df['perc_overlap'] = pw_df['perc_overlap'].astype(float) 
+        pw_df['overlap_index'] = 1-pw_df['area_overlap']
+    else:
+        pw_df['area_overlap'] = None
+        pw_df['perc_overlap'] = None 
+        pw_df['overlap_index'] = None  
 
     return pw_df
 
@@ -1384,6 +1421,44 @@ def bin_column_values(cc_, to_quartile='cortical_distance', use_quartile=True,
         return cc_, bin_edges
     else:
         return cc_
+
+
+# Statistical tests
+def shuffle_bins_by_area(df, dist_var='cortical_distance', n_iterations=100):
+    '''
+    Shuffles bin label (e.g., cortical_distance_label) within each visual area,
+    then calculates the medians per bin -- repeat n_iterations to get
+    shuffled medians. 
+    
+    Returns:
+    
+    combined_: (pd.DataFrame)
+        Same as df, but copied, with new col <condition> ('data' or 'shuffled').
+    '''
+    bcorrs=df.copy().reset_index(drop=True).dropna()
+    bcorrs_shuff = bcorrs.copy()
+    shuffle_label = '%s_label' % dist_var #'binned_cortical_distance_label'
+    mean_cols = ['visual_area',  shuffle_label]
+
+    shuff_list=[]
+    for i in np.arange(0, n_iterations):
+        # Make copy
+        vg_shuff = bcorrs_shuff.copy()
+        # Shuffle by area
+        vg_shuff[shuffle_label] = bcorrs_shuff.groupby(['visual_area'])[shuffle_label]\
+                                    .transform(np.random.permutation)
+        # Get mean 
+        mean_ = vg_shuff.groupby(mean_cols).median().reset_index()
+        shuff_list.append(mean_)
+    shuff_ = pd.concat(shuff_list, axis=0, ignore_index=True)
+
+    shuff_['condition'] = 'shuffled'
+    bcorrs['condition'] = 'data'
+    combined_ = pd.concat([bcorrs, shuff_], axis=0, ignore_index=True)
+    
+    return combined_
+
+
 
 
 
@@ -1722,4 +1797,157 @@ def heatmap_tuning_v_distance(df_, x_bins, y_bins, ax=None,
 
  
     return ax
+
+
+def barplot_with_shuffled_distbins(df, dist_var, y_var, curr_maxdist=None, 
+                     round_x=1, dist_unit='um', ylim=(-1, 1),
+                     barcolor=[0.8]*3, lw=0.5, 
+                     errcolor=[0.6]*3, errcolor_shuffled=[0.2]*3,
+                     strip_size=1, plot_pairs=False,
+                     draw_group_patch=True, bin_width=4, figsize=(6,6),
+                     visual_areas=['V1', 'Lm', 'Li']):
+    
+    x_var = '%s_label' % dist_var
+    if curr_maxdist is None:
+        curr_maxdist = df[x_var].max()
+    sorted_x_vars = [k for k, v in df.groupby(x_var) if k<=curr_maxdist]
+    x_bins = sorted(sorted_x_vars)
+    xticks = np.arange(0, len(x_bins))
+    if round_x==0:
+        xlabels = [int(i) if i in x_bins[0::2] or i==xticks[-1] else ''\
+                            for i in x_bins]
+    else:
+        xlabels = [float(round(i, round_x)) if i in x_bins[0::2] \
+                   or i==xticks[-1]  else '' for i in x_bins]
+    # ----------------------
+    plotd = df[df[dist_var]<curr_maxdist].copy()
+
+    fig, axn = pl.subplots(len(visual_areas), 1, figsize=figsize, dpi=150, 
+                        sharex=True, sharey=True)
+    for va, vg0 in plotd.groupby('visual_area'):
+        vg = vg0[vg0['condition']=='data']
+        ax=axn[visual_areas.index(va)]
+        # Set ticks
+        if va =='V1' or va=='Lm':
+            ax.set_xlabel('')
+        else:
+            ax.set_xlabel('%s bin (%s)' % (dist_var, dist_unit))
+        ax.set_ylim(ylim)
+        # background patch?
+        ymin = ax.get_ylim()[0]
+        yh = ax.get_ylim()[-1] - ymin
+        rect_list=[]
+        for bi, bv in enumerate(sorted_x_vars):
+            if bi%int(bin_width*2)==0:
+                rect = mpl.patches.Rectangle((bi-0.5, ymin), 
+                                             bin_width, yh, fc=[0.95]*3)
+            rect_list.append(rect)
+        rect_coll=mpl.collections.PatchCollection(rect_list, zorder=-100,
+                                                 match_original=True)
+        ax.add_collection(rect_coll)
+        # BARPLOT ------------------------------------
+        sns.barplot(x=x_var, y=y_var, data=vg, ax=ax,
+                   order=sorted_x_vars, errcolor=errcolor,
+                   color=barcolor, dodge=False, ci=95, 
+                    linewidth=lw, errwidth=lw,
+                   zorder=1,alpha=1, capsize=0.25)
+#        if va=='V1':
+#            ax.legend(bbox_to_anchor=(1,1), loc='upper left', frameon=False, 
+#                  title='distance (%s)' % dist_unit)
+#        else:
+#            ax.legend_.remove()
+        # BAR, Shuffled -------------------------------
+        vg_shuff = vg0[vg0.condition=='shuffled']
+        sns.barplot(x=x_var, y=y_var, data=vg_shuff, ax=ax, 
+                    errcolor=errcolor_shuffled,
+                    order=sorted_x_vars, dodge=False, ci='sd', 
+                    errwidth=lw, lw=lw,
+                    zorder=1, facecolor=(1,1,1,0), 
+                    edgecolor=['k']*4,capsize=0.25)
+        # STRIPPLOT (neuron_pair)
+        if plot_pairs:
+            sns.stripplot(x=x_var, y=y_var, ax=ax, data=vg, color='k',
+                   order=sorted_x_vars, dodge=False, size=strip_size)
+        ax.set_title(va, loc='left', fontsize=7)
+        ax.tick_params(which='both', axis='x', size=0)
+        ax.set_xticklabels(xlabels)
+    return fig
+
+
+def barplot_fov_medians_per_bin(metric, dist_vars, df, dist_lut, min_npairs=10,min_nfovs=3,
+                xtick_step=4, sharex_dist=True, barcolor=[0.8]*3,strip_size=1, round_x=1,
+                visual_areas=['V1', 'Lm', 'Li'], figsize=(5,6)):
+    '''
+    Plot bar plots for distance bin (each row can be a different dist metric),
+    columns are visual areas.
+    Overlay medians by fov, i.e., site. 
+    '''
+    fig, axn = pl.subplots(len(dist_vars), len(visual_areas), 
+                           figsize=figsize, dpi=150, sharex=False, sharey=True)
+    for ri, dist_var in enumerate(dist_vars):
+        x_var = '%s_label' % dist_var
+        dist_max = df[x_var].max()
+        x_bins = sorted([k for k in df[x_var].unique() if k<=dist_max])
+        
+        for va, cc0 in df.groupby('visual_area'):
+            ax=axn[ri, visual_areas.index(va)]
+            cnts = cc0.groupby([x_var, 'datakey'])['neuron_pair'].count()  
+            # How many resample per group
+            nsamples_per = dict((k, v) for k, v \
+                                in zip(cnts[cnts>=min_npairs].index.tolist(),
+                                       cnts[cnts>=min_npairs].values))
+            if len(nsamples_per)==0:
+                ax.set_title('%s (too few cells)' % va)
+                ax.set_box_aspect(1)
+                continue
+            # Sample
+            cc_ = pd.concat([cg for c, cg in cc0.groupby([x_var, 'datakey']) \
+                                 if c in nsamples_per.keys()])
+            by_fov = cc_.groupby([x_var, 'datakey']).median().reset_index()
+            # Get counts
+            cnt_df = cnts.reset_index().rename(columns={'neuron_pair': 'n_pairs'})
+            cnts_and_vals = pd.merge(cnt_df[cnt_df['n_pairs']>=min_npairs], by_fov, 
+                                on=['%s_label' % dist_var, 'datakey'], how='outer')
+            # Get N fov per bin
+            n_fov_per_bin = by_fov.groupby(x_var)['datakey'].count()
+            pass_bins = n_fov_per_bin[n_fov_per_bin>=min_nfovs].index.tolist()
+            if len(pass_bins)==0:
+                ax.set_box_aspect(1)
+                ax.set_title('%s (fail)' % va, loc='left')
+                continue
+
+            if sharex_dist:
+                x_bins = sorted([k for k in df[x_var].unique() if k<=dist_max])
+                curr_xlim = x_bins[-1] # + dist_lut[dist_var]['step']
+            else:
+                curr_dist_max = sorted(np.unique(pass_bins))[-1]
+                x_bins = sorted([k for k in df[x_var].unique() if k<=curr_dist_max] )
+                curr_xlim = x_bins[-1] + dist_lut[dist_var]['step']
+
+            add_bins = [k for k in x_bins if k not in pass_bins]
+            final_bins = sorted(np.union1d(pass_bins, add_bins))
+            passdf = cnts_and_vals[cnts_and_vals[x_var].isin(pass_bins)]
+            sns.barplot(x=x_var, y=metric, data=passdf, ax=ax,
+                       color=barcolor,ci=None)
+            sns.stripplot(x=x_var, y=metric, data=passdf, ax=ax,
+                          size=strip_size, color='k', alpha=1, jitter=False)
+            ax.set_box_aspect(1)
+            ax.set_title(va, loc='left')
+
+
+            # Set xticks
+            x_bins.append(curr_xlim)
+            xticks = np.arange(0, len(x_bins))
+            ax.set_xticks(xticks)
+            if round_x==0:
+                ax.set_xticklabels([int(round(x_bins[i], 1))\
+                                    if i in xticks[0::xtick_step] or i==xticks[-1] \
+                                    else '' for i in xticks])
+            else:
+                ax.set_xticklabels([round(float(x_bins[i]), 1) \
+                                    if i in xticks[0::xtick_step] or i==xticks[-1] \
+                                    else '' for i in xticks])
+            ax.set_xlim([-0.5, len(x_bins)])
+                
+    return fig
 
