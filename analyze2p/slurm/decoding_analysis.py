@@ -29,7 +29,7 @@ parser.add_argument('-k', '--datakeys', nargs='*', dest='included_datakeys', act
 
 parser.add_argument('-X', '--analysis', dest='analysis_type', action='store', default='by_fov', help='Analysis type, default: %s (opts: by_fov)')
 
-parser.add_argument('-T', '--test', dest='test_type', action='store', default=None, help='Test type, default: %s (opts: default, size_single, size_subset, morph)')
+parser.add_argument('-T', '--test', dest='test_type', action='store', default=None, help='Test type (opts: None, size_single, size_subset, morph)')
 
 parser.add_argument('--break', dest='break_corrs', action='store_true', default=False, help='Break noise correlations')
 
@@ -39,11 +39,16 @@ parser.add_argument('--match-rfs', dest='match_rfs', action='store_true', defaul
 
 parser.add_argument('-O', '--overlap', dest='overlap_thr', action='store', default=None, help='Overlap thr')
 
-parser.add_argument('-C', '--class-name', dest='class_name', default='morphlevel',help='Name of class to decode (morphlevel, ori, sf)')
+parser.add_argument('-C', '--class-name', dest='class_name', action='store', default='morphlevel',help='Name of class to decode (morphlevel, ori, sf)')
 
-parser.add_argument('-R', '--resp-test', dest='responsive_test', default='ROC',help='Responsive test (nstds or ROC), default=ROC')
-parser.add_argument('--epoch', dest='trial_epoch', default='stimulus',help='Trial epoch to use for metrics (default: stimulus. Can be: plushalf, stimulus)')
-parser.add_argument('-N', dest='n_iterations', default=500, help='Size of bootstrapped distribution  (default=500, NOTE: if morph in test_types, takes forever...)')
+parser.add_argument('-R', '--resp-test', dest='responsive_test', default='ROC', action='store', help='Responsive test (nstds or ROC), default=ROC')
+
+parser.add_argument('--epoch', dest='trial_epoch', default='stimulus', action='store', help='Trial epoch to use for metrics (default: stimulus. Can be: plushalf, stimulus)')
+
+parser.add_argument('-N', dest='n_iterations', default=500, action='store', help='Size of bootstrapped distribution  (default=500, NOTE: if morph in test_types, takes forever...)')
+
+parser.add_argument('--shuffle-area', dest='shuffle_visual_area', default=False,action='store_true',  help='Shuffle visual area labels (analysis_type=BY_NCELLS)')
+
 
 args = parser.parse_args()
 
@@ -100,6 +105,9 @@ class_name = args.class_name
 responsive_test = args.responsive_test
 trial_epoch = args.trial_epoch
 n_iterations = int(args.n_iterations)
+shuffle_visual_area = args.shuffle_visual_area
+
+
 # Set up logging
 # ---------------------------------------------------------------
 # Create a (hopefully) unique prefix for the names of all jobs in this 
@@ -111,10 +119,11 @@ piper = str(piper)[0:4]
 test_str = 'default' if test_type is None else test_type
 corr_str = 'break' if break_corrs else 'intact'
 analysis_str = '%s_%s' % (analysis_type, test_str)
+shuff_str = 'shuff_' if shuffle_visual_area else ''
 if visual_area in [None, 'None']:
-    logdir = 'LOG__%s_%s_%s' % (experiment, analysis_str, corr_str)
+    logdir = '%sLOG__%s_%s_%s' % (shuff_str, experiment, analysis_str, corr_str)
 else:
-    logdir = 'LOG__%s_%s_%s_%s' %  (experiment, analysis_str, str(visual_area), corr_str) 
+    logdir = '%sLOG__%s_%s_%s_%s' %  (shuff_str, experiment, analysis_str, str(visual_area), corr_str) 
 
 #if match_rfs:
 if match_rfs is False and overlap_thr is None:
@@ -173,7 +182,10 @@ if test_type=='morph_single':
 elif test_type=='morph':
     cmd_str = '%s/analyze2p/slurm/decoding_analysis_morph.sbatch' % basedir
 else:
-    cmd_str = '%s/analyze2p/slurm/decoding_analysis.sbatch' % basedir
+    if shuffle_visual_area:
+        cmd_str = '%s/analyze2p/slurm/decoding_analysis_shuffle_area.sbatch' % basedir
+    else:
+        cmd_str = '%s/analyze2p/slurm/decoding_analysis.sbatch' % basedir
 
 # Run it
 jobids = [] # {}
@@ -187,7 +199,11 @@ if analysis_type=='by_ncells':
             if overlap_thr>0:
                 sample_sizes = [1, 2, 4, 8, 16, 32, 46]
             elif overlap_thr==0:
-                sample_sizes = [1, 2, 4, 8, 16, 32, 64, 96, 120, 128] 
+                sample_sizes0 = [1, 2, 4, 8, 16, 32, 64, 96, 128] 
+                min_ncells = 94 if match_rfs else 141 
+                sample_sizes = [k for k in sample_sizes0 if k<=min_ncells]
+                if min_ncells > max(sample_sizes):
+                    sample_sizes.append(min_ncells) 
         else:
             sample_sizes = [1, 2, 4, 8, 16, 32, 64, 96, 128, 256] 
     visual_areas = ['V1', 'Lm', 'Li'] if visual_area is None else [visual_area]
