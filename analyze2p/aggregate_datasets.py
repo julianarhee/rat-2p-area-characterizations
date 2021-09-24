@@ -407,6 +407,11 @@ def select_stimulus_configs(datakey, experiment, select_stimuli=None):
 
     Returns list ['config001', 'config002', etc.]
     '''
+    valid_stimulus_selections = [None, 'all', 'fullfield', 'images', 'apertured']
+    assert select_stimuli in valid_stimulus_selections, \
+            "Bad stimulus selection specified: %s (must be one of: %s)" \
+            % (select_stimuli, str(valid_stimulus_selections))
+
     curr_cfgs=None
     sdf = get_stimuli(datakey, experiment=experiment)
     if sdf is None:
@@ -417,6 +422,7 @@ def select_stimulus_configs(datakey, experiment, select_stimuli=None):
 
     curr_cfgs = get_included_stimconfigs(sdf, experiment=experiment, 
                         select_stimuli=select_stimuli)        
+    
     return curr_cfgs
 
 
@@ -430,18 +436,30 @@ def get_included_stimconfigs(sdf, experiment='blobs', select_stimuli='images'):
                 This will be apertured (gratings) or images (blobs)
     Returns list ['config001', 'config002', etc.]
     '''
+    curr_cfgs=None
 
-    if select_stimuli is not None:
-        if experiment=='gratings':
-            curr_cfgs = sdf[sdf['size']==200].index.tolist() \
-                        if select_stimuli=='fullfield' \
-                        else sdf[sdf['size']!=200].index.tolist()
-        elif experiment=='blobs':
-            curr_cfgs = sdf[sdf['morphlevel']!=-1].index.tolist() \
-                        if select_stimuli=='images' \
-                        else sdf[sdf['morphlevel']==-1].index.tolist()
-    else:
+    if select_stimuli in [None,'all']:
         curr_cfgs = sdf.index.tolist()
+
+    elif select_stimuli is not None:
+        if experiment=='gratings':
+            if select_stimuli in ['images', 'apertured']:
+                curr_cfgs = sdf[sdf['size']!=200].index.tolist()
+            elif select_stimuli=='fullfield':
+                curr_cfgs = sdf[sdf['size']==200].index.tolist() 
+            else:
+                print("Unknown stimulus selector: %s" % select_stimuli)
+
+        elif experiment=='blobs':
+            if select_stimuli in ['images', 'apertured']:
+                curr_cfgs = sdf[sdf['morphlevel']!=-1].index.tolist() 
+            elif select_stimuli=='fullfield':
+                curr_cfgs = sdf[sdf['morphlevel']==-1].index.tolist()
+            else:
+                print("Unknown stimulus selector: %s" % select_stimuli)
+    else:
+        print("Unknown stimulus selector: %s" % select_stimuli)
+
     return curr_cfgs
  
 
