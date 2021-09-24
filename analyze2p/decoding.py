@@ -56,15 +56,42 @@ import analyze2p.receptive_fields.utils as rfutils
 import analyze2p.objects.sim_utils as su
 
 def get_cells_with_overlap(cells0, sdata, overlap_thr=0.5, greater_than=False,
-                response_type='dff', do_spherical_correction=False):
+                response_type='dff', do_spherical_correction=False,
+                combine_rfs='average'):
+    '''
+    For specified cells, find all the rf data (from sdata), and
+    load RF polygons to calculate overlaps. 
 
+    Args:
+    -----
+    cells0: (pd.DataFrame)
+        Dataframe of all cells (visual_area, datakey, cell)
+
+    sdata: (pd.DataFrame)
+        Meta data of all datakeys by visual area and experiment (must include rfs/rfs10)
+    
+    greater_than: (bool)
+        If overlap_thr is not None, whether to get overlap >= or just >.
+
+    combine: (str)
+        Input to receptive_fields.utils.aggregate_fits()
+        average -- AVERAGE if >1 experiment (least conservative, default)
+        single -- pick rf5 for V1/Lm, rf10 for Li, but otherwise, get what u can
+        select -- ONLY allow rf-5 for V1/LM, rf-10 for Li (most conservative)
+
+    '''
     rfdf = rfutils.aggregate_fits(cells0, sdata, response_type=response_type,
-                    do_spherical_correction=do_spherical_correction)
+                    do_spherical_correction=do_spherical_correction,
+                    combine=combine_rfs)
     cells_RF = get_cells_with_rfs(cells0, rfdf)
 
     fit_desc = rfutils.get_fit_desc(response_type=response_type,
                             do_spherical_correction=do_spherical_correction)
-    rfpolys, _ = su.load_rfpolys(fit_desc)
+    try:
+        rfpolys, _ = su.load_rfpolys(fit_desc, combine_method=combine_rfs)
+    except Exception as e:
+        rfpolys, _ = su.update_rfpolys(rfdf, fit_desc, 
+                            combine_method=combine_rfs, create_new=True)
  
     cells_pass = calculate_overlaps(cells_RF, rfpolys, 
                             overlap_thr=overlap_thr, greater_than=greater_than)
@@ -121,7 +148,8 @@ def calculate_overlaps(rfdf, rfpolys, overlap_thr=0.5, greater_than=False,
 
 def get_cells_with_matched_rfs(cells0, sdata, 
                 rf_lim='percentile', rf_metric='fwhm_avg',
-                response_type='dff', do_spherical_correction=False):
+                response_type='dff', do_spherical_correction=False,
+                combine_rfs='average'):
     '''
     Load RF fits for current cells. 
     Currently, only selects rf-5 for V1/LM, rf-10 for Li. 
@@ -135,7 +163,8 @@ def get_cells_with_matched_rfs(cells0, sdata,
     '''
  
     rfdf = rfutils.aggregate_fits(cells0, sdata, response_type=response_type,
-                    do_spherical_correction=do_spherical_correction)
+                    do_spherical_correction=do_spherical_correction,
+                    combine=combine_rfs)
     cells_RF = get_cells_with_rfs(cells0, rfdf)
     cells_lim, limits = limit_cells_by_rf(cells_RF, rf_lim=rf_lim,
                                 rf_metric=rf_metric)
@@ -1492,7 +1521,7 @@ def select_test(ni, test_type, ndata, sdf, break_correlations, **kwargs):
 def create_results_id(C_value=None,
                     visual_area='varea', trial_epoch='stimulus', 
                     response_type='dff', responsive_test='resp', 
-                    break_correlations=False, 
+                    break_correlations=False, shuffle_visual_area=False,
                     match_rfs=False, overlap_thr=None): 
     '''
     test_type: generatlization test name (size_single, size_subset, morph, morph_single)
@@ -1511,18 +1540,20 @@ def create_results_id(C_value=None,
         # match_rfs is False and overlap_thr is not None:
         rf_str = 'overlap%.2f' % overlap_thr
 
+    shuff_area_str = 'shuff' if shuffle_visual_area else ''
     #overlap_str = 'noRF' if overlap_thr is None else 'overlap%.2f' % overlap_thr
     #test_str='all' if test_type is None else test_type
     response_str = '%s-%s' % (response_type, responsive_test)
-    results_id='%s__%s__%s__%s__%s__%s' \
-                % (visual_area, response_str, trial_epoch, rf_str, C_str, corr_str)
+    results_id='%s%s__%s__%s__%s__%s__%s' \
+            % (shuff_area_str, visual_area, response_str, trial_epoch, rf_str, C_str, corr_str)
    
     return results_id
 
 def create_aggregate_id(C_value=None,
                     trial_epoch='stimulus', 
                     response_type='dff', responsive_test='resp', 
-                    match_rfs=False, overlap_thr=None): 
+                    match_rfs=False, overlap_thr=None,
+                    shuffle_visual_area=False): 
     '''
     test_type: generatlization test name (size_single, size_subset, morph, morph_single)
     trial_epoch: mean val over time period (stimulus, plushalf, baseline) 
@@ -1535,7 +1566,9 @@ def create_aggregate_id(C_value=None,
                                     response_type=response_type,
                                     responsive_test=responsive_test,
                                     break_correlations=False, 
-                                    match_rfs=match_rfs, overlap_thr=overlap_thr[0])
+                                    match_rfs=match_rfs, 
+                                    overlap_thr=overlap_thr[0],
+                                    shuffle_visual_area=shuffle_visual_area)
         tmp_id = '__'.join(sub_results_id.split('__')[1:-1])
         parts_ = tmp_id.split('__')
         print(parts_)
@@ -1547,7 +1580,9 @@ def create_aggregate_id(C_value=None,
                                     response_type=response_type,
                                     responsive_test=responsive_test,
                                     break_correlations=False, 
-                                    match_rfs=match_rfs, overlap_thr=overlap_thr)
+                                    match_rfs=match_rfs, 
+                                    overlap_thr=overlap_thr, 
+                                    shuffle_visual_area=shuffle_visual_area)
         aggr_id = '__'.join(sub_results_id.split('__')[1:-1])
     #results_id='%s__%s' % (class_name, sub_id)
    
@@ -1647,16 +1682,17 @@ def shuffle_trials(ndf_z):
 # BY_NCELLS
 # --------------------------------------------------------------------
 def decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA, 
-                    sdf=None, test_type=None, results_id='results',
+                    sdf=None, visual_area=None, test_type=None, 
+                    results_id='results', sample_cells_with_replacement=True,
                     n_iterations=50, n_processes=2, break_correlations=False,
                     dst_dir='/tmp', **in_args):
     '''
     Create psuedo-population by sampling n_cells from global_rois.
     Do decoding analysis
     '''
-    curr_areas = GCELLS['visual_area'].unique()
-    assert len(curr_areas)==1, "Too many visual areas in global cell df"
-    visual_area = curr_areas[0]
+    #curr_areas = GCELLS['visual_area'].unique()
+    #assert len(curr_areas)==1, "Too many visual areas in global cell df"
+    #visual_area = curr_areas[0]
 
     #### Set output dir and file
     results_outfile = os.path.join(dst_dir, \
@@ -1681,6 +1717,7 @@ def decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA,
                                 n_cells_sample=n_cells_sample,
                                 n_iterations=n_iterations,
                                 n_processes=n_processes,
+                                with_replacement=sample_cells_with_replacement,
                                 break_correlations=break_correlations,
                                 **in_args)
         end_t = time.time() - start_t
@@ -1727,7 +1764,7 @@ def iterate_by_ncells(NDATA, GCELLS, sdf, test_type, n_cells_sample=1,
                     C_value=None, test_split=0.2, cv_nfolds=5, 
                     class_name='morphlevel', class_values=None,
                     variation_name='size', variation_values=None,
-                    n_train_configs=4, 
+                    n_train_configs=4, with_replacement=True,
                     balance_configs=True,do_shuffle=True, return_clf=True,
                     verbose=False):
     iterdf = None
@@ -1750,7 +1787,7 @@ def iterate_by_ncells(NDATA, GCELLS, sdf, test_type, n_cells_sample=1,
 
     #train_labels = sdf[sdf[class_name].isin(class_values)][equalize_by].unique()
     common_labels = None #if match_all_configs else train_labels
-    with_replacement=False
+    #with_replacement=True
 
     #### Define MP worker
     results = []
@@ -1823,8 +1860,8 @@ def iterate_by_ncells(NDATA, GCELLS, sdf, test_type, n_cells_sample=1,
 def sample_neuraldata_for_N_cells(n_cells_sample, NDATA, GCELLS,  
                     with_replacement=False, train_configs=None, randi=None): 
 
-    assert len(GCELLS['visual_area'].unique())==1, "Too many areas in GCELLS"
-    va = GCELLS['visual_area'].unique()[0]
+    #assert len(GCELLS['visual_area'].unique())==1, "Too many areas in GCELLS"
+    #va = GCELLS['visual_area'].unique()[0]
 
     # Get current global RIDs
     ncells_t = GCELLS.shape[0]                      
@@ -1834,9 +1871,13 @@ def sample_neuraldata_for_N_cells(n_cells_sample, NDATA, GCELLS,
     curr_cells = celldf['global_ix'].values
     assert len(curr_cells)==len(np.unique(curr_cells))
     # Get corresponding neural data of selected datakeys and cells
-    curr_dkeys = celldf['datakey'].unique()
-    ndata0 = NDATA[(NDATA.visual_area==va) \
-                 & (NDATA.datakey.isin(curr_dkeys))].copy()
+    #curr_dkeys = celldf['datakey'].unique()
+    #ndata0 = NDATA[(NDATA.visual_area==va) \
+    #             & (NDATA.datakey.isin(curr_dkeys))].copy()
+    ndata0 = pd.concat([NDATA[(NDATA.visual_area==va) & (NDATA.datakey==dk)
+                        & (NDATA.cell.isin(g['cell'].unique()))] \
+                        for (va, dk), g \
+                        in celldf.groupby(['visual_area', 'datakey'])])
     ndata0['cell'] = ndata0['cell'].astype(float)
 
     # Make sure equal num trials per condition for all dsets
@@ -1910,9 +1951,10 @@ def decoding_analysis(dk, va, experiment,
                 match_rfs=False, 
                 rf_lim='percentile', rf_metric='fwhm_avg',
                 overlap_thr=None,response_type='dff', 
-                do_spherical_correction=False,
+                do_spherical_correction=False, combine_rfs='average', 
                 test_type=None, 
                 break_correlations=False,
+                shuffle_visual_area=False,
                 n_cells_sample=None, drop_repeats=True, 
                 C_value=None, test_split=0.2, cv_nfolds=5, 
                 images_only=False,
@@ -1983,7 +2025,8 @@ def decoding_analysis(dk, va, experiment,
                                 responsive_test=responsive_test,
                                 break_correlations=break_correlations,
                                 match_rfs=match_rfs,
-                                overlap_thr=overlap_thr) 
+                                overlap_thr=overlap_thr, 
+                                shuffle_visual_area=shuffle_visual_area) 
     print("~~~~~~~~~~~~~~~~ RESULTS ID ~~~~~~~~~~~~~~~~~~~~~")
     print(results_id)
     print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
@@ -2002,29 +2045,34 @@ def decoding_analysis(dk, va, experiment,
 
     # Assign global ix to all cells
     cells0 = aggr.get_all_responsive_cells(cells0, NDATA0)
+
+    if overlap_thr is not None:
+        # only include cells w overlapping stimulus
+        print("[RF]: Calculating overlap with stimuli.")
+        print(cells0[['visual_area','datakey','cell']]\
+                .drop_duplicates()['visual_area'].value_counts())
+        cells0 = get_cells_with_overlap(cells0, sdata, greater_than=False,
+                            overlap_thr=overlap_thr,
+                            response_type=response_type, 
+                            do_spherical_correction=do_spherical_correction,
+                            combine_rfs=combine_rfs)
+        print("----> post:")
+        print(cells0[['visual_area','datakey', 'cell']]\
+                .drop_duplicates()['visual_area'].value_counts())
+
     if match_rfs:
         # Match cells for RF size
         print("[RF]: matching RF size (%s)." % rf_lim)
         print(cells0[['visual_area','datakey','cell']]\
                 .drop_duplicates()['visual_area'].value_counts())
         cells0 = get_cells_with_matched_rfs(cells0, sdata, 
-                    rf_lim=rf_lim, rf_metric=rf_metric,
-                    response_type=response_type, 
-                    do_spherical_correction=do_spherical_correction)
+                        rf_lim=rf_lim, rf_metric=rf_metric,
+                        response_type=response_type, 
+                        do_spherical_correction=do_spherical_correction,
+                        combine_rfs=combine_rfs)
         print("----> post:")
         print(cells0[['visual_area','datakey', 'cell']]\
                 .drop_duplicates()['visual_area'].value_counts())
-    if overlap_thr is not None:
-        # only include cells w overlapping stimulus
-        print("[RF]: Calculating overlap with stimuli.")
-        print(cells0[['visual_area','datakey','cell']]\
-                .drop_duplicates()['visual_area'].value_counts())
-        cells0 = get_cells_with_overlap(cells0, sdata, greater_than=True,
-                                        overlap_thr=overlap_thr)
-        print("----> post:")
-        print(cells0[['visual_area','datakey', 'cell']]\
-                .drop_duplicates()['visual_area'].value_counts())
-
     if analysis_type=='by_ncells' and drop_repeats:
         # drop repeats
         print("~~~ dropping repeats ~~~")
@@ -2120,14 +2168,26 @@ def decoding_analysis(dk, va, experiment,
         NDATA = NDATA[NDATA.config.isin(sdf.index.tolist())].copy() 
 
         # Get cells for current visual area
-        GCELLS = cells0[cells0['visual_area']==va].copy()
+        if shuffle_visual_area:
+            # Make sure have equal N cells per visual area for sampling
+            min_ncells = cells0.groupby('visual_area').count()['cell'].min()
+            GCELLS = pd.concat(vg.sample(n=min_ncells, replace=False) \
+                        for va, vg in cells0.groupby('visual_area'))
+            # Reassign global ix
+            GCELLS['global_ix'] = np.arange(0, len(GCELLS))
+            sample_cells_with_replacement=False
+        else:
+            GCELLS = cells0[cells0['visual_area']==va].copy()
+            sample_cells_with_replacement=True
+
         if n_cells_sample is not None: 
             decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA, 
-                        sdf=sdf,
+                        sdf=sdf, visual_area=va, 
                         test_type=test_type, 
                         results_id=results_id,
                         n_iterations=n_iterations, 
                         break_correlations=break_correlations,
+                        sample_cells_with_replacement=sample_cells_with_replacement,
                         n_processes=n_processes,
                         dst_dir=curr_results_dir, **in_args)
             print("--- done %i." % n_cells_sample)
@@ -2140,11 +2200,12 @@ def decoding_analysis(dk, va, experiment,
             print("Looping thru range: %s" % str(incl_range))
             for n_cells_sample in incl_range:
                 decode_by_ncells(n_cells_sample, experiment, 
-                        GCELLS, NDATA, sdf=sdf,
+                        GCELLS, NDATA, sdf=sdf, visual_area=va,
                         test_type=test_type, 
                         results_id=results_id,
                         n_iterations=n_iterations, 
                         break_correlations=break_correlations,
+                        sample_cells_with_replacement=sample_cells_with_replacement,
                         n_processes=n_processes,
                         dst_dir=curr_results_dir, **in_args)
                 print("--- done %i." % n_cells_sample)
@@ -2160,6 +2221,7 @@ def aggregate_iterated_results(meta, class_name, experiment=None,
                       traceid='traces001',
                       trial_epoch='plushalf', responsive_test='nstds', 
                       C_value=1., break_correlations=False, 
+                      shuffle_visual_area=False,
                       overlap_thr=None, match_rfs=False,
                       rootdir='/n/coxfs01/2p-data',
                       aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
@@ -2176,9 +2238,10 @@ def aggregate_iterated_results(meta, class_name, experiment=None,
                                            visual_area=va,
                                            trial_epoch=trial_epoch,
                                            responsive_test=responsive_test,
-                                           break_correlations=break_correlations,
-                                            match_rfs=match_rfs,
-                                           overlap_thr=overlap_thr)
+                                    break_correlations=break_correlations,
+                                    match_rfs=match_rfs,
+                                    overlap_thr=overlap_thr,
+                                    shuffle_visual_area=shuffle_visual_area)
             try:
                 session, animalid, fovn = hutils.split_datakey_str(dk)
                 results_dir = glob.glob(os.path.join(rootdir, animalid, session, 
@@ -2215,7 +2278,8 @@ def aggregate_iterated_results(meta, class_name, experiment=None,
                                            responsive_test=responsive_test,
                                            break_correlations=break_correlations,
                                             match_rfs=match_rfs,
-                                           overlap_thr=overlap_thr)
+                                           overlap_thr=overlap_thr,
+                                            shuffle_visual_area=shuffle_visual_area)
             found_fpaths = glob.glob(os.path.join(\
                                     results_dir, '%s_*.pkl' % results_id))    
             print("(%s) Found %i paths" % (va, len(found_fpaths)))
@@ -2239,7 +2303,8 @@ def load_iterdf(meta, class_name, experiment=None,
                       traceid='traces001', trial_epoch='stimulus', 
                       responsive_test='nstds', 
                       C_value=1, break_correlations=False, 
-                      match_rfs=False, overlap_thr=None):
+                      match_rfs=False, overlap_thr=None,
+                     shuffle_visual_area=False):
     '''
     Load and aggregate results
     '''
@@ -2259,8 +2324,9 @@ def load_iterdf(meta, class_name, experiment=None,
                               traceid=traceid,
                               trial_epoch=trial_epoch, 
                               responsive_test=responsive_test, 
-                              C_value=C_value, break_correlations=False, 
-                              match_rfs=match_rfs, overlap_thr=overlap_val)
+                              C_value=C_value, break_correlations=break_correlations, 
+                              match_rfs=match_rfs, overlap_thr=overlap_val,
+                              shuffle_visual_area=shuffle_visual_area)
         missing_dict[overlap_val]['intact'] = missing_
 
         if iterdf is None:
@@ -2279,7 +2345,9 @@ def load_iterdf(meta, class_name, experiment=None,
                                       trial_epoch=trial_epoch, 
                                       responsive_test=responsive_test, 
                                       C_value=C_value, break_correlations=True, 
-                                      match_rfs=match_rfs, overlap_thr=overlap_val)
+                                      match_rfs=match_rfs, 
+                                      overlap_thr=overlap_val,
+                                      shuffle_visual_area=shuffle_visual_area)
             missing_dict[overlap_val]['no_cc'] = missing_b
             if iterdf_b is not None:
                 iterdf_b['intact'] = False
@@ -2602,6 +2670,9 @@ def extract_options(options):
     parser.add_option('--sphere', action='store_true', 
             dest='do_spherical_correction', 
             default=False, help="For RF metrics, use spherically-corrected fits")
+    parser.add_option('--shuffle-area', action='store_true', 
+            dest='shuffle_visual_area', 
+            default=False, help="Shuffle visual area (only for BY_NCELLS)")
 
     (options, args) = parser.parse_args(options)
 
@@ -2718,10 +2789,11 @@ def main(options):
                         else float(opts.overlap_thr)
     response_type=opts.response_type
     do_spherical_correction=opts.do_spherical_correction
+    shuffle_visual_area = opts.shuffle_visual_area
 
     print("EXPERIMENT: %s, values: %s" % (experiment, str(class_values)))
-
     print("OVERLAP: %s" % str(overlap_thr))
+    print("shuffle visual area: %s" % str(shuffle_visual_area))
 
     decoding_analysis(datakey, visual_area, experiment,  
                     analysis_type=analysis_type,
@@ -2736,6 +2808,7 @@ def main(options):
                     overlap_thr=overlap_thr, match_rfs=match_rfs,
                     response_type=response_type, 
                     do_spherical_correction=do_spherical_correction,
+                    shuffle_visual_area=shuffle_visual_area, 
                     C_value=C_value, test_split=test_split, cv_nfolds=cv_nfolds, 
                     class_name=class_name, 
                     class_values=class_values,
