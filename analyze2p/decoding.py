@@ -2518,13 +2518,13 @@ def extract_options(options):
       
     # data filtering 
     choices_c = ('all', 'ROC', 'nstds', None, 'None')
-    default_c = 'nstds'
+    default_c = 'ROC'
     parser.add_option('-R', '--responsive-test', action='store', 
             dest='responsive_test', 
             default=default_c, type='choice', choices=choices_c,
             help="Responsive test, choices: %s. (default: %s" % (choices_c, default_c))
     parser.add_option('-r', '--responsive-thr', action='store', dest='responsive_thr', 
-            default=10, help="response type [default: 10, nstds]")
+            default=0.05, help="response type [default: 0.05, ROC]")
     parser.add_option('-d', '--response-type', action='store', dest='response_type', 
             default='dff', help="response type [default: dff]")
 
