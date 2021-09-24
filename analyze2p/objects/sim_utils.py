@@ -462,38 +462,25 @@ def update_rfpolys(rfdf, fit_desc, create_new=False,
     by_dkey = rfdf[cols].drop_duplicates()
     # Add new, if needed
     check_these={}
-    add_list=[]
-    add_POLYS=None
+    poly_list=[]
+    POLYS=None
     for dk, curr_rfs in by_dkey.groupby('datakey'):
-        if POLYS is not None:
-            found_cells = POLYS[(POLYS.datakey==dk)]['cell'].values
-        else:
-            found_cells=[]
-        need_ = curr_rfs[~curr_rfs['cell'].isin(found_cells)].copy()
-        if len(need_)==0:
-            continue
         # Get the cells we need 
-        curr_polys, curr_checks = get_rf_polys(need_, check_invalid=True)
+        curr_polys, curr_checks = get_rf_polys(curr_rfs, check_invalid=True)
         if len(curr_checks)>0:
             check_these[dk]= curr_checks
         curr_polys['datakey'] = dk
-        add_list.append(curr_polys)
+        poly_list.append(curr_polys)
         print("    adding %s, %i" % (dk, len(curr_polys)))
-    if len(add_list)>0:
-        add_POLYS = pd.concat(add_list, axis=0)
+    
+    if len(poly_list)>0:
+        POLYS = pd.concat(poly_list, axis=0)
 
-    if add_POLYS is not None: 
-        # Update
-        if POLYS is None:
-            POLYS = add_POLYS
-        else:
-            POLYS0 = POLYS.copy()
-            POLYS = pd.concat([POLYS0, add_POLYS], axis=0)
-        check_rfs.update(check_these)
-        # Save
-        res = {'check_rfs': check_rfs, 'POLYS': POLYS}
-        with open(poly_fpath, 'wb') as f:
-            pkl.dump(res, f, protocol=2)
+    check_rfs.update(check_these)
+    # Save
+    res = {'check_rfs': check_rfs, 'POLYS': POLYS}
+    with open(poly_fpath, 'wb') as f:
+        pkl.dump(res, f, protocol=2)
             
     return POLYS, check_rfs
 
