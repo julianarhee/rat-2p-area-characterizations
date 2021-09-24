@@ -423,13 +423,13 @@ def image_to_poly(im):
 # --------------------------------------------------------------------
 # Receptive field shapes
 # --------------------------------------------------------------------
-def load_rfpolys(fit_desc, 
+def load_rfpolys(fit_desc, combine_method='average',
         aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     rf_polys=None
     check_rfs={}
 
     dst_dir = os.path.join(aggregate_dir, 'receptive-fields', 'dataframes')
-    poly_fpath = os.path.join(dst_dir, 'average_polys_%s.pkl' % fit_desc)
+    poly_fpath = os.path.join(dst_dir, 'polys_%s_%s.pkl' % (fit_desc, combine_method))
     try:
         with open(poly_fpath, 'rb') as f:
             res = pkl.load(f)
@@ -444,18 +444,20 @@ def load_rfpolys(fit_desc,
     return rf_polys, check_rfs
 
 
-def update_rfpolys(rfdf, fit_desc, create_new=False,
+def update_rfpolys(rfdf, fit_desc, combine_method='average', create_new=False,
                   aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     # Set output file
     dst_dir = os.path.join(aggregate_dir, 'receptive-fields', 'dataframes')
     if not os.path.exists(dst_dir):
         os.makedirs(dst_dir)
-    poly_fpath = os.path.join(dst_dir, 'average_polys_%s.pkl' % fit_desc)
+    poly_fpath = os.path.join(dst_dir, 'polys_%s_%s.pkl' % (fit_desc, combine_method))
+    # poly_fpath = os.path.join(dst_dir, 'average_polys_%s.pkl' % fit_desc)
 
     POLYS=None; check_rfs={};
     if not create_new:
         # Load existing   
-        POLYS, check_rfs = load_rfpolys(fit_desc, aggregate_dir=aggregate_dir)
+        POLYS, check_rfs = load_rfpolys(fit_desc, combine_method=combine_method,
+                                aggregate_dir=aggregate_dir)
 
     # Process all cells in fov
     cols = [c for c in rfdf.columns if c!='visual_area']
