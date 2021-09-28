@@ -1684,6 +1684,7 @@ def shuffle_trials(ndf_z):
 def decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA, 
                     sdf=None, visual_area=None, test_type=None, 
                     results_id='results', sample_cells_with_replacement=True,
+                    shuffle_visual_area=False,
                     n_iterations=50, n_processes=2, break_correlations=False,
                     dst_dir='/tmp', **in_args):
     '''
@@ -1716,7 +1717,9 @@ def decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA,
         iter_results = iterate_by_ncells(NDATA, GCELLS, sdf, test_type, 
                                 n_cells_sample=n_cells_sample,
                                 n_iterations=n_iterations,
-                                n_processes=n_processes,
+                                n_processes=n_processes, 
+                                visual_area=visual_area,
+                                shuffle_visual_area=shuffle_visual_area, 
                                 with_replacement=sample_cells_with_replacement,
                                 break_correlations=break_correlations,
                                 **in_args)
@@ -1759,12 +1762,13 @@ def decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA,
 
 
 def iterate_by_ncells(NDATA, GCELLS, sdf, test_type, n_cells_sample=1,
-                    n_iterations=50, n_processes=1, 
+                    n_iterations=50, n_processes=1, visual_area=None,
                     break_correlations=False,
                     C_value=None, test_split=0.2, cv_nfolds=5, 
                     class_name='morphlevel', class_values=None,
                     variation_name='size', variation_values=None,
                     n_train_configs=4, with_replacement=True,
+                    shuffle_visual_area=False, 
                     balance_configs=True,do_shuffle=True, return_clf=True,
                     verbose=False):
     iterdf = None
@@ -1798,9 +1802,18 @@ def iterate_by_ncells(NDATA, GCELLS, sdf, test_type, n_cells_sample=1,
             # Get new sample set
             #print("... sampling data, n=%i cells" % n_cells_sample)
             randi_cells = random.randint(1, 10000)
+            cells_ = GCELLS.copy()
+            cells_['global_ix'] = np.arange(0, len(cells_))
+            if shuffle_visual_area:
+                # Reassign global ix          
+                shuff_labels = cells_['visual_area']\
+                                    .sample(frac=1, replace=False, random_state=randi_cells).values
+                cells_['visual_area'] = shuff_labels 
+            
+            cell_pool = cells_[cells_['visual_area']==visual_area].copy()
             try:
                 neuraldf = sample_neuraldata_for_N_cells(n_cells_sample, 
-                                         NDATA, GCELLS, 
+                                         NDATA, cell_pool, 
                                          with_replacement=with_replacement,
                                          train_configs=common_labels, 
                                          randi=randi_cells)
@@ -1869,12 +1882,14 @@ def sample_neuraldata_for_N_cells(n_cells_sample, NDATA, GCELLS,
     celldf = GCELLS.sample(n=n_cells_sample, replace=with_replacement, 
                                 random_state=randi)
     curr_cells = celldf['global_ix'].values
-    assert len(curr_cells)==len(np.unique(curr_cells))
+    if not with_replacement:
+        assert len(curr_cells)==len(np.unique(curr_cells))
+
     # Get corresponding neural data of selected datakeys and cells
     #curr_dkeys = celldf['datakey'].unique()
     #ndata0 = NDATA[(NDATA.visual_area==va) \
     #             & (NDATA.datakey.isin(curr_dkeys))].copy()
-    ndata0 = pd.concat([NDATA[(NDATA.visual_area==va) & (NDATA.datakey==dk)
+    ndata0 = pd.concat([NDATA[(NDATA.datakey==dk)
                         & (NDATA.cell.isin(g['cell'].unique()))] \
                         for (va, dk), g \
                         in celldf.groupby(['visual_area', 'datakey'])])
@@ -2168,25 +2183,26 @@ def decoding_analysis(dk, va, experiment,
         NDATA = NDATA[NDATA.config.isin(sdf.index.tolist())].copy() 
 
         # Get cells for current visual area
-        if shuffle_visual_area:
-            # Make sure have equal N cells per visual area for sampling
-            min_ncells = cells0.groupby('visual_area').count()['cell'].min()
-            GCELLS = pd.concat(vg.sample(n=min_ncells, replace=False) \
-                        for va, vg in cells0.groupby('visual_area'))
-            # Reassign global ix
-            GCELLS['global_ix'] = np.arange(0, len(GCELLS))
-            sample_cells_with_replacement=False
-        else:
-            GCELLS = cells0[cells0['visual_area']==va].copy()
-            sample_cells_with_replacement=True
-
+#        if shuffle_visual_area:
+#            # Make sure have equal N cells per visual area for sampling
+#            min_ncells = cells0.groupby('visual_area').count()['cell'].min()
+#            GCELLS = pd.concat(vg.sample(n=min_ncells, replace=False) \
+#                        for va, vg in cells0.groupby('visual_area'))
+#            # Reassign global ix
+#            GCELLS['global_ix'] = np.arange(0, len(GCELLS))
+#            sample_cells_with_replacement=True #False
+#        else:
+#            GCELLS = cells0[cells0['visual_area']==va].copy()
+        GCELLS = cells0.copy()
+        sample_cells_with_replacement=True
         if n_cells_sample is not None: 
             decode_by_ncells(n_cells_sample, experiment, GCELLS, NDATA, 
                         sdf=sdf, visual_area=va, 
                         test_type=test_type, 
-                        results_id=results_id,
+                        results_id=results_id, 
                         n_iterations=n_iterations, 
                         break_correlations=break_correlations,
+                        shuffle_visual_area=shuffle_visual_area,
                         sample_cells_with_replacement=sample_cells_with_replacement,
                         n_processes=n_processes,
                         dst_dir=curr_results_dir, **in_args)
@@ -2205,6 +2221,7 @@ def decoding_analysis(dk, va, experiment,
                         results_id=results_id,
                         n_iterations=n_iterations, 
                         break_correlations=break_correlations,
+                        shuffle_visual_area=shuffle_visual_area,
                         sample_cells_with_replacement=sample_cells_with_replacement,
                         n_processes=n_processes,
                         dst_dir=curr_results_dir, **in_args)
