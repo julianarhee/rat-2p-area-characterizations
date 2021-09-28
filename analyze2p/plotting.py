@@ -337,10 +337,13 @@ def pairwise_compare_single_metric(comdf, curr_metric='avg_size',
                         c1_label=None, c2_label=None, label_areas=True,
                         ax=None, marker='o', visual_areas=['V1', 'Lm', 'Li'],
                         lw=1, alpha=1., size=5, mean_plot='bar',
-                        xlabel_offset=-1, area_colors=None, bar_ci=95, bar_lw=0.5,
+                        xlabel_offset=-1, area_colors=None, 
+                        bar_ci=95, bar_lw=0.5, 
+                        edgecolor=('k', 'k', 'k'), facecolor=(1,1,1,0),
                         point_marker='_', point_scale=1,  
-                        return_stats=False, round_to=3, ttest=True,
-                        edgecolor=('k', 'k', 'k'), facecolor=(1,1,1,0)):
+                        return_stats=False, round_to=3, ttest=True, 
+                        annotate=True, sig_lw=1, sig_fontsize=6, sig_height=2,
+                        sig_offset=None):
 
     import analyze2p.stats as st
     assert 'datakey' in comdf.columns, "Need a sorter, 'datakey' not found."
@@ -401,6 +404,15 @@ def pairwise_compare_single_metric(comdf, curr_metric='avg_size',
     c1_label = c1 if c1_label is None else c1_label
     c2_label = c2 if c2_label is None else c2_label
     set_split_xlabels(ax, a_label=c1_label, b_label=c2_label)
+
+
+    if annotate:
+        if sig_offset is None:
+            sig_offset = ax.get_ylim()[-1]/10.
+        annotate_sig_on_paired_plot(ax, comdf, statdf, curr_metric, lw=sig_lw,
+                        stat='p_val', thr=0.05, offset=sig_offset, h=sig_height, 
+                        fontsize=sig_fontsize, visual_areas=visual_areas)
+
     if return_stats:
         return ax, statdf
     else: 
@@ -671,7 +683,7 @@ def turn_off_axis_ticks(ax, despine=True):
     ax.set_xticklabels([])
     ax.set_yticklabels([])
 
-def custom_legend_markers(colors=['m', 'c'], labels=['label1', 'label2'], markers='o', linestyles='-', use_patch=False, lws=0.5):
+def custom_legend_markers(colors=['m', 'c'], labels=['label1', 'label2'], markers='o', linestyles='-', use_patch=False, lws=0.5, alpha=1):
     from matplotlib.patches import Patch
     from matplotlib.lines import Line2D
 
@@ -685,7 +697,8 @@ def custom_legend_markers(colors=['m', 'c'], labels=['label1', 'label2'], marker
     leg_h=[]
     for col, label, style, marker, lw in zip(colors, labels, linestyles, markers, lws):
         if use_patch:
-            leg_h.append(Patch(facecolor=col, edgecolor=None, label=label))
+            leg_h.append(Patch(facecolor=col, edgecolor=None, label=label,
+                            alpha=alpha))
         else: 
             leg_h.append(Line2D([0], [0], marker=marker, color=col, label=label,
                             linestyle=style, lw=lw))
@@ -802,44 +815,49 @@ def stripplot_metric_by_area(plotdf, metric='morph_sel', markersize=1,
         estimator = np.median
     else:
         estimator = np.mean
-
     #pplot.set_plot_params()
     #print(ylim)
     if ax is None:
         fig, ax = pl.subplots( figsize=(2,2), dpi=150)
 
-    #for ai, metric in enumerate(plot_params):
-    sns.stripplot(x='visual_area', y=metric, data=plotdf, ax=ax,
-                hue='visual_area', palette=area_colors, order=visual_areas, 
-                size=markersize, zorder=-10000, jitter=jitter)
-    if plot_means:
-        if mean_style=='point':
-            sns.pointplot(x='visual_area', y=metric, data=plotdf, ax=ax,
-                        color='k', order=visual_areas, scale=scale,
-                        hue='visual_area', estimator=estimator,
-                        markers='_', errwidth=errwidth, zorder=10000, ci='sd')
-        else:
-            sns.barplot(x='visual_area', y=metric, data=plotdf, ax=ax,
-                   order=visual_areas, color=[0.8]*3, ecolor='w', ci=None,
-                   zorder=-1000000, estimator=estimator)
+    try:
+        #for ai, metric in enumerate(plot_params):
+        sns.stripplot(x='visual_area', y=metric, data=plotdf, ax=ax,
+                    hue='visual_area', palette=area_colors, order=visual_areas, 
+                    size=markersize, zorder=-10000, jitter=jitter)
+        if plot_means:
+            if mean_style=='point':
+                sns.pointplot(x='visual_area', y=metric, data=plotdf, ax=ax,
+                            color='k', order=visual_areas, scale=scale,
+                            hue='visual_area', estimator=estimator,
+                            markers='_', errwidth=errwidth, zorder=10000, ci='sd')
+            else:
+                sns.barplot(x='visual_area', y=metric, data=plotdf, ax=ax,
+                       order=visual_areas, color=[0.8]*3, ecolor='w', ci=None,
+                       zorder=-1000000, estimator=estimator)
 
-    sts = pg.pairwise_ttests(data=plotdf, dv=metric, between='visual_area', 
-                  parametric=False, padjust=posthoc, effsize='eta-square')
-    annotate_multicomp_by_area(ax, sts, y_loc=y_loc, offset=offset, 
-                                         fontsize=sig_fontsize, lw=sig_lw)
-    ax.legend_.remove()
-    if ylim is not None:
-        ax.set_ylim(ylim)
-    sns.despine(bottom=True, trim=False, ax=ax, offset=axis_offset)
-    ax.tick_params(which='both', axis='x', size=0)
-    ax.set_xlabel('')
-    pl.subplots_adjust(left=0.05, right=0.95, bottom=0.2, top=0.8)
-    ax.set_box_aspect(aspect)
+        sts = pg.pairwise_ttests(data=plotdf, dv=metric, between='visual_area', 
+                      parametric=False, padjust=posthoc, effsize='eta-square')
+        #print(sts)
+        annotate_multicomp_by_area(ax, sts, y_loc=y_loc, offset=offset, 
+                                             fontsize=sig_fontsize, lw=sig_lw)
+            
+        ax.legend_.remove()
+        #print(sts)
+        if ylim is not None:
+            ax.set_ylim(ylim)
+        sns.despine(bottom=True, trim=False, ax=ax, offset=axis_offset)
+        ax.tick_params(which='both', axis='x', size=0)
+        ax.set_xlabel('')
+        pl.subplots_adjust(left=0.05, right=0.95, bottom=0.2, top=0.8)
+        ax.set_box_aspect(aspect)
+    except Exception as e:
+        traceback.print_exc()
 
     if return_stats:
-        return fig, sts
+        return ax, sts
     else:
-        return fig
+        return ax
 
 
 
