@@ -116,8 +116,12 @@ def size_tolerance(responses):
 def assign_sparseness(df, unit='cell', name='sparseness'):
     mt = sparseness(df['response'].values)
 
+    if unit=='cell':
+        ix_name = int(df[unit].unique())
+    else:
+        ix_name = df[unit].unique()
     sparse_val = pd.DataFrame({name: mt}, 
-                            index=[int(df[unit].unique())])
+                            index=[ix_name])
 
 
     return sparse_val # pd.Series(mt, name=df[name].unique()[0])
