@@ -39,8 +39,6 @@ parser.add_argument('--match-rfs', dest='match_rfs', action='store_true', defaul
 
 parser.add_argument('-O', '--overlap', dest='overlap_thr', action='store', default=None, help='Overlap thr')
 
-parser.add_argument('-C', '--class-name', dest='class_name', action='store', default='morphlevel',help='Name of class to decode (morphlevel, ori, sf)')
-
 parser.add_argument('-R', '--resp-test', dest='responsive_test', default='ROC', action='store', help='Responsive test (nstds or ROC), default=ROC')
 
 parser.add_argument('--epoch', dest='trial_epoch', default='stimulus', action='store', help='Trial epoch to use for metrics (default: stimulus. Can be: plushalf, stimulus)')
@@ -48,6 +46,11 @@ parser.add_argument('--epoch', dest='trial_epoch', default='stimulus', action='s
 parser.add_argument('-N', dest='n_iterations', default=500, action='store', help='Size of bootstrapped distribution  (default=500, NOTE: if morph in test_types, takes forever...)')
 
 parser.add_argument('--shuffle-area', dest='shuffle_visual_area', default=False,action='store_true',  help='Shuffle visual area labels (analysis_type=BY_NCELLS)')
+
+parser.add_argument('-C', '--class-name', dest='class_name', action='store', default='morphlevel',help='Name of class to decode (morphlevel, ori, sf)')
+
+parser.add_argument('-v', '--var-name', dest='variation_name', action='store', default=None, help='Name of transform to split by (e.g., size)')
+
 
 
 args = parser.parse_args()
@@ -102,6 +105,8 @@ overlap_thr = None if args.overlap_thr in ['None', None] \
                 else float(args.overlap_thr)
 
 class_name = args.class_name
+variation_name = args.variation_name
+
 responsive_test = args.responsive_test
 trial_epoch = args.trial_epoch
 n_iterations = int(args.n_iterations)
@@ -237,11 +242,11 @@ elif analysis_type=='by_fov':
         cmd = "sbatch --job-name={PROCID}.dcode.{MTAG} \
             -o '{LOGDIR}/{PROCID}.{MTAG}.out' \
             -e '{LOGDIR}/{PROCID}.{MTAG}.err' \
-            {CMD} {CLS} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS} {MATCHRF} {OVERLAP} {RTEST} {EPOCH} {NITER}".format(
+            {CMD} {CLS} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS} {MATCHRF} {OVERLAP} {RTEST} {EPOCH} {NITER} {VARN}".format(
                     PROCID=piper, MTAG=mtag, LOGDIR=logdir, CMD=cmd_str, 
                     CLS=class_name, EXP=experiment, VA=va, DKEY=dk, 
                     ANALYSIS=analysis_type, TEST=test_type, CORRS=break_corrs,
-                    NCELLS=n_cells_sample, MATCHRF=match_rfs, OVERLAP=overlap_thr, RTEST=responsive_test, EPOCH=trial_epoch, NITER=n_iterations)
+                    NCELLS=n_cells_sample, MATCHRF=match_rfs, OVERLAP=overlap_thr, RTEST=responsive_test, EPOCH=trial_epoch, NITER=n_iterations, VARN=variation_name)
         #info("Submitting PROCESSPID job with CMD:\n%s" % cmd)
         status, joboutput = subprocess.getstatusoutput(cmd)
         jobnum = joboutput.split(' ')[-1]

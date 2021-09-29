@@ -710,7 +710,7 @@ def train_test_size_subset(iter_num, curr_data, sdf, verbose=False,
 def train_test_gratings_single(iter_num, curr_data, sdf, verbose=False,
                     C_value=None, test_split=0.2, cv_nfolds=5, 
                     class_name='ori', class_values=None,
-                    variation_name='size', variation_values=None,
+                    variation_name=None, variation_values=None,
                     n_train_configs=4, 
                     balance_configs=True,do_shuffle=True, return_clf=True):
     ''' Train with single set of nonori params, test on same. 
@@ -732,17 +732,25 @@ def train_test_gratings_single(iter_num, curr_data, sdf, verbose=False,
 
     '''    
     return_clf=True
-    # All relevant GRATINGS params
-    all_params=['ori', 'sf', 'size', 'speed']
-    nonX_params = [x for x in all_params if x!=class_name]
     # Select train/test configs for clf A vs B
     if class_values is None:
         class_values = sorted(sdf[class_name].unique())
+
+    # All relevant GRATINGS params
+    all_params=['ori', 'sf', 'size', 'speed']
+    if variation_name is None:
+        nonX_params = [x for x in all_params if x!=class_name]
+    else:
+        nonX_params = [variation_name]
+
     # Select non-X params 
     variation_name = 'non_%s' % class_name
     nonX_df = sdf[nonX_params].drop_duplicates()
-    sdf.loc[sdf.index, variation_name] = ['%.1f_%.1f_%.1f' % (v1, v2, v3) \
-                            for v1, v2, v3 in sdf[nonX_params].values]
+    sdf.loc[sdf.index, variation_name] = ['_'.join(['%.1f' % vi \
+                        for vi in v]) for v in sdf[nonX_params].values]
+    #sdf.loc[sdf.index, variation_name] = ['%.1f_%.1f_%.1f' % (v1, v2, v3) \
+    #                        for v1, v2, v3 in sdf[nonX_params].values]
+
     # Go thru all training sizes, then test on non-trained sizes
     df_list=[]
     #i=0
@@ -764,7 +772,9 @@ def train_test_gratings_single(iter_num, curr_data, sdf, verbose=False,
                             in targets['config'].values]
         targets['group'] = [sdf[variation_name][cfg] for cfg \
                             in targets['config'].values]
-        train_transform ='%.1f_%.1f_%.1f' % tuple(train_parvals.values)
+        #train_transform ='%.1f_%.1f_%.1f' % tuple(train_parvals.values)
+        train_transform = '_'.join(['%.1f' % i  for i in tuple(train_parvals.values)])
+
         # Fit params
         randi = random.randint(1, 10000)
         clf_params = {'C_value': C_value, 
@@ -1297,8 +1307,9 @@ def train_test_morph_single(iter_num, curr_data, sdf, midp=53, verbose=False,
             class_a, class_b = class_values
             if test_morph in [-1, midp]: # Ignore midp trials
                 # rando assign values
-                split_labels = [class_a if i<0.5 else class_b for i \
-                                in np.random.rand(len(curr_test_labels),)]
+                #split_labels = [class_a if i<0.5 else class_b for i \
+                #                in np.random.rand(len(curr_test_labels),)]
+                split_labels = [class_b]*len(curr_test_labels)
             elif test_morph < midp and test_morph!=-1:
                 split_labels = [class_a]*len(curr_test_labels) 
             elif test_morph > midp:
@@ -1608,12 +1619,21 @@ def decode_from_fov(datakey, experiment, neuraldf,
     traceid_dir = glob.glob(os.path.join(rootdir, animalid, session, 
                         'FOV%i_*' % fovnum, 'combined_%s_static' % experiment, 
                         'traces', '%s*' % traceid))[0]
-    test_str = 'default' if test_type is None else test_type
     class_name = in_args['class_name']
+    class_values = in_args['class_values']
+    variation_name = in_args['variation_name']
+    # Set output dir
+    if test_type is None:
+        test_str = 'default' 
+    else:
+        test_str = '%s_%s' % (test_type, variation_name) \
+                        if (variation_name is not None \
+                        and class_name!='morphlevel') else test_type
     curr_dst_dir = os.path.join(traceid_dir, 'decoding', class_name, test_str)
     if not os.path.exists(curr_dst_dir):
         os.makedirs(curr_dst_dir)
         print("... saving tmp results to:\n  %s" % curr_dst_dir)
+
     results_outfile = os.path.join(curr_dst_dir, '%s.pkl' % results_id)
     # Remove old results
     if os.path.exists(results_outfile):
@@ -1621,8 +1641,6 @@ def decode_from_fov(datakey, experiment, neuraldf,
     # Zscore data 
     ndf_z = aggr.get_zscored_from_ndf(neuraldf) 
     n_cells = int(ndf_z.shape[1]-1) 
-    class_name = in_args['class_name']
-    class_values = in_args['class_values']
     if verbose:
         print("... BY_FOV [%s] %s, n=%i cells" % (visual_area, datakey, n_cells))
         print("... test: %s (class %s, values: %s)" % (test_str, class_name,
@@ -1670,7 +1688,7 @@ def shuffle_trials(ndf_z):
     c_=[]
     for cfg, cg in ndf_z.groupby(['config']):
         n_trials = cg.shape[0]
-        cg_r = pd.concat([cg[ri].sample(n=n_trials, replace=False)\
+        cg_r = pd.concat([cg[ri].sample(n=n_trials, replace=False, random_state=ri*np.random.randint(1, 1000))\
                           .reset_index(drop=True) for ri in rois_], axis=1)
         cg_r['config'] = cfg
         c_.append(cg_r)
@@ -2157,7 +2175,13 @@ def decoding_analysis(dk, va, experiment,
             return None
            
         # Set global output dir (since not per-FOV):
-        test_str = 'default' if test_type is None else test_type
+        if test_type is None:
+            test_str = 'default' 
+        else:
+            test_str = '%s_%s' % (test_type, variation_name) \
+                            if (variation_name is not None \
+                            and class_name!='morphlevel') else test_type
+        #test_str = 'default' if test_type is None else test_type
         dst_dir = os.path.join(aggregate_dir, 'decoding', 
                             'py3_by_ncells', class_name, '%s' % test_str)
         curr_results_dir = os.path.join(dst_dir, 'files')
@@ -2238,11 +2262,18 @@ def aggregate_iterated_results(meta, class_name, experiment=None,
                       traceid='traces001',
                       trial_epoch='plushalf', responsive_test='nstds', 
                       C_value=1., break_correlations=False, 
-                      shuffle_visual_area=False,
+                      shuffle_visual_area=False, 
+                      variation_name=None,
                       overlap_thr=None, match_rfs=False,
                       rootdir='/n/coxfs01/2p-data',
                       aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
-    test_str = 'default' if test_type is None else test_type
+    if test_type is None:
+        test_str = 'default' 
+    else:
+        test_str = '%s_%s' % (test_type, variation_name) \
+                        if (variation_name is not None \
+                        and class_name!='morphlevel') else test_type
+    #test_str = 'default' if test_type is None else test_type
     if experiment is None:
         experiment = 'gratings' if class_name=='ori' else 'blobs'
     iterdf=None
@@ -2252,9 +2283,9 @@ def aggregate_iterated_results(meta, class_name, experiment=None,
         n_found = dict((k, 0) for k in ['V1', 'Lm', 'Li'])
         for (va, dk), g in meta.groupby(['visual_area', 'datakey']):
             results_id = create_results_id(C_value=C_value, 
-                                           visual_area=va,
-                                           trial_epoch=trial_epoch,
-                                           responsive_test=responsive_test,
+                                    visual_area=va,
+                                    trial_epoch=trial_epoch,
+                                    responsive_test=responsive_test,
                                     break_correlations=break_correlations,
                                     match_rfs=match_rfs,
                                     overlap_thr=overlap_thr,
@@ -2271,6 +2302,10 @@ def aggregate_iterated_results(meta, class_name, experiment=None,
                                     'Not found:\n    %s' % results_fpath
                 with open(results_fpath, 'rb') as f:
                     res = pkl.load(f)
+                #res['noise_corrs'] = 'shuffled' if break_correlations \
+                #                        else 'intact'
+                #res['intact'] = break_correlations is False 
+
                 d_list.append(res)
             except Exception as e:
                 missing_.append((va, dk))
@@ -2321,7 +2356,8 @@ def load_iterdf(meta, class_name, experiment=None,
                       responsive_test='nstds', 
                       C_value=1, break_correlations=False, 
                       match_rfs=False, overlap_thr=None,
-                     shuffle_visual_area=False):
+                     shuffle_visual_area=False,
+                     variation_name=None):
     '''
     Load and aggregate results
     '''
@@ -2341,7 +2377,8 @@ def load_iterdf(meta, class_name, experiment=None,
                               traceid=traceid,
                               trial_epoch=trial_epoch, 
                               responsive_test=responsive_test, 
-                              C_value=C_value, break_correlations=break_correlations, 
+                              C_value=C_value, 
+                               break_correlations=break_correlations, 
                               match_rfs=match_rfs, overlap_thr=overlap_val,
                               shuffle_visual_area=shuffle_visual_area)
         missing_dict[overlap_val]['intact'] = missing_
@@ -2349,6 +2386,7 @@ def load_iterdf(meta, class_name, experiment=None,
         if iterdf is None:
             continue
         iterdf['intact'] = True
+        iterdf['noise_corrs'] = 'intact'
         df_ = iterdf.copy()
 
         #if test_type is None:
@@ -2356,7 +2394,7 @@ def load_iterdf(meta, class_name, experiment=None,
             print('    checking for break-corrs')
             iterdf_b, missing_b = aggregate_iterated_results(meta, 
                                       class_name, experiment=experiment,
-                                      analysis_type=analysis_type,                   
+                                      analysis_type=analysis_type, 
                                       test_type=test_type,
                                       traceid=traceid,
                                       trial_epoch=trial_epoch, 
@@ -2364,17 +2402,17 @@ def load_iterdf(meta, class_name, experiment=None,
                                       C_value=C_value, break_correlations=True, 
                                       match_rfs=match_rfs, 
                                       overlap_thr=overlap_val,
-                                      shuffle_visual_area=shuffle_visual_area)
+                                      shuffle_visual_area=shuffle_visual_area,
+                                      variation_name=variation_name)
             missing_dict[overlap_val]['no_cc'] = missing_b
-            if iterdf_b is not None:
-                iterdf_b['intact'] = False
-                df_ = pd.concat([iterdf, iterdf_b], axis=0)
-            else:
+            if iterdf_b is None:
                 df_ = iterdf.copy()
+            else:
+                iterdf_b['intact'] = False
+                iterdf_b['noise_corrs'] = 'shuffled'
+                df_ = pd.concat([iterdf, iterdf_b], axis=0, ignore_index=True)
 
-        if df_ is not None:
-            df_['overlap_thr'] = overlap_val
-
+        df_['overlap_thr'] = overlap_val
         i_list.append(df_)
 
     df = pd.concat(i_list, axis=0, ignore_index=True)
@@ -2411,7 +2449,10 @@ def average_across_iterations_by_fov(iterdf, analysis_type='by_fov',
                         grouper=['visual_area', 'condition', 'datakey']):
 
     if test_type is not None:
-        grouper.extend(['novel', 'train_transform', 'test_transform', 'morphlevel'])
+        if 'novel' not in grouper:
+            grouper.append('novel')
+        if 'train_transform' not in grouper:
+            grouper.extend(['train_transform', 'test_transform'])
 
     mean_by_iters = iterdf.groupby(grouper).mean().reset_index()
     return mean_by_iters
@@ -2792,8 +2833,9 @@ def main(options):
                     "Bad class_name for %s: %s" % (experiment, str(class_name))
         class_values = None
         if test_type in [None, 'ori_single']:
-            # TODO: not implemented 
-            variation_name = None # only works for ORI as class_name 
+            # iterate over each value of variation_name (can be just SIZE, for ex.)
+            #variation_name = opts.variation_name 
+            #None # only works for ORI as class_name 
             variation_values=None 
 
     balance_configs=True
@@ -2809,6 +2851,8 @@ def main(options):
     shuffle_visual_area = opts.shuffle_visual_area
 
     print("EXPERIMENT: %s, values: %s" % (experiment, str(class_values)))
+    print("VAR NAME: %s" % (str(variation_name)))
+
     print("OVERLAP: %s" % str(overlap_thr))
     print("shuffle visual area: %s" % str(shuffle_visual_area))
 
