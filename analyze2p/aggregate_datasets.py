@@ -119,7 +119,7 @@ def load_split_pupil_input(animalid, session, fovnum, curr_id='results_id',
 #    return sdf
 #
 
-def get_stimuli(datakey, experiment, match_names=False,
+def get_stimuli(datakey, experiment, match_names=False,  
                     rootdir='/n/coxfs01/2p-data', verbose=False):
     '''
     Get stimulus info for a given experiment and imaging site.
@@ -147,8 +147,10 @@ def get_stimuli(datakey, experiment, match_names=False,
             sdf = traceutils.reformat_morph_values(sdf)
         if match_names:
             sdf_o = sdf.copy()
-            updated_keys = match_config_names(sdf_o)
-            if updated_keys is not None:
+            if experiment=='gratings':
+                sdf_o = convert_value_to_level(sdf_o) 
+            updated_keys = match_config_names(sdf_o, experiment=experiment)
+            if updated_keys is not None and len(updated_keys)>0:
                 sdf = sdf_o.rename(index=updated_keys)
             else:
                 sdf = sdf_o.copy()
@@ -170,36 +172,73 @@ def get_stimuli(datakey, experiment, match_names=False,
 
 
 def check_sdfs_gratings(dkey_list, experiment='gratings',
-                    return_incorrect=False, return_all=False, 
+                    rename=False, return_incorrect=False, return_all=False, 
                     verbose=False, as_dict=False):
+    '''
+    Return all SDFs (as df or dict)
+    
+    rename: (bool)
+        Rename non-ori param values to "levels" (low/high)
+
+    return_incorrect: (bool)
+        Returns both SDF and renamed_configs (keys=datakeys, vals=sdf),
+        which are the sdfs for incorrect sitmuli (not actually renamed, 
+        spillover from check_sdfs_blobs)
+
+    return_all:  (bool)
+        Return sdf, even if not perfectly matched
+    '''
     exclude_=[] 
     #['20190602_JC091_fov1', '20190525_JC084_fov1', '20190522_JC084_fov1']
     # ^Need to re-aggregate these for gratings, exclude for now
     print("Checking gratings configs")
     incorrect=[]
+    renamed_configs={}
     s_=[]
     for dk in dkey_list:
         if dk in exclude_:
             continue
-        sdf = get_stimuli(dk, experiment, match_names=False)
-        if 'aspect' in sdf.columns:
-            sdf = sdf.drop(columns=['aspect'])
+        sdf_o = get_stimuli(dk, experiment, match_names=False) #, rename=True)
+        if 'aspect' in sdf_o.columns:
+            sdf_o = sdf_o.drop(columns=['aspect'])
         # Check params
-        param_combos = list(itertools.product(
-                            sdf['sf'].unique(), 
-                            sdf['size'].unique(), 
-                            sdf['speed'].unique()))
-        nonori_params = sdf[['sf', 'size', 'speed']].drop_duplicates()
-        if len(param_combos)!=8 or len(nonori_params)!=len(param_combos):
+        n_nonori_params = [len(sdf_o[param].unique()) for param \
+                            in ['sf', 'size', 'speed']]
+        n_combos = sdf_o[['sf', 'size', 'speed']].drop_duplicates().shape[0]
+        # Update names, if relevant
+        is_correct=True
+        updated_keys=None
+        if not (all([x==2 for x in n_nonori_params]) and n_combos==8):
             if verbose:
                 print('    skipping: %s' % dk)
-            incorrect.append(dk)
-            if not return_all:
-                continue
-            #continue
-            # and sdf.shape[0]!=64:
+            #incorrect.append(dk)
+            renamed_configs[dk] = sdf_o
+            is_correct=False
+        
+        if rename and is_correct:
+            # convert values to high/low
+            sdf_o = convert_value_to_level(sdf_o)
+
+            # check configs
+            updated_keys = match_config_names(sdf_o, experiment=experiment) 
+
+        if (updated_keys is not None and len(updated_keys)>0):
+            if verbose:
+                print('    renaming: %s' % dk)
+            sdf = sdf_o.rename(index=updated_keys)
+        else:
+            sdf = sdf_o.copy()
+
+        # Save renamed key 
+        if updated_keys is not None and len(updated_keys)>0:
+            renamed_configs[dk] = updated_keys
+
         sdf['datakey'] = dk
-        s_.append(sdf)
+        if not return_all:
+            if is_correct:
+                s_.append(sdf)
+        else:
+            s_.append(sdf)
     SDF = pd.concat(s_, axis=0)
 
     if as_dict:
@@ -209,11 +248,11 @@ def check_sdfs_gratings(dkey_list, experiment='gratings',
             SDF[dk] = sd
 
     if return_incorrect:
-        return SDF, incorrect
+        return SDF, renamed_configs #incorrect
     else:
         return SDF
 
-def get_master_sdf(experiment='blobs', images_only=False):
+def get_master_sdf(experiment='blobs', images_only=False, rename=False):
     '''
     Get "standard" stimulus info.
     '''
@@ -225,16 +264,35 @@ def get_master_sdf(experiment='blobs', images_only=False):
    
     elif experiment=='gratings':
         sdf_master = get_stimuli('20190522_JC084_fov1', experiment,
-                                match_names=False)
+                                match_names=False) #, rename=rename)
         if images_only:
             sdf_master=sdf_master[sdf_master['size']<200].copy()
 
+        if rename:
+            sdf_master = convert_value_to_level(sdf_master)
+ 
     return sdf_master
+
+def convert_value_to_level(sdf):
+    '''
+    Specific to gratings -- do low/high instead of actual values
+    Useful for by_ncells merging SDFs
+    '''
+    # convert values to high/low
+    for param in ['sf', 'size', 'speed']:
+        param_vals = sorted(sdf[param].unique())
+        assert len(param_vals)==2, "    Incorrect N %s: %s" \
+                                    % (param, str(param_vals))
+        lo_val, hi_val = param_vals
+        sdf.loc[sdf[param]==lo_val, param] = 'low'
+        sdf.loc[sdf[param]==hi_val, param] = 'high'
+
+    return sdf
 
 
 def check_sdfs(stim_datakeys, experiment='blobs', images_only=False, 
                 rename=True, return_incorrect=False, return_all=False,
-                as_dict=False):
+                as_dict=False, verbose=False):
     '''
     return_all: (bool)
         Final SDF (dict or datafram) should include even incorrect ones
@@ -259,7 +317,7 @@ def check_sdfs(stim_datakeys, experiment='blobs', images_only=False,
                             images_only=images_only, 
                             rename=rename, return_incorrect=True,
                             diff_configs=diff_configs, as_dict=as_dict,
-                            return_all=True)
+                            return_all=True, verbose=verbose)
         if return_all:
             sdfs = sdfs0.copy()
         else:
@@ -268,12 +326,13 @@ def check_sdfs(stim_datakeys, experiment='blobs', images_only=False,
 
     elif experiment=='gratings':
         sdfs0, incorrect = check_sdfs_gratings(stim_datakeys, 
-                            return_incorrect=True,
-                            return_all=True, as_dict=as_dict)
+                            return_incorrect=True, rename=rename,
+                            return_all=True, as_dict=as_dict, verbose=verbose)
         if return_all:
             sdfs = sdfs0.copy()
         else:
-            sdfs = sdfs0[~sdfs0.datakey.isin(incorrect)]
+            incorrect_stim = list(incorrect.keys())
+            sdfs = sdfs0[~sdfs0.datakey.isin(incorrect_stim)]
 
     if return_incorrect:
         return sdfs, incorrect
@@ -302,7 +361,7 @@ def check_sdfs_blobs(stim_datakeys, images_only=False, return_all=False,
         if datakey=='20190314_JC070_fov1':
             sdf_o = sdf_o[sdf_o['xpos']==-15] # only take the correct pos.
         # check configs
-        updated_keys = match_config_names(sdf_o) 
+        updated_keys = match_config_names(sdf_o, experiment='blobs') 
         #print(datakey, updated_keys)
         if rename is True and updated_keys is not None:
             if verbose:
@@ -313,15 +372,6 @@ def check_sdfs_blobs(stim_datakeys, images_only=False, return_all=False,
         if len(sdf['xpos'].unique())>1 or len(sdf['ypos'].unique())>1:
             print("*Warning* <%s> More than 1 pos? x: %s, y: %s" \
                 % (datakey, str(sdf['xpos'].unique()), str(sdf['ypos'].unique())))
-#        key_names = ['morphlevel', 'size']
-#        updated_keys={}
-#        for old_ix in sdf.index:
-#            new_ix = sdf_master[(sdf_master[key_names]==sdf.loc[old_ix, key_names]).all(1)].index[0]
-#            updated_keys.update({old_ix: new_ix})
-
-#        if rename: # and (datakey not in diff_configs): 
-#            sdf = sdf.rename(index=updated_keys)
-
         # Save renamed key 
         if updated_keys is not None:
             renamed_configs[datakey] = updated_keys
@@ -363,8 +413,9 @@ def match_config_names(sdf_o, experiment='blobs'):
     Returns dict as LUT for {old: new}
     '''
     updated_keys=None
-    sdf_master = get_master_sdf(experiment=experiment, images_only=False)
-    key_names = ['morphlevel', 'size']
+    sdf_master = get_master_sdf(experiment=experiment, images_only=False,
+                                rename=True)
+    #key_names = ['morphlevel', 'size']
 
     if experiment=='blobs':
         check_params = ['morphlevel', 'size']
@@ -394,7 +445,8 @@ def match_config_names(sdf_o, experiment='blobs'):
 
     return updated_keys #sdf_new
 
-def select_stimulus_configs(datakey, experiment, select_stimuli=None):
+def select_stimulus_configs(datakey, experiment, select_stimuli=None, 
+            rename=False):
     '''
     Load configs for datakey and experiment.
 
@@ -413,7 +465,7 @@ def select_stimulus_configs(datakey, experiment, select_stimuli=None):
             % (select_stimuli, str(valid_stimulus_selections))
 
     curr_cfgs=None
-    sdf = get_stimuli(datakey, experiment=experiment)
+    sdf = get_stimuli(datakey, experiment=experiment, match_names=rename)
     if sdf is None:
         return None
     if experiment not in ['gratings', 'blobs']:
@@ -465,7 +517,7 @@ def get_included_stimconfigs(sdf, experiment='blobs', select_stimuli='images'):
 
 def get_stimulus_coordinates(dk, experiment):
     '''Get x0, y0 of stimuli for session. Returns: x, y'''
-    sdf = get_stimuli(dk, experiment, match_names=True)
+    sdf = get_stimuli(dk, experiment, match_names=True) #, rename=False)
     if len(sdf['xpos'].unique())>1 or len(sdf['ypos'].unique())>1:
         print("*Warning* <%s> More than 1 pos? x: %s, y: %s" \
                     % (dk, str(sdf['xpos'].unique()), str(sdf['ypos'].unique())))
@@ -1563,6 +1615,7 @@ def load_aggregate_data(experiment, traceid='traces001',
         if (rename_configs or return_configs):
             SDF, renamed_config_dict = check_sdfs_blobs(MEANS.keys(),
                                           images_only=images_only, 
+                                          rename=rename_configs,
                                           return_incorrect=True, verbose=verbose)
             if rename_configs:
                 #sdf_master = get_master_sdf(experiment='blobs',
@@ -1587,7 +1640,8 @@ def load_aggregate_data(experiment, traceid='traces001',
                 MEANS[k] = md[md['config'].isin(incl_configs)]
 
     elif experiment=='gratings':
-        SDF, incorrect = check_sdfs_gratings(MEANS.keys(), return_incorrect=True,
+        SDF, incorrect = check_sdfs_gratings(MEANS.keys(), 
+                            return_incorrect=True, rename=rename_configs,
                             return_all=False, verbose=verbose)
         
     if equalize_now:
