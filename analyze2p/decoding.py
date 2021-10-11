@@ -87,11 +87,12 @@ def get_cells_with_overlap(cells0, sdata, overlap_thr=0.5, greater_than=False,
 
     fit_desc = rfutils.get_fit_desc(response_type=response_type,
                             do_spherical_correction=do_spherical_correction)
-    try:
-        rfpolys, _ = su.load_rfpolys(fit_desc, combine_method=combine_rfs)
-    except Exception as e:
-        rfpolys, _ = su.update_rfpolys(rfdf, fit_desc, 
-                            combine_method=combine_rfs, create_new=True)
+    #try:
+    #    rfpolys, _ = su.load_rfpolys(fit_desc, combine_method=combine_rfs)
+    #except Exception as e:
+    rfpolys, _ = su.update_rfpolys(rfdf, fit_desc, 
+                            combine_method=combine_rfs, create_new=True,
+                            save=False)
  
     cells_pass = calculate_overlaps(cells_RF, rfpolys, 
                             overlap_thr=overlap_thr, greater_than=greater_than)
@@ -288,7 +289,6 @@ def get_cells_with_rfs(cells0, rfdf):
                              .unique()) for va, dk, rid \
                              in cells_RF[['visual_area', 'datakey', 'cell']]\
                              .values]
-
 
     return cells_RF
 
@@ -1897,6 +1897,7 @@ def sample_neuraldata_for_N_cells(n_cells_sample, NDATA, GCELLS,
     # Get current global RIDs
     ncells_t = GCELLS.shape[0]                      
     # Random sample N cells out of all cells in area (w/o replacement)
+    #print("Randi: %s" % str(ncells_t))
     celldf = GCELLS.sample(n=n_cells_sample, replace=with_replacement, 
                                 random_state=randi)
     curr_cells = celldf['global_ix'].values
@@ -1935,7 +1936,6 @@ def sample_neuraldata_for_N_cells(n_cells_sample, NDATA, GCELLS,
                              for (rid, cfg), tmat in subdata\
                               .groupby(['cell', 'config'])], axis=0)
         tmpd['cell'] = tmpd['cell'].astype(float)
-
         # For each RID sample belonging to current dataset, get RID order
         # Use global index to get matching dset-relative cell ID
         sampled_cells = pd.concat([\
@@ -1944,7 +1944,6 @@ def sample_neuraldata_for_N_cells(n_cells_sample, NDATA, GCELLS,
         sampled_dset_rois = sampled_cells['cell'].values
         sampled_global_rois = sampled_cells['global_ix'].values
         cell_lut = dict((k, v) for k, v in zip(sampled_dset_rois, sampled_global_rois))
-
         # Get response + config, replace dset roi  name with global roi name
         curr_ndata = pd.concat([tmpd[tmpd['cell']==rid][['config', 'response']]\
                             .rename(columns={'response': cell_lut[rid]})\
@@ -2084,7 +2083,7 @@ def decoding_analysis(dk, va, experiment,
         print("[RF]: Calculating overlap with stimuli.")
         print(cells0[['visual_area','datakey','cell']]\
                 .drop_duplicates()['visual_area'].value_counts())
-        cells0 = get_cells_with_overlap(cells0, sdata, greater_than=False,
+        cells0 = get_cells_with_overlap(cells0, sdata, greater_than=True,
                             overlap_thr=overlap_thr,
                             response_type=response_type, 
                             do_spherical_correction=do_spherical_correction,
@@ -2118,8 +2117,7 @@ def decoding_analysis(dk, va, experiment,
                 .drop_duplicates()['visual_area'].value_counts()) 
 
 
-    # Get final neuraldata
-    
+    # Get final neuraldata 
     NDATA = aggr.get_neuraldata_for_included_cells(cells0, NDATA0)
 
     match_stimulus_names = experiment=='blobs'
@@ -2495,8 +2493,10 @@ def generalization_score_by_iter(mean_df, max_ncells=None,
     # Get NOVEL only
     byiter_novel = byiter_data[byiter_data['novel']==True][cols].copy()
     # Calculate generalization score
-    byiter_novel['generalization'] = byiter_data[(byiter_data.novel)][metric].values\
-                                        /byiter_data[~(byiter_data.novel)][metric].values
+    train_scores = byiter_data[~(byiter_data.novel)][metric].values
+    novel_scores = byiter_data[(byiter_data.novel)][metric].values
+    byiter_novel['generalization'] = (train_scores-novel_scores)/train_scores
+
     return byiter_novel
 
 

@@ -396,7 +396,8 @@ def rfdframs_df(curr_rfs):
 def get_lin_match(v, lin_x, axis=1):
     return int(np.unique(np.where(abs(lin_x-v)==abs(lin_x-v).min())[axis]))
 
-def params_deg_to_pixels(rfs_, pix_per_deg=16.05, resolution=[1920, 1080]):
+def params_deg_to_pixels(rfs_, pix_per_deg=16.05, resolution=[1920, 1080],
+                    limit_screen=True):
 
     lin_x, lin_y = hutils.get_lin_coords(resolution=resolution[::-1])
 
@@ -445,7 +446,8 @@ def load_rfpolys(fit_desc, combine_method='average',
 
 
 def update_rfpolys(rfdf, fit_desc, combine_method='average', create_new=False,
-                  aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+            limit_screen=True, save=True,       
+            aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     # Set output file
     dst_dir = os.path.join(aggregate_dir, 'receptive-fields', 'dataframes')
     if not os.path.exists(dst_dir):
@@ -468,7 +470,8 @@ def update_rfpolys(rfdf, fit_desc, combine_method='average', create_new=False,
     POLYS=None
     for dk, curr_rfs in by_dkey.groupby('datakey'):
         # Get the cells we need 
-        curr_polys, curr_checks = get_rf_polys(curr_rfs, check_invalid=True)
+        curr_polys, curr_checks = get_rf_polys(curr_rfs, check_invalid=True,
+                                        limit_screen=limit_screen)
         if len(curr_checks)>0:
             check_these[dk]= curr_checks
         curr_polys['datakey'] = dk
@@ -480,24 +483,31 @@ def update_rfpolys(rfdf, fit_desc, combine_method='average', create_new=False,
 
     check_rfs.update(check_these)
     # Save
-    res = {'check_rfs': check_rfs, 'POLYS': POLYS}
-    with open(poly_fpath, 'wb') as f:
-        pkl.dump(res, f, protocol=2)
+    if save:
+        print("   saving rf polys to disk")
+        res = {'check_rfs': check_rfs, 'POLYS': POLYS}
+        with open(poly_fpath, 'wb') as f:
+            pkl.dump(res, f, protocol=2)
             
     return POLYS, check_rfs
 
 
 
-def rf_to_screen(rid, rfs_, resolution=[1920, 1080]):
+def rf_to_screen(rid, rfs_, resolution=[1920, 1080], limit_screen=True):
     ''' just returns mask'''
     params = ['x0', 'y0', 'fwhm_x', 'fwhm_y', 'theta']
+    if not limit_screen:
+        draw_resolution = [r*3 for r in resolution]
+    else:
+        draw_resolution = resolution
+ 
     if 'x0_pix' not in rfs_.columns:
-        rfs_ = params_deg_to_pixels(rfs_.copy(), resolution=resolution)
+        rfs_ = params_deg_to_pixels(rfs_.copy(), resolution=draw_resolution)
     params_pix = ['%s_pix' % p if p!='theta' else p for p in params]
     x0, y0, fwhm_x, fwhm_y, theta = rfs_.loc[rid, params_pix]
 
     # Create mask
-    curr_rf_mask = np.zeros(resolution[::-1]).astype(np.uint8) 
+    curr_rf_mask = np.zeros(draw_resolution[::-1]).astype(np.uint8) 
     curr_rf_mask=cv2.ellipse(curr_rf_mask, (int(x0), int(y0)), 
                      (int(fwhm_x/2), int(fwhm_y/2)), 
                      np.rad2deg(theta), 
@@ -600,7 +610,8 @@ def get_stimulus_polys(dk, experiment='blobs', create_new=False,
 
 
 
-def get_rf_polys(curr_rfs, check_invalid=False, resolution=[1920, 1080]):
+def get_rf_polys(curr_rfs, check_invalid=False, resolution=[1920, 1080],
+                    limit_screen=True):
     
     ''' get dataframe of all rfs into polys created from fit params'''
     p_list=[]
@@ -609,7 +620,7 @@ def get_rf_polys(curr_rfs, check_invalid=False, resolution=[1920, 1080]):
 
     roi_list = rfs_['cell'].unique()
     for ri in roi_list:
-        rf_screen = rf_to_screen(ri, rfs_, resolution=resolution)
+        rf_screen = rf_to_screen(ri, rfs_, resolution=resolution, limit_screen=limit_screen)
         rpoly = image_to_poly(rf_screen.astype(np.uint8))
         if not rpoly.is_valid:
             rpoly = rpoly.buffer(0)
@@ -670,7 +681,7 @@ def calculate_overlaps_fov(dk, curr_rfs, check_invalid=False,
     if 'poly' not in curr_rfs.columns or ('poly' in curr_rfs.columns and None in curr_rfs['poly'].values): #is None:
         print('    getting rf polys')
         rf_polys, check_rfs = get_rf_polys(curr_rfs, check_invalid=True, 
-                            resolution=resolution)
+                            resolution=resolution, limit_screen=True)
     else:
         rf_polys = curr_rfs[['cell', 'poly']].copy()
     overlaps = pd.concat([cell_overlap_with_stimuli(ri, rf_poly, stim_polys)\
