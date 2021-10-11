@@ -565,8 +565,10 @@ def aggregate_population_sparseness(NDATA, offset_type='none', lcorrection='none
         rdf_offset = correct_offset(rdf0, offset=offset_type)
         rdf = correct_luminance(rdf_offset, sdf, lcorrection=lcorrection)
         #rdf = correct_offset(rdf0.copy(), offset=offset_type)
-        psparse = rdf.groupby('config').apply(assign_sparseness, name='config')\
-                        .rename(columns={0:'pop-sparseness'})
+
+        psparse = rdf.groupby('config').apply(assign_sparseness, unit='config', name='population_sparseness')
+        psparse.index = psparse.index.droplevel(1)
+
         psparse['visual_area'] = va
         psparse['datakey'] = dk
         psparse['n_cells'] = len(rdf['cell'].unique())
