@@ -105,7 +105,7 @@ overlap_thr = None if args.overlap_thr in ['None', None] \
                 else float(args.overlap_thr)
 
 class_name = args.class_name
-variation_name = args.variation_name
+variation_name = None if args.variation_name in ['None', None] else str(args.variation_name)
 
 responsive_test = args.responsive_test
 trial_epoch = args.trial_epoch
@@ -204,13 +204,14 @@ if analysis_type=='by_ncells':
             if overlap_thr>0:
                 sample_sizes = [1, 2, 4, 8, 16, 32, 46]
             elif overlap_thr==0:
-                sample_sizes0 = [1, 2, 4, 8, 16, 32, 64, 96, 128] 
-                min_ncells = 94 if match_rfs else 141 
+                sample_sizes0 = [1, 2, 4, 8, 16, 32, 64, 96, 120, 128] 
+                #min_ncells = 94 if match_rfs else 141 # greater_than=False 
+                min_ncells = 73 if match_rfs else 120
                 sample_sizes = [k for k in sample_sizes0 if k<=min_ncells]
                 if min_ncells > max(sample_sizes):
                     sample_sizes.append(min_ncells) 
         else:
-            sample_sizes = [1, 2, 4, 8, 16, 32, 64, 96, 128, 256] 
+            sample_sizes = [1, 2, 4, 8, 16, 32, 64, 96, 128, 254] #256] 
     visual_areas = ['V1', 'Lm', 'Li'] if visual_area is None else [visual_area]
     info("Testing %i areas: %s" % (len(visual_areas), str(visual_areas)))
     info("Testing %i sample size: %s" % (len(sample_sizes), str(sample_sizes)))
@@ -222,11 +223,11 @@ if analysis_type=='by_ncells':
             cmd = "sbatch --job-name={PROCID}.dcode.{MTAG} \
                 -o '{LOGDIR}/{PROCID}.{MTAG}.out' \
                 -e '{LOGDIR}/{PROCID}.{MTAG}.err' \
-                {CMD} {CLS} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS} {MATCHRF} {OVERLAP} {RTEST} {EPOCH} {NITER}".format(
+                {CMD} {CLS} {EXP} {VA} {DKEY} {ANALYSIS} {TEST} {CORRS} {NCELLS} {MATCHRF} {OVERLAP} {RTEST} {EPOCH} {NITER} {VARN}".format(
                     PROCID=piper, MTAG=mtag, LOGDIR=logdir, CMD=cmd_str, 
                     CLS=class_name, EXP=experiment, VA=va, DKEY=dk, 
                     ANALYSIS=analysis_type, TEST=test_type, CORRS=break_corrs,
-                    NCELLS=n_cells_sample, MATCHRF=match_rfs, OVERLAP=overlap_thr, RTEST=responsive_test, EPOCH=trial_epoch, NITER=n_iterations)
+                    NCELLS=n_cells_sample, MATCHRF=match_rfs, OVERLAP=overlap_thr, RTEST=responsive_test, EPOCH=trial_epoch, NITER=n_iterations, VARN=variation_name)
             #info("Submitting PROCESSPID job with CMD:\n%s" % cmd)
             status, joboutput = subprocess.getstatusoutput(cmd)
             jobnum = joboutput.split(' ')[-1]
