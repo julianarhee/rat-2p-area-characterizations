@@ -65,29 +65,29 @@ def set_threecolor_palette(c1='magenta', c2='orange', c3='dodgerblue', cmap=None
     return visual_areas, area_colors
 
 
-def set_plot_params(lw_axes=0.25, labelsize=6, color='k', dpi=100):
+def set_plot_params(lw_axes=0.25, axis_labelsize=7, tick_labelsize=6, color='k', dpi=100):
     import pylab as pl
     from matplotlib import rc
     #### Plot params
-    pl.rcParams['font.size'] = labelsize
+    pl.rcParams['font.size'] = tick_labelsize
     #pl.rcParams['text.usetex'] = True
 
     rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
     #rc('text', usetex=True)
 
-    pl.rcParams["axes.titlesize"] = labelsize+2
+    pl.rcParams["axes.titlesize"] = axis_labelsize+2
   
-    pl.rcParams["axes.labelsize"] = labelsize
+    pl.rcParams["axes.labelsize"] = axis_labelsize
     pl.rcParams["axes.linewidth"] = lw_axes
-    pl.rcParams["xtick.labelsize"] = labelsize
-    pl.rcParams["ytick.labelsize"] = labelsize
+    pl.rcParams["xtick.labelsize"] = tick_labelsize
+    pl.rcParams["ytick.labelsize"] = tick_labelsize
     pl.rcParams['xtick.major.width'] = lw_axes
     pl.rcParams['xtick.minor.width'] = lw_axes
     pl.rcParams['ytick.major.width'] = lw_axes
     pl.rcParams['ytick.minor.width'] = lw_axes
     
-    pl.rcParams['legend.fontsize'] = labelsize
-    pl.rcParams['legend.title_fontsize'] = labelsize+2
+    pl.rcParams['legend.fontsize'] = tick_labelsize
+    pl.rcParams['legend.title_fontsize'] = axis_labelsize #labelsize+2
  
     pl.rcParams['figure.figsize'] = (5, 4)
     pl.rcParams['figure.dpi'] = dpi
@@ -168,8 +168,13 @@ def darken(x, ):
    return x * 0.85
 
 
+def set_panel_aspect(fig, aspect=1):
+    for ax in fig.axes:
+        ax.set_box_aspect(aspect)
 
- 
+    return
+
+
 def adjust_polar_axes(ax, theta_loc='E'):
 
     ax.set_theta_zero_location(theta_loc)
