@@ -41,6 +41,11 @@ import sklearn.metrics as skmetrics
 import analyze2p.aggregate_datasets as aggr
 import analyze2p.utils as hutils
 import analyze2p.plotting as pplot
+
+from analyze2p.arousal import dlc_utils as dlcutils
+import analyze2p.arousal.with_neural as arous
+
+
 import psignifit as ps
 
 
@@ -1488,7 +1493,23 @@ def fit_svm_mp(neuraldf, sdf, test_type, n_iterations=50, n_processes=1,
 
 
 def select_test(ni, test_type, ndata, sdf, break_correlations, **kwargs):
-  
+    '''
+    Select decoding train/test scheme. 
+
+    Args
+    ----
+    ni: (int)
+        iteration number
+
+    test_type: (str)
+        None:  All variations included to decode class_name (ori, morphlevel)
+        size_subset:  Train 1 size, test on the other sizes (morphlevel only)
+        size_single:  Train 1 size, test on same size (morphlevel only)
+        morph_single: Train A/B at 1 size, test morph classif. at trained size.
+        morph:        Train A/B at all sizes, test morph classif. all sizes
+        ori_single:   Train ORI at each stimulus config (ori only)
+
+    ''' 
     # Shuffle trials, if spec.
     if break_correlations:
         ndata = shuffle_trials(ndata.copy())
@@ -1602,8 +1623,9 @@ def create_aggregate_id(C_value=None,
 # --------------------------------------------------------------------
 # BY_FOV 
 # --------------------------------------------------------------------
-def decode_from_fov(datakey, experiment, neuraldf,
+def decode_from_fov(datakey, experiment, neuraldf, 
                     sdf=None, test_type=None, results_id='results',
+                    pupildf=None, split_arousal=False,
                     n_iterations=50, n_processes=1, break_correlations=False,
                     traceid='traces001', verbose=False,
                     rootdir='/n/coxfs01/2p-data', **in_args): 
@@ -1629,6 +1651,9 @@ def decode_from_fov(datakey, experiment, neuraldf,
         test_str = '%s_%s' % (test_type, variation_name) \
                         if (variation_name is not None \
                         and class_name!='morphlevel') else test_type
+    if split_arousal:
+        test_str = '%s_arousal' % test_str
+
     curr_dst_dir = os.path.join(traceid_dir, 'decoding', class_name, test_str)
     if not os.path.exists(curr_dst_dir):
         os.makedirs(curr_dst_dir)
@@ -1638,21 +1663,45 @@ def decode_from_fov(datakey, experiment, neuraldf,
     # Remove old results
     if os.path.exists(results_outfile):
         os.remove(results_outfile)
-    # Zscore data 
-    ndf_z = aggr.get_zscored_from_ndf(neuraldf) 
-    n_cells = int(ndf_z.shape[1]-1) 
-    if verbose:
-        print("... BY_FOV [%s] %s, n=%i cells" % (visual_area, datakey, n_cells))
-        print("... test: %s (class %s, values: %s)" % (test_str, class_name,
-                                                        str(class_values)))
+
     # Stimulus info
     if sdf is None:
         match_stimulus_names = experiment=='blobs'
         sdf = aggr.get_stimuli(datakey, experiment, 
                                 match_names=match_stimulus_names)
+
+    n_cells = len(neuraldf['cell'].unique()) #int(ndf_z.shape[1]-1) 
+    if verbose:
+        print("... BY_FOV [%s] %s, n=%i cells" % (visual_area, datakey, n_cells))
+        print("... test: %s (class %s, values: %s)" % (test_str, class_name,
+                                                        str(class_values)))
+    # Zscore data 
+    if split_arousal: 
+        # Split trials by arousal, only keep neuraldata that has matched trials
+        ndf_z, splitpupil = arous.split_by_arousal(neuraldf, pupildf, 
+                                        feature_name='pupil_fraction',
+                                        n_cuts=3, match_cond_name='config')
+    else:
+        ndf_z = aggr.get_zscored_from_ndf(neuraldf) 
+        
     # Decode
     start_t = time.time()
-    iter_results = fit_svm_mp(ndf_z, sdf, test_type, 
+    if split_arousal:
+        results_list=[]
+        for curr_arousal in ['low', 'high']:
+            print("... Arousal split: %s" % curr_arousal)
+            ndf_split = ndf_z[ndf_z.arousal==curr_arousal].copy()
+            ndf_ = aggr.stacked_neuraldf_to_unstacked(ndf_split)
+            iter_split = fit_svm_mp(ndf_, sdf, test_type, 
+                            n_iterations=n_iterations,
+                            n_processes=n_processes,
+                            break_correlations=break_correlations,
+                            **in_args)
+            iter_split['arousal'] = curr_arousal
+            results_list.append(iter_split)
+        iter_results = pd.concat(results_list, axis=0)
+    else:
+        iter_results = fit_svm_mp(ndf_z, sdf, test_type, 
                             n_iterations=n_iterations,
                             n_processes=n_processes,
                             break_correlations=break_correlations,
@@ -1670,14 +1719,19 @@ def decode_from_fov(datakey, experiment, neuraldf,
         pkl.dump(iter_results, f, protocol=2)
 
     print('----------------------------------------------------')
+    print_vars = ['train_score', 'test_score', 'heldout_test_score', 'n_trials', 'iteration']
+    groupby = ['condition']
+    if split_arousal:
+        groupby.append('arousal')
     if test_type is not None:
-        print(iter_results.groupby(['condition', 'train_transform']).mean())   
-        print(iter_results.groupby(['condition', 'train_transform']).count())   
+        groupby.append('train_transform')
+        print(iter_results.groupby(groupby).mean()[print_vars])   
+        print(iter_results.groupby(groupby).count())   
     else:
         class_name = in_args['class_name']
         class_values = in_args['class_values']
         print("Class: %s, values: %s" % (class_name, class_values))
-        print(iter_results.groupby(['condition']).mean())   
+        print(iter_results.groupby(groupby).mean()[print_vars])   
     print("@@@@@@@@@ Done. %s|%s  @@@@@@@@@@" % (visual_area, datakey))
     print(results_outfile) 
     
@@ -1980,7 +2034,7 @@ def decoding_analysis(dk, va, experiment,
                 analysis_type='by_fov',trial_epoch='stimulus',
                 traceid='traces001', 
                 responsive_test='nstds', responsive_thr=10.,
-                match_rfs=False, 
+                match_rfs=False,  split_arousal=False,
                 rf_lim='percentile', rf_metric='fwhm_avg',
                 overlap_thr=None,response_type='dff', 
                 do_spherical_correction=False, combine_rfs='average', 
@@ -2116,11 +2170,30 @@ def decoding_analysis(dk, va, experiment,
         print(cells0[['visual_area','datakey', 'cell']]\
                 .drop_duplicates()['visual_area'].value_counts()) 
 
-
     # Get final neuraldata 
     NDATA = aggr.get_neuraldata_for_included_cells(cells0, NDATA0)
 
     match_stimulus_names = experiment=='blobs'
+
+    # Get pupil data, if nec.
+    if split_arousal:
+        # Pupil -------------------------------------------
+        pupil_feature='pupil_fraction'
+        pupil_epoch=trial_epoch #'stimulus'
+        pupil_snapshot=391800
+        redo_pupil=False
+        pupil_framerate=20.
+        # -------------------------------------------------
+        alignment_type='trial'
+        iti_pre=1.0
+        iti_post=1.0 
+        aggr_pupilmetrics, aggr_params, missing_ = dlcutils.aggregate_dataframes(
+                            experiment, 
+                            trial_epoch=pupil_epoch, alignment_type=alignment_type,
+                            in_rate=pupil_framerate, out_rate=pupil_framerate,
+                            iti_pre=iti_pre, iti_post=iti_post, return_missing=True,
+                            create_new=False, realign=False, recombine=False,
+                            exclude_old=True)
     # ANALYSIS.
     if analysis_type=='by_fov':
         # -------------------------------------------------------------
@@ -2143,8 +2216,16 @@ def decoding_analysis(dk, va, experiment,
             print(va, dk, neuraldf.shape)
             if int(neuraldf.shape[0])==0:
                 return None
+            if split_arousal:
+                if dk not in aggr_pupilmetrics.keys():
+                    print("[%s] No pupil data: %s" % (va, dk))
+                    continue
+                pupildf = aggr_pupilmetrics[dk].copy()
+            else:
+                pupildf = None
 
             decode_from_fov(dk, experiment, neuraldf, sdf=sdf, 
+                            pupildf=pupildf, split_arousal=split_arousal,
                             test_type=test_type, 
                             results_id=results_id,
                             n_iterations=n_iterations, 
@@ -2732,6 +2813,10 @@ def extract_options(options):
             dest='shuffle_visual_area', 
             default=False, help="Shuffle visual area (only for BY_NCELLS)")
 
+    parser.add_option('--split-arousal', action='store_true', 
+            dest='split_arousal', 
+            default=False, help="Split low/high arousal (only for BY_FOV)")
+
     (options, args) = parser.parse_args(options)
 
     return options
@@ -2785,13 +2870,14 @@ def main(options):
     print("%s" % test_type)
     print("~~~~~~~~~~~~~~")
     # Pupil -------------------------------------------
-    pupil_feature='pupil_fraction'
-    pupil_alignment='trial'
-    pupil_epoch='stimulus' #'pre'
-    pupil_snapshot=391800
-    redo_pupil=False
-    pupil_framerate=20.
-    pupil_quantiles=3.
+    split_arousal = opts.split_arousal
+#    pupil_feature='pupil_fraction'
+#    pupil_alignment='trial'
+#    pupil_epoch='stimulus' #'pre'
+#    pupil_snapshot=391800
+#    redo_pupil=False
+#    pupil_framerate=20.
+#    pupil_quantiles=3.
     equalize_conditions=True
     match_all_configs=True #False #analysis_type=='by_ncells'
     # -------------------------------------------------
@@ -2857,7 +2943,7 @@ def main(options):
     print("shuffle visual area: %s" % str(shuffle_visual_area))
 
     decoding_analysis(datakey, visual_area, experiment,  
-                    analysis_type=analysis_type,
+                    analysis_type=analysis_type, split_arousal=split_arousal,
                     traceid=traceid,
                     trial_epoch=trial_epoch,
                     responsive_test=responsive_test, 

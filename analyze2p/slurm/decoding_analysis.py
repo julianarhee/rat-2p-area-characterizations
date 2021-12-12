@@ -51,6 +51,7 @@ parser.add_argument('-C', '--class-name', dest='class_name', action='store', def
 
 parser.add_argument('-v', '--var-name', dest='variation_name', action='store', default=None, help='Name of transform to split by (e.g., size)')
 
+parser.add_argument('--split-arousal', dest='split_arousal', default=False,action='store_true',  help='split arousal into high/low (analysis_type=BY_FOV)')
 
 
 args = parser.parse_args()
@@ -112,6 +113,7 @@ trial_epoch = args.trial_epoch
 n_iterations = int(args.n_iterations)
 shuffle_visual_area = args.shuffle_visual_area
 
+split_arousal = args.split_arousal
 
 # Set up logging
 # ---------------------------------------------------------------
@@ -190,7 +192,10 @@ else:
     if shuffle_visual_area:
         cmd_str = '%s/analyze2p/slurm/decoding_analysis_shuffle_area.sbatch' % basedir
     else:
-        cmd_str = '%s/analyze2p/slurm/decoding_analysis.sbatch' % basedir
+        if split_arousal:
+            cmd_str = '%s/analyze2p/slurm/decoding_analysis_arousal.sbatch' % basedir
+        else:
+            cmd_str = '%s/analyze2p/slurm/decoding_analysis.sbatch' % basedir
 
 # Run it
 jobids = [] # {}
