@@ -25,6 +25,29 @@ import analyze2p.utils as hutils
 # ===================================================================
 # Data loading 
 # ====================================================================
+# Get sdata indices that have experiments analyzed
+def check_missing_dlc(sdata,
+            face_src_dir='/n/coxfs01/julianarhee/face-tracking',
+            dlc_project='facetracking-jyr-2020-01-25'):
+    dlc_results_dir = os.path.join(face_src_dir, dlc_project, 'pose-analysis')
+    print("Checking for existing results: %s" % dlc_results_dir)
+    dlc_runkeys = list(set([ os.path.split(f)[-1].split('DLC')[0] \
+                       for f in glob.glob(os.path.join(dlc_results_dir, '*.h5'))]))
+    dlc_analyzed_experiments = ['_'.join(s.split('_')[0:4]) for s in dlc_runkeys]
+
+    ixs_wth_dlc = [i for i in sdata.index.tolist() 
+                    if '%s_%s' % (sdata.loc[i]['datakey'], sdata.loc[i]['experiment']) \
+                   in dlc_analyzed_experiments]
+
+    dlc_dsets = sdata.loc[ixs_wth_dlc]
+    dlc_datakeys = dlc_dsets['datakey'].unique()
+    all_datakeys = sdata['datakey'].unique()
+    print("%i of %i datasets with DLC." % (len(dlc_datakeys),len(all_datakeys)))
+    missing_dlc = [i for i in all_datakeys if i not in dlc_datakeys]
+    
+    return dlc_dsets, missing_dlc
+
+
 def create_parsed_traces_id(alignment_type='ALIGN', 
                              snapshot=391800):
     '''
@@ -201,7 +224,7 @@ def aggregate_traces(experiment, traceid='traces001',
                 snapshot=391800, alignment_type='trial',
                 iti_pre=1., iti_post=1., feature_list=['pupil'],
                 verbose=False, return_missing=False,
-                exclude=['20190517_JC083_fov1'],
+                exclude=['20190517_JC083_fov1'], exclude_old=False,
                 rootdir='/n/coxfs01/2p-data', fov_type='zoom2p0x', state='awake',
                 eyetracker_dir='/n/coxfs01/2p-data/eyetracker_tmp',
                 aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
@@ -231,7 +254,7 @@ def aggregate_traces(experiment, traceid='traces001',
     if not os.path.exists(os.path.join(aggregate_dir, 'behavior-state')):
         os.makedirs(os.path.join(aggregate_dir, 'behavior-state'))
 
-    exclude_for_now = exclude_missing_data(experiment)
+    exclude_for_now = exclude_missing_data(experiment, exclude_old=exclude_old)
 
     missing_traces=[]
     aggr_traces={}; aggr_params={};
@@ -292,7 +315,8 @@ def aggregate_traces(experiment, traceid='traces001',
             # save_traces_and_params(datakey, experiment, fov_traces, fov_params)
         if fov_traces is None:
             print("... missing traces: %s" % datakey)
-            missing_traces.append(datakey)
+            if datakey not in missing_traces:
+                missing_traces.append(datakey)
             continue
         #### Add to dict
         aggr_traces[datakey] = fov_traces
@@ -453,7 +477,7 @@ def load_dataframes(experiment, snapshot=391800, trial_epoch='stimulus',
         return aggr_dfs, aggr_params
 
 
-def exclude_missing_data(experiment):
+def exclude_missing_data(experiment, exclude_old=False):
     if experiment=='blobs':
         exclude_for_now = ['20190315_JC070_fov1', 
                            '20190506_JC080_fov1', 
@@ -462,7 +486,15 @@ def exclude_missing_data(experiment):
         exclude_for_now = ['20190627_JC091_fov1',
                            '20190522_JC089_fov1',
                            '20190612_JC099_fov1',
-                           '20190517_JC083_fov1']    
+                           '20190517_JC083_fov1']
+        if exclude_old:
+            old_rats = ['20190314_JC070_fov1',
+                        '20190315_JC070_fov2',
+                        '20190319_JC067_fov1',
+                        '20190321_JC070_fov2',
+                        '20190306_JC061_fov2']
+
+            exclude_for_now.extend(old_rats) 
     else:
         exclude_for_now=[]
 
@@ -473,7 +505,7 @@ def aggregate_dataframes(experiment, trial_epoch='stimulus',
                 in_rate=20., out_rate=20., iti_pre=1., iti_post=1.,
                 create_new=False, realign=False, recombine=False,
                 snapshot=391800, alignment_type='trial', traceid='traces001',
-                verbose=False, return_missing=False,
+                verbose=False, return_missing=False, exclude_old=False,
                 rootdir='/n/coxfs01/2p-data', 
                 fov_type='zoom2p0x', state='awake',
                 aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):   
@@ -509,7 +541,7 @@ def aggregate_dataframes(experiment, trial_epoch='stimulus',
     '''
     print("~~~~~~~~~~~~ Aggregating pupil dataframes. ~~~~~~~~~~~")
 
-    exclude_for_now = exclude_missing_data(experiment)
+    exclude_for_now = exclude_missing_data(experiment, exclude_old=exclude_old)
 
     missing_dsets={};
     aggr_dfs={}
@@ -534,11 +566,11 @@ def aggregate_dataframes(experiment, trial_epoch='stimulus',
             try:
                 fovdf, fovparams = load_fov_metrics(dk, experiment,
                                      trial_epoch=trial_epoch, snapshot=snapshot)
-
                 assert fovdf is not None
                 aggr_dfs[dk] = fovdf
                 aggr_params[dk] = fovparams
             except Exception as e:
+                print("Missing: %s" % dk)
                 missing_metrics.append(dk)
                 continue
             
@@ -564,13 +596,16 @@ def aggregate_dataframes(experiment, trial_epoch='stimulus',
                                         realign=realign, recombine=recombine,
                                         return_missing=True)
         # Calculate per-trial metrics 
-        print("Calculating trial metrics for missing datasets")
         assert aggr_traces is not None
+        if len(missing_traces)>0:
+            print("Calculating trial metrics for %i missing datasets" \
+                % len(missing_traces))
         for dk, fov_traces in aggr_traces.items():
             if dk not in missing_metrics and dk in aggr_dfs.keys():
                 continue
             if dk in exclude_for_now:
                 continue
+            print("... parsing traces into metrics: %s" % dk)
             fov_params = aggr_traces_params[dk].copy()
             df_, params_ = parsed_traces_to_metrics(fov_traces, fov_params, 
                                     trial_epoch=trial_epoch,
@@ -579,6 +614,7 @@ def aggregate_dataframes(experiment, trial_epoch='stimulus',
             # save trial metrics for fov
             save_fov_metrics(dk, experiment, df_, params_,
                     trial_epoch=trial_epoch, snapshot=snapshot)
+            print("... saved: %s" % dk)
             aggr_dfs[dk] = df_
             aggr_params[dk] = params_
 

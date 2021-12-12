@@ -135,7 +135,7 @@ def split_by_arousal(nmetrics, pmetrics, n_cuts=3,
     '''
     Split trialmetrics for neuraldata (nmetrics) and pupil data (pmetrics)
     by "low" and "high" arousal states. Does zscore for neural before split.
-     
+    Index = trial indices 
     
     ARGS
     n_cuts (int)
