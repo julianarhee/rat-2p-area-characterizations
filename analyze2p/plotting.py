@@ -860,6 +860,7 @@ def stripplot_metric_by_area(plotdf, metric='morph_sel', markersize=1,
         traceback.print_exc()
 
     if return_stats:
+        sts['metric'] = metric
         return ax, sts
     else:
         return ax
