@@ -1549,6 +1549,28 @@ def select_test(ni, test_type, ndata, sdf, break_correlations, **kwargs):
 # --------------------------------------------------------------------
 # Save info
 # --------------------------------------------------------------------
+def create_results_dir(analysis_type=None, test_type=None, 
+        class_name=None, variation_name=None, split_arousal=False,
+        aggregate_dir = '/n/coxfs01/julianarhee/aggregate-visual-areas'):
+
+    if test_type is None:
+        test_str = 'default'
+    else:
+        test_str = '%s_%s' % (test_type, variation_name) \
+                        if variation_name is not None else test_type
+
+    if split_arousal:
+        test_str = '%s_arousal' % test_str
+
+    basedir = os.path.join(aggregate_dir, 'decoding', \
+                    'py3_%s' % analysis_type, class_name, test_str)
+    if not os.path.exists(basedir):
+        os.makedirs(basedir)
+        print("Created dir")
+
+    print("Base output dir: %s" % basedir)
+
+    return basedir
 
 def create_results_id(C_value=None,
                     visual_area='varea', trial_epoch='stimulus', 
@@ -2343,7 +2365,8 @@ def aggregate_iterated_results(meta, class_name, experiment=None,
                       C_value=1., break_correlations=False, 
                       shuffle_visual_area=False, 
                       variation_name=None,
-                      overlap_thr=None, match_rfs=False,
+                      overlap_thr=None, match_rfs=False, 
+                      split_arousal=False,
                       rootdir='/n/coxfs01/2p-data',
                       aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     if test_type is None:
@@ -2352,6 +2375,9 @@ def aggregate_iterated_results(meta, class_name, experiment=None,
         test_str = '%s_%s' % (test_type, variation_name) \
                         if (variation_name is not None \
                         and class_name!='morphlevel') else test_type
+    if split_arousal:
+        test_str = '%s_arousal' % test_str
+
     #test_str = 'default' if test_type is None else test_type
     if experiment is None:
         experiment = 'gratings' if class_name=='ori' else 'blobs'
@@ -2435,7 +2461,7 @@ def load_iterdf(meta, class_name, experiment=None,
                       responsive_test='nstds', 
                       C_value=1, break_correlations=False, 
                       match_rfs=False, overlap_thr=None,
-                     shuffle_visual_area=False,
+                     shuffle_visual_area=False, split_arousal=False,
                      variation_name=None):
     '''
     Load and aggregate results
@@ -2457,9 +2483,10 @@ def load_iterdf(meta, class_name, experiment=None,
                               trial_epoch=trial_epoch, 
                               responsive_test=responsive_test, 
                               C_value=C_value, 
-                               break_correlations=break_correlations, 
+                              break_correlations=False, #break_correlations, 
                               match_rfs=match_rfs, overlap_thr=overlap_val,
-                              shuffle_visual_area=shuffle_visual_area)
+                              shuffle_visual_area=shuffle_visual_area,
+                              split_arousal=split_arousal)
         missing_dict[overlap_val]['intact'] = missing_
 
         if iterdf is None:
@@ -2472,17 +2499,19 @@ def load_iterdf(meta, class_name, experiment=None,
         if analysis_type=='by_fov':
             print('    checking for break-corrs')
             iterdf_b, missing_b = aggregate_iterated_results(meta, 
-                                      class_name, experiment=experiment,
-                                      analysis_type=analysis_type, 
-                                      test_type=test_type,
-                                      traceid=traceid,
-                                      trial_epoch=trial_epoch, 
-                                      responsive_test=responsive_test, 
-                                      C_value=C_value, break_correlations=True, 
-                                      match_rfs=match_rfs, 
-                                      overlap_thr=overlap_val,
-                                      shuffle_visual_area=shuffle_visual_area,
-                                      variation_name=variation_name)
+                                  class_name, experiment=experiment,
+                                  analysis_type=analysis_type, 
+                                  test_type=test_type,
+                                  traceid=traceid,
+                                  trial_epoch=trial_epoch, 
+                                  responsive_test=responsive_test, 
+                                  C_value=C_value, 
+                                  break_correlations=True, 
+                                  match_rfs=match_rfs, 
+                                  overlap_thr=overlap_val,
+                                  shuffle_visual_area=shuffle_visual_area,
+                                  variation_name=variation_name,
+                                  split_arousal=split_arousal)
             missing_dict[overlap_val]['no_cc'] = missing_b
             if iterdf_b is None:
                 df_ = iterdf.copy()
@@ -2941,6 +2970,10 @@ def main(options):
 
     print("OVERLAP: %s" % str(overlap_thr))
     print("shuffle visual area: %s" % str(shuffle_visual_area))
+
+    if split_arousal:
+        print("(((( setting CV n_folds to 3 ))))")
+        cv_nfolds=3
 
     decoding_analysis(datakey, visual_area, experiment,  
                     analysis_type=analysis_type, split_arousal=split_arousal,
