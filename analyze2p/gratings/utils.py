@@ -581,3 +581,34 @@ def fit_nonori_params(va, dk, responsive_test='ROC', responsive_thr=0.05,
     return ixs_
 
 
+#% misc.
+
+def check_high_low_param_values(iterdf):
+    '''
+    Checks which datakeys have high/low value for each parameter (size, sf, speed).
+    
+    Returns:
+    --------
+    err_config: (dict)
+        For each param, list of datakeys with too few or two many tested values
+
+    iterdf: (pd.DataFrame)
+        Same as input, but with added columns: size_rel, sf_rel, and speed_rel,
+        which take values 'high' or 'low'
+
+    '''
+    err_configs = dict((k, []) for k in ['size', 'sf', 'speed'])
+    if 'train_transform' in iterdf.columns:
+        for param in ['size', 'sf', 'speed']:
+            iterdf['%s_rel' % param] = None
+        for (va, dk), g in iterdf.groupby(['visual_area','datakey']):
+            for param in ['size', 'sf', 'speed']:
+                if len(g[param].unique())!=2:
+                    err_configs[param].append(dk)
+                    continue
+                minv, maxv = sorted(g[param].unique())
+                iterdf.loc[g[g[param]==minv].index, '%s_rel' % param] = 'low'
+                iterdf.loc[g[g[param]==maxv].index, '%s_rel' % param] = 'high'
+
+    return iterdf, err_configs
+
