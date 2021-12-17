@@ -809,7 +809,7 @@ def adjust_image_contrast(img, clip_limit=2.0, tile_size=10):#(10,10)):
 
 # Experiment-specific plotting funca
 def stripplot_metric_by_area(plotdf, metric='morph_sel', markersize=1,
-                area_colors=None, posthoc='fdr_bh', 
+                marker='.', area_colors=None, posthoc='fdr_bh', 
                 y_loc=1.01, offset=0.01, ylim=None, aspect=4,
                 sig_fontsize=6, sig_lw=0.25, errwidth=0.5, scale=1, 
                 jitter=True, return_stats=False, plot_means=True,
@@ -829,7 +829,7 @@ def stripplot_metric_by_area(plotdf, metric='morph_sel', markersize=1,
         #for ai, metric in enumerate(plot_params):
         sns.stripplot(x='visual_area', y=metric, data=plotdf, ax=ax,
                     hue='visual_area', palette=area_colors, order=visual_areas, 
-                    size=markersize, zorder=-10000, jitter=jitter)
+                    marker=marker, size=markersize, zorder=-10000, jitter=jitter)
         if plot_means:
             if mean_style=='point':
                 sns.pointplot(x='visual_area', y=metric, data=plotdf, ax=ax,
@@ -864,6 +864,26 @@ def stripplot_metric_by_area(plotdf, metric='morph_sel', markersize=1,
         return ax, sts
     else:
         return ax
+
+
+def plot_standard_panel(df, metric, return_stats=False, posthoc='holm'):
+    visual_areas, area_colors = set_threecolor_palette()
+    set_plot_params(lw_axes=0.25)
+
+    fig, ax = pl.subplots(figsize=(3,3), dpi=150)
+    maxv = df[metric].max()
+    offset = maxv/15.
+    ax, stats_ = stripplot_metric_by_area(df, metric=metric, ax=ax,
+                        area_colors=area_colors, posthoc=posthoc,
+                        markersize=5, marker='.', 
+                        y_loc=maxv+offset, offset=offset, ylim=None, aspect=1.5,
+                        sig_fontsize=4, sig_lw=0.25, jitter=False,
+                        return_stats=True, plot_means=True,
+                        mean_style='bar', mean_type='mean')
+    if return_stats:
+        return fig, stats_
+    else:
+        return fig
 
 
 
