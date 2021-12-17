@@ -2661,6 +2661,46 @@ def permutation_test_trained_v_novel(data_, analysis_type='by_ncells',
     return diffs
 
 
+def calculate_relative_scores(paired_df, compare_var='noise_corrs',
+                             c1='shuffled', c2='intact', metric='heldout_test_score'):
+    '''
+    Calculates score A relative to chance (condition=='shuffled'), and B relative to chance.
+    Also calculates A-B over chance. Give c1 as c1-c2.
+    '''
+    #print("Calculating relative scores: %s - %s" % (c1, c2))
+    df_list=[]
+    for (va, dk), vg in paired_df.groupby(['visual_area', 'datakey']):
+        c1_chance = vg[(vg.condition=='shuffled') 
+                    & (vg[compare_var]==c1)][metric].mean()
+        c2_chance = vg[(vg.condition=='shuffled') 
+                    & (vg[compare_var]==c2)][metric].mean()
+        # --------------------------------------------------
+        c1_true = vg[(vg.condition=='data') 
+                    & (vg[compare_var]==c1)][metric].mean()
+        c2_true = vg[(vg.condition=='data') 
+                    & (vg[compare_var]==c2)][metric].mean()
+        # --------------------------------------------------
+        avg_chance = np.mean([c1_chance, c2_chance])
+        rel_score =float( (c1_true - c2_true) / avg_chance)
+        c2_rel_score = float(c2_true / c2_chance)
+        c1_rel_score = float(c1_true / c1_chance)
+        n_cells = int(vg['n_cells'].unique())
+        df_ = pd.Series({'visual_area': va, 'datakey': dk, 
+                         '%s_rel' % c2: c2_rel_score,
+                         '%s_rel' % c1: c1_rel_score, 
+                          '%s_v_%s' % (c1, c2): rel_score,
+                         'chance': avg_chance, 'n_cells': n_cells})
+        df_list.append(df_)
+    scores_over_chance = pd.concat(df_list, axis=1).T
+    scores_over_chance['%s_rel' % c1] = scores_over_chance['%s_rel' % c1].astype(float)
+    scores_over_chance['%s_rel' % c2] = scores_over_chance['%s_rel' % c2].astype(float)
+
+    scores_over_chance['%s_v_%s' % (c1, c2)] = scores_over_chance['%s_v_%s' % (c1, c2)].astype(float)
+    scores_over_chance['n_cells'] = scores_over_chance['n_cells'].astype(int)
+    
+    return scores_over_chance
+
+
 # --------------------------------------------------------------------
 # standard plotting 
 # --------------------------------------------------------------------
