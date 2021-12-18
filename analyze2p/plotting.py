@@ -871,7 +871,7 @@ def plot_standard_panel(df, metric, return_stats=False, posthoc='holm'):
     set_plot_params(lw_axes=0.25)
 
     fig, ax = pl.subplots(figsize=(3,3), dpi=150)
-    maxv = df[metric].max()
+    maxv = np.ceil(df[metric].max())
     offset = maxv/15.
     ax, stats_ = stripplot_metric_by_area(df, metric=metric, ax=ax,
                         area_colors=area_colors, posthoc=posthoc,
