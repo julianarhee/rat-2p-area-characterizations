@@ -875,7 +875,7 @@ def plot_standard_panel(df, metric, return_stats=False, posthoc='holm'):
     offset = maxv/15.
     ax, stats_ = stripplot_metric_by_area(df, metric=metric, ax=ax,
                         area_colors=area_colors, posthoc=posthoc,
-                        markersize=5, marker='.', 
+                        markersize=3, marker='o', 
                         y_loc=maxv+offset, offset=offset, ylim=None, aspect=1.5,
                         sig_fontsize=4, sig_lw=0.25, jitter=False,
                         return_stats=True, plot_means=True,
