@@ -612,3 +612,26 @@ def check_high_low_param_values(iterdf):
 
     return iterdf, err_configs
 
+def assign_theta_bin(fits):
+    '''find tested theta value for fit theta_pref
+    fits: pd.DataFrame (fit params)
+    '''
+    # create bin intervals
+    tested_thetas = np.arange(0, 360, 45)
+    half_bin = 45/2.
+    bin_tuples = [] # [(0, 1), (2, 3), (4, 5)]
+    for i in tested_thetas:
+        print(i)
+        bin_tuples.append((i-half_bin, i+half_bin))
+    bins = pd.IntervalIndex.from_tuples(bin_tuples)
+    bin_labels = dict((k, v) for k, v in zip(bins, tested_thetas))
+    # wrap theta values >largest interval
+    ixs = fits[fits['theta_pref'] > (360-half_bin)].index.tolist()
+    new_vs = fits.loc[ixs]['theta_pref'].values-360.
+    fits.loc[ixs, 'theta_pref'] = new_vs
+    # cut into  bins
+    fits['theta_interval'] = pd.cut(fits['theta_pref'], bins=bins, labels=tested_thetas)
+    # assign tested theta val label
+    fits['theta_bin'] = [bin_labels[i] for i in fits['theta_interval']]
+    return fits
+
