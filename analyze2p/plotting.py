@@ -514,7 +514,7 @@ def annotate_multicomp_by_area(ax, statsdf, p_thr=0.05,
 # --------------------------------------------------------------------
 # CUSTOM LEGENDS
 # --------------------------------------------------------------------
-def clean_axes(axes, ymax=0.5):
+def clean_axes(axes, ymax=0.5, fontsize=6):
     for ai, ax in enumerate(axes.flat):
         ax.tick_params(which='both', axis='both', length=0)
         if ai == 0:
@@ -529,13 +529,14 @@ def clean_axes(axes, ymax=0.5):
     return
 
 
-def add_stimulus_patch(fig, col_values, stim_dur=1):
+def add_stimulus_patch(fig, axes, col_values, stim_dur=1,
+                    x=0, y=0):
     '''craete stimulus on bar for each subplot'''
     n_conds = len(col_values)
     for ci in range(len(col_values)):
         ax=axes[n_conds-1, ci]
-        rect = pl.Rectangle((0,0), width=stim_dur, 
-                    height=(n_conds-2)+fig.subplotpars.wspace,
+        rect = pl.Rectangle((x, y), width=stim_dur, 
+                    height=(n_conds) + fig.subplotpars.wspace,
                     transform=ax.get_xaxis_transform(), clip_on=False, zorder=0,
                     edgecolor="none", facecolor="gray", alpha=0.2, linewidth=0)
         ax.add_patch(rect)
