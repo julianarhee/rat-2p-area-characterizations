@@ -168,9 +168,9 @@ else:
 jobids = [] # {}
 for (datakey), g in dsets.groupby(['datakey']):
     print("REDO is now: %s" % str(redo_fits))
-    mtag = '%s_%s_%s' % (experiment, datakey, visual_area) 
+    mtag = '%s.%s.%s' % (experiment, visual_area, datakey) 
 
-    cmd = "sbatch --job-name={PROCID}.rfs.{MTAG} \
+    cmd = "sbatch --job-name={PROCID}.{MTAG} \
             -o '{LOGDIR}/{PROCID}.{MTAG}.out' \
             -e '{LOGDIR}/{PROCID}.{MTAG}.err' \
             {COMMAND} {DATAKEY} {EXP} {TRACEID} {NEUROPIL} {REDO}".format(
