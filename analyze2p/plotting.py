@@ -514,6 +514,34 @@ def annotate_multicomp_by_area(ax, statsdf, p_thr=0.05,
 # --------------------------------------------------------------------
 # CUSTOM LEGENDS
 # --------------------------------------------------------------------
+def clean_axes(axes, ymax=0.5):
+    for ai, ax in enumerate(axes.flat):
+        ax.tick_params(which='both', axis='both', length=0)
+        if ai == 0:
+            ax.set_yticks([0, ymax])
+            ax.set_yticklabels(['', ''])
+            ax.set_ylabel('%.2f dF/F' % ymax, fontsize=fontsize)
+            sns.despine(trim=True, ax=ax, offset=4, bottom=True)
+            ax.set_xticklabels([])
+        else:
+            sns.despine(trim=True, ax=ax, offset=4, left=True, bottom=True)
+            ax.set_xticklabels([])
+    return
+
+
+def add_stimulus_patch(fig, col_values, stim_dur=1):
+    '''craete stimulus on bar for each subplot'''
+    n_conds = len(col_values)
+    for ci in range(len(col_values)):
+        ax=axes[n_conds-1, ci]
+        rect = pl.Rectangle((0,0), width=stim_dur, 
+                    height=(n_conds-2)+fig.subplotpars.wspace,
+                    transform=ax.get_xaxis_transform(), clip_on=False, zorder=0,
+                    edgecolor="none", facecolor="gray", alpha=0.2, linewidth=0)
+        ax.add_patch(rect)
+    return
+
+
 def create_tiny_dff_legend(ref_ax, xlim_marker, ylim_marker, loc=(0, -0.5),
                           xlabel='X s', ylabel='X dF/F', fontsize=6):
     '''
@@ -571,6 +599,9 @@ def get_icon(name, icon_type='ori'):
 
 def offset_image(coord, ax, name=None, pad=0, xybox=(0, 0), 
                     xycoords=('data'), yloc=None, zoom=1.0):
+    '''
+    Load icon img (arrows) and replace tick labels.
+    '''
     img = get_icon(name)
     im = OffsetImage(img, zoom=zoom)
     im.image.axes = ax
@@ -585,8 +616,16 @@ def offset_image(coord, ax, name=None, pad=0, xybox=(0, 0),
     
     return yloc
 
-def replace_ori_labels(ori_names, bin_centers=None, ax=None, xybox=(0, 0), yloc=None,
-                       zoom=0.25, pad=0, polar=False):
+def replace_ori_labels(ori_names, bin_centers=None, ax=None, 
+                    xybox=(0, 0), yloc=None, zoom=0.25, pad=0, polar=False):
+    '''
+    Replace tick labels with icons (x-ticks).
+    Args:
+    ----
+    ori_names:  list of values (orientations)
+    bin_centers:  corresponding x-locs (otherwise will assign to be ori_names
+
+    '''
     if polar:
         xycoords=("data")
         for i, c in enumerate(ori_names):
