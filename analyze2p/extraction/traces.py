@@ -25,6 +25,16 @@ pp = pprint.PrettyPrinter(indent=4)
 import scipy.stats as spstats
 import analyze2p.utils as hutils
 import _pickle as pkl
+# ---------------------------------------------------------------------
+# Data processing
+# ---------------------------------------------------------------------
+
+def temporal_downsample(trace, windowsz):
+    tmp1=np.concatenate((np.ones(windowsz)*trace[0], trace, np.ones(windowsz)*trace[-1]),0)
+    tmp2=np.convolve(tmp1, np.ones(windowsz)/windowsz, 'same')
+    tmp2=tmp2[windowsz:-windowsz]
+    return tmp2
+
 
 # ---------------------------------------------------------------------
 # Data loading
@@ -252,6 +262,22 @@ def reformat_morph_values(sdf, verbose=False):
 
     return sdf
 
+def get_soma_fpath(datakey, experiment, traceid='traces001', 
+                    rootdir='/n/coxfs01/2p-data'):
+    session, animalid, fovn = hutils.split_datakey_str(datakey)
+    if int(session)<20190511 and int(session)>=20190405:
+        if experiment in ['rfs', 'rfs10']:
+            experiment_name = 'gratings'
+    else:
+        experiment_name = experiment
+
+    fov = 'FOV%i_*' % fovn 
+    soma_fpath = glob.glob(os.path.join(rootdir, animalid, session, 
+                        'FOV%i_*' % fovn, '*%s*' % experiment_name, 
+                        'traces', '%s*' % traceid, 
+                        'data_arrays', 'np_subtracted.npz'))[0]
+
+    return soma_fpath 
 
 def process_and_save_traces(trace_type='dff', add_offset=True, save=True,
                             animalid=None, session=None, fov=None, 
