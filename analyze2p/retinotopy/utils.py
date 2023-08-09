@@ -43,11 +43,11 @@ def get_average_mag_across_pixels(datakey, retinorun=None,
     for retinorun in retinoruns:
         try:
             retinoid, RETID = load_retino_analysis_info(\
-                                datakey, retinorun, use_pixels=True)
+                                datakey, retinorun, use_pixels=True, rootdir=rootdir)
             assert RETID is not None, \
                 "Error loading analysis: %s (%s)" % (retinorun, datakey)
 
-            magratio, phase, trials_by_cond = fft_results_by_trial(RETID)
+            magratio, phase, trials_by_cond = fft_results_by_trial(RETID, rootdir=rootdir)
             mean_mag = magratio.mean(axis=0).mean()
             magratios.append((retinorun, mean_mag))
         except Exception as e:
@@ -544,7 +544,9 @@ def load_retino_analysis_info(datakey, run='retino', roiid=None, retinoid=None,
 # FFT
 # -----------------------------------------------------------------------------
 # FFT
-def fft_results_by_trial(RETID):
+def fft_results_by_trial(RETID, rootdir='/n/coxfs01/2p-data'):
+    if rootdir != '/n/coxfs01/2p-data':
+        RETID['DST'] = RETID['DST'].replace('/n/coxfs01/2p-data', rootdir)
 
     run_dir = RETID['DST'].split('/retino_analysis/')[0]
     processed_filepaths = glob.glob(os.path.join(RETID['DST'], 'files', '*h5'))
