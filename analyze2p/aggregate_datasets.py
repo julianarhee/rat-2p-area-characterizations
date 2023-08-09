@@ -1239,21 +1239,24 @@ def get_cells_by_area(sdata, create_new=False, excluded_datasets=[],
             if datakey in excluded_datasets:
                 continue
             roi_assignments=dict()
+            retinorun=None
             try:
                 # Get best retino
-                all_retinos = retutils.get_average_mag_across_pixels(datakey)     
+                all_retinos = retutils.get_average_mag_across_pixels(datakey, rootdir=rootdir)     
                 retinorun = all_retinos.iloc[all_retinos[1].idxmax()][0]
                 #retinorun = all_retinos.loc[all_retinos[1].idxmax()][0] 
                 roi_assignments = roiutils.load_roi_assignments(animalid, 
                                                     session, \
-                                                    fov, retinorun=retinorun)
+                                                    fov, retinorun=retinorun,
+                                                    rootdir=rootdir)
                 if roi_assignments is None:
                     missing_segmentation.append((datakey, retinorun))
                     continue
             except Exception as e:
                 if verbose:
-                    print("... no seg. %s (%s)" % (datakey, retinorun))
                     traceback.print_exc()
+                    print("... no seg. %s (%s)" % (datakey, retinorun))
+                print(all_retinos)
                 missing_segmentation.append((datakey, retinorun))
                 continue 
 
@@ -1315,7 +1318,8 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
             # Get cells based on assignment info
             if return_cells:
                 cells, missing_seg = get_cells_by_area(sdata, create_new=False,
-                                                    return_missing=True)
+                                                return_missing=True, 
+                                                rootdir=rootdir, aggregate_dir=aggregate_dir)
                 cells = cells[cells.visual_area.isin(visual_areas)]
             all_sdata = sdata.copy()
         except Exception as e:
@@ -1332,7 +1336,9 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
 
         # Assign cells
         cells, missing_seg = get_cells_by_area(sdata, create_new=create_new,
-                                            return_missing=True)
+                                            return_missing=True,
+                                            rootdir=rootdir, aggregate_dir=aggregate_dir)
+
         cells = cells[cells.visual_area.isin(visual_areas)]
 
         # Create new ASSIGNED metadata from segmentations
