@@ -729,7 +729,7 @@ def load_eval_results(datakey, experiment='rfs', rfdir=None,
 def load_matching_fit_results(animalid, session, fov, traceid='traces001',
                               experiment='rfs', response_type='dff',
                               nframes_post=0, do_spherical_correction=False,
-                              sigma_scale=2.35, scale_sigma=True):
+                              sigma_scale=2.35, scale_sigma=True, rootdir='/n/coxfs01/2p-data'):
     fit_results=None
     fit_params=None
     try:
@@ -737,7 +737,8 @@ def load_matching_fit_results(animalid, session, fov, traceid='traces001',
                                         fov, traceid=traceid,
                                         experiment=experiment,
                                         response_type=response_type,
-                                        do_spherical_correction=do_spherical_correction)
+                                        do_spherical_correction=do_spherical_correction,
+                                        rootdir=rootdir)
         assert fit_params['nframes_post_onset'] == nframes_post, \
             "Incorrect nframes_post (found %i, requested %i)" \
             % (fit_params['nframes_post_onset'], nframes_post)
@@ -824,11 +825,12 @@ def get_reliable_fits(pass_cis, pass_criterion='all', single=False):
 
 
 
-def load_rf_fits(dk, experiment='rfs', fit_desc=None, ecc_center=(0, 0), verbose=False):
+def load_rf_fits(dk, experiment='rfs', fit_desc=None, ecc_center=(0, 0), verbose=False,
+                rootdir='/n/coxfs01/2p-data'):
     rfdf_ = None
     try:
         fit_results, fit_params = load_fit_results(dk, experiment=experiment,
-                                                           fit_desc=fit_desc)
+                                                           fit_desc=fit_desc, rootdir=rootdir)
         rfit_df = rfits_to_df(fit_results, fit_params=fit_params,
                             scale_sigma=fit_params['scale_sigma'], 
                             sigma_scale=fit_params['sigma_scale'])
@@ -866,7 +868,7 @@ def cycle_and_load(rfmeta, cells0, is_neuropil=False,
         rfname = exp if int(session)>=20190511 else 'gratings'
         fit_rois=[]
         try:
-            rfit_df = load_rf_fits(dk, experiment=rfname, fit_desc=fit_desc)
+            rfit_df = load_rf_fits(dk, experiment=rfname, fit_desc=fit_desc, rootdir=rootdir)
             if rfit_df is None:
                 no_fits.append((va, dk))
                 continue
@@ -874,7 +876,7 @@ def cycle_and_load(rfmeta, cells0, is_neuropil=False,
         except Exception as e:
             raise e
 
-        #rfit_df = load_rf_fits(dk, experiment=rfname, fit_desc=fit_desc)
+        #rfit_df = load_rf_fits(dk, experiment=rfname, fit_desc=fit_desc, rootdir=rootdir)
         #fit_rois = rfit_df[rfit_df['r2']>fit_thr].index.tolist()
         if len(fit_rois)==0:
             continue
@@ -1054,18 +1056,18 @@ def get_fit_dpaths(dsets, traceid='traces001', fit_desc=None,
 def aggregate_rfdata(rf_dsets, assigned_cells, traceid='traces001', 
                         fit_desc='fit-2dgaus_dff-no-cutoff', ecc_center=(0, 0), 
                         reliable_only=True, pass_criterion='all',
-                        verbose=False,return_missing=False):
+                        verbose=False,return_missing=False, rootdir='/n/coxfs01/2p-data'):
     # Gets all results for provided datakeys (sdata, for rfs/rfs10)
     # Aggregates results for the datakeys
     # assigned_cells:  cells assigned by visual area
 
     # Only try to load rfdata if we can find fit + evaluation results
     rfmeta, no_fits = get_fit_dpaths(rf_dsets, traceid=traceid, 
-                                    fit_desc=fit_desc)
+                                    fit_desc=fit_desc, rootdir=rootdir)
     rfdf, no_fit, no_eval = cycle_and_load(rfmeta, assigned_cells, 
                             reliable_only=reliable_only, pass_criterion=pass_criterion,
                             fit_desc=fit_desc, traceid=traceid, 
-                            verbose=verbose, return_missing=True)
+                            verbose=verbose, return_missing=True, rootdir=rootdir)
     rfdf = rfdf.reset_index(drop=True)
     rfdf = update_rf_metrics(rfdf, scale_sigma=True, ecc_center=ecc_center)
 
@@ -1081,7 +1083,8 @@ def aggregate_rfdata(rf_dsets, assigned_cells, traceid='traces001',
 
 
 def aggregate_fits(cells0, sdata, response_type='dff', do_spherical_correction=False,
-            reliable_only=False, pass_criterion='all', combine='average', ecc_center=(0, 0)):
+            reliable_only=False, pass_criterion='all', combine='average', ecc_center=(0, 0),
+            rootdir='/n/coxfs01/2p-data'):
     '''
     Combines all RF fit params.
     Args:
@@ -1109,7 +1112,8 @@ def aggregate_fits(cells0, sdata, response_type='dff', do_spherical_correction=F
                                 do_spherical_correction=do_spherical_correction)
     rfdata = aggregate_rfdata(rf_meta, assigned_cells, 
                                 fit_desc=rf_fit_desc, ecc_center=ecc_center,
-                                reliable_only=reliable_only, pass_criterion=pass_criterion)
+                                reliable_only=reliable_only, pass_criterion=pass_criterion,
+                                rootdir=rootdir)
 
     # Combined rfs5/rfs10
     if combine=='select':
@@ -2234,7 +2238,8 @@ def fit_2d_rfs(datakey, run, traceid,
                                         experiment=run_name, traceid=traceid,
                                         response_type=response_type,
                                         is_neuropil=is_neuropil,
-                                        do_spherical_correction=do_spherical_correction)
+                                        do_spherical_correction=do_spherical_correction,
+                                        rootdir=rootdir)
             print("... loaded RF fit results")
             assert fit_results is not None and fit_params is not None, "EMPTY fit_results"
         except Exception as e:

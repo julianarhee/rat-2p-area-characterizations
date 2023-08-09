@@ -152,7 +152,7 @@ def get_stimuli(datakey, experiment, match_names=False,
             sdf_o = sdf.copy()
             if experiment=='gratings':
                 sdf_o = convert_value_to_level(sdf_o) 
-            updated_keys = match_config_names(sdf_o, experiment=experiment)
+            updated_keys = match_config_names(sdf_o, experiment=experiment, rootdir=rootdir)
             if updated_keys is not None and len(updated_keys)>0:
                 sdf = sdf_o.rename(index=updated_keys)
             else:
@@ -176,7 +176,7 @@ def get_stimuli(datakey, experiment, match_names=False,
 
 def check_sdfs_gratings(dkey_list, experiment='gratings',
                     rename=False, return_incorrect=False, return_all=False, 
-                    verbose=False, as_dict=False):
+                    verbose=False, as_dict=False, rootdir='/n/coxfs01/2p-data'):
     '''
     Return all SDFs (as df or dict)
     
@@ -201,7 +201,7 @@ def check_sdfs_gratings(dkey_list, experiment='gratings',
     for dk in dkey_list:
         if dk in exclude_:
             continue
-        sdf_o = get_stimuli(dk, experiment, match_names=False) #, rename=True)
+        sdf_o = get_stimuli(dk, experiment, match_names=False, rootdir=rootdir) #, rename=True)
         if 'aspect' in sdf_o.columns:
             sdf_o = sdf_o.drop(columns=['aspect'])
         # Check params
@@ -223,7 +223,7 @@ def check_sdfs_gratings(dkey_list, experiment='gratings',
             sdf_o = convert_value_to_level(sdf_o)
 
             # check configs
-            updated_keys = match_config_names(sdf_o, experiment=experiment) 
+            updated_keys = match_config_names(sdf_o, experiment=experiment, rootdir=rootdir) 
 
         if (updated_keys is not None and len(updated_keys)>0):
             if verbose:
@@ -255,19 +255,20 @@ def check_sdfs_gratings(dkey_list, experiment='gratings',
     else:
         return SDF
 
-def get_master_sdf(experiment='blobs', images_only=False, rename=False):
+def get_master_sdf(experiment='blobs', images_only=False, rename=False,
+                    rootdir='/n/coxfs01/2p-data'):
     '''
     Get "standard" stimulus info.
     '''
     if experiment=='blobs':
         sdf_master = get_stimuli('20190522_JC084_fov1', experiment, 
-                                match_names=False)
+                                match_names=False, rootdir=rootdir)
         if images_only:
             sdf_master=sdf_master[sdf_master['morphlevel']!=-1].copy()
    
     elif experiment=='gratings':
         sdf_master = get_stimuli('20190522_JC084_fov1', experiment,
-                                match_names=False) #, rename=rename)
+                                match_names=False, rootdir=rootdir) #, rename=rename)
         if images_only:
             sdf_master=sdf_master[sdf_master['size']<200].copy()
 
@@ -295,7 +296,7 @@ def convert_value_to_level(sdf):
 
 def check_sdfs(stim_datakeys, experiment='blobs', images_only=False, 
                 rename=True, return_incorrect=False, return_all=False,
-                as_dict=False, verbose=False):
+                as_dict=False, verbose=False, rootdir='/n/coxfs01/2p-data'):
     '''
     return_all: (bool)
         Final SDF (dict or datafram) should include even incorrect ones
@@ -320,7 +321,7 @@ def check_sdfs(stim_datakeys, experiment='blobs', images_only=False,
                             images_only=images_only, 
                             rename=rename, return_incorrect=True,
                             diff_configs=diff_configs, as_dict=as_dict,
-                            return_all=True, verbose=verbose)
+                            return_all=True, verbose=verbose, rootdir=rootdir)
         if return_all:
             sdfs = sdfs0.copy()
         else:
@@ -330,7 +331,8 @@ def check_sdfs(stim_datakeys, experiment='blobs', images_only=False,
     elif experiment=='gratings':
         sdfs0, incorrect = check_sdfs_gratings(stim_datakeys, 
                             return_incorrect=True, rename=rename,
-                            return_all=True, as_dict=as_dict, verbose=verbose)
+                            return_all=True, as_dict=as_dict, verbose=verbose,
+                            rootdir=rootdir)
         if return_all:
             sdfs = sdfs0.copy()
         else:
@@ -346,13 +348,13 @@ def check_sdfs(stim_datakeys, experiment='blobs', images_only=False,
 def check_sdfs_blobs(stim_datakeys, images_only=False, return_all=False,
                 rename=True, return_incorrect=False, as_dict=False,
                 diff_configs=['20190314_JC070_fov1', '20190327_JC073_fov1'],
-                verbose=False):
+                verbose=False, rootdir='/n/coxfs01/2p-data'):
     '''
     Checks config names and reutrn master dict of all stimconfig dataframes
     Notes: only tested with blobs, and renaming only works with blobs.
     '''
     experiment='blobs'
-    sdf_master = get_master_sdf(experiment='blobs', images_only=False)
+    sdf_master = get_master_sdf(experiment='blobs', images_only=False, rootdir=rootdir)
     n_configs = sdf_master.shape[0]
     #### Check that all datasets have same stim configs
     SDF={}
@@ -360,11 +362,11 @@ def check_sdfs_blobs(stim_datakeys, images_only=False, return_all=False,
     for datakey in stim_datakeys:
         #session, animalid, fov_ = datakey.split('_')
         #fovnum = int(fov_[3:])
-        sdf_o = get_stimuli(datakey, experiment, match_names=False)
+        sdf_o = get_stimuli(datakey, experiment, match_names=False, rootdir=rootdir)
         if datakey=='20190314_JC070_fov1':
             sdf_o = sdf_o[sdf_o['xpos']==-15] # only take the correct pos.
         # check configs
-        updated_keys = match_config_names(sdf_o, experiment='blobs') 
+        updated_keys = match_config_names(sdf_o, experiment='blobs', rootdir=rootdir) 
         #print(datakey, updated_keys)
         if rename is True and updated_keys is not None:
             if verbose:
@@ -409,7 +411,7 @@ def check_sdfs_blobs(stim_datakeys, images_only=False, return_all=False,
     else:
         return SDF
 
-def match_config_names(sdf_o, experiment='blobs'):
+def match_config_names(sdf_o, experiment='blobs', rootdir='/n/coxfs01/2p-data'):
     '''
     Make sure config labels are the same/matching to master cfgs.
     sdf_o is the original sdf (loaded from data arrays).
@@ -417,7 +419,7 @@ def match_config_names(sdf_o, experiment='blobs'):
     '''
     updated_keys=None
     sdf_master = get_master_sdf(experiment=experiment, images_only=False,
-                                rename=True)
+                                rename=True, rootdir=rootdir)
     #key_names = ['morphlevel', 'size']
 
     if experiment=='blobs':
@@ -449,7 +451,7 @@ def match_config_names(sdf_o, experiment='blobs'):
     return updated_keys #sdf_new
 
 def select_stimulus_configs(datakey, experiment, select_stimuli=None, 
-            rename=False):
+            rename=False, rootdir='/n/coxfs01/2p-data'):
     '''
     Load configs for datakey and experiment.
 
@@ -468,7 +470,7 @@ def select_stimulus_configs(datakey, experiment, select_stimuli=None,
             % (select_stimuli, str(valid_stimulus_selections))
 
     curr_cfgs=None
-    sdf = get_stimuli(datakey, experiment=experiment, match_names=rename)
+    sdf = get_stimuli(datakey, experiment=experiment, match_names=rename, rootdir=rootdir)
     if sdf is None:
         return None
     if experiment not in ['gratings', 'blobs']:
@@ -518,9 +520,9 @@ def get_included_stimconfigs(sdf, experiment='blobs', select_stimuli='images'):
     return curr_cfgs
  
 
-def get_stimulus_coordinates(dk, experiment):
+def get_stimulus_coordinates(dk, experiment, rootdir='/n/coxfs01/2p-data'):
     '''Get x0, y0 of stimuli for session. Returns: x, y'''
-    sdf = get_stimuli(dk, experiment, match_names=True) #, rename=False)
+    sdf = get_stimuli(dk, experiment, match_names=True, rootir=rootdir) #, rename=False)
     if len(sdf['xpos'].unique())>1 or len(sdf['ypos'].unique())>1:
         print("*Warning* <%s> More than 1 pos? x: %s, y: %s" \
                     % (dk, str(sdf['xpos'].unique()), str(sdf['ypos'].unique())))
@@ -1058,7 +1060,10 @@ def load_frame_labels(datakey, experiment, traceid='traces001',
 def load_responsive_neuraldata(experiment, meta=None, traceid='traces001',
                       response_type='dff', trial_epoch='plushalf',
                       responsive_test='nstds', responsive_thr=10,n_stds=2.5,
-                      retino_thr=0.01, retino_delay=0.5, redo_retino=False):
+                      retino_thr=0.01, retino_delay=0.5, redo_retino=False,
+                    rootdir='/n/coxfs01/2p-data',
+                    aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+
     '''
     Load ALL aggregate data for ALL FOV, with correctly assigned cells (NDATA).
     --> calls get_aggregate_data()
@@ -1070,15 +1075,19 @@ def load_responsive_neuraldata(experiment, meta=None, traceid='traces001',
         NDATA = get_aggregate_data(experiment, meta=meta, traceid=traceid, 
                               response_type=response_type, epoch=trial_epoch,
                               responsive_test=responsive_test, 
-                              responsive_thr=responsive_thr, n_stds=n_stds)
+                              responsive_thr=responsive_thr, n_stds=n_stds,
+                            rootdir=rootdir, aggregate_dir=aggregate_dir)
     elif experiment=='blobs':
         NDATA = get_aggregate_data(experiment, meta=meta, traceid=traceid, 
                               response_type=response_type, epoch=trial_epoch,
                               responsive_test=responsive_test, 
-                              responsive_thr=responsive_thr, n_stds=n_stds)
+                              responsive_thr=responsive_thr, n_stds=n_stds,
+                            rootdir=rootdir, aggregate_dir=aggregate_dir)
     elif experiment=='retino':
         retinodata = get_aggregate_retinodata(meta=meta, traceid=traceid, 
-                                mag_thr=retino_thr, delay_thr=retino_delay, create_new=redo_retino)
+                                mag_thr=retino_thr, delay_thr=retino_delay, 
+                                create_new=redo_retino, 
+                                rootdir=rootdir, aggregate_dir=aggregate_dir)
         NDATA = get_responsive_retino(retinodata, mag_thr=retino_thr)
     elif experiment in ['rfs', 'rfs10']:
         # TODO: what is the right way to select for responsive cells, separate
@@ -1088,7 +1097,8 @@ def load_responsive_neuraldata(experiment, meta=None, traceid='traces001',
             nd0 = get_aggregate_data(exp, meta=meta, traceid=traceid, 
                               response_type=response_type, epoch=trial_epoch,
                               responsive_test=responsive_test, 
-                              responsive_thr=responsive_thr, n_stds=n_stds)
+                              responsive_thr=responsive_thr, n_stds=n_stds,
+                            rootdir=rootdir, aggregate_dir=aggregate_dir)
             nd0['experiment'] = exp
             nd_.append(nd0)
         NDATA = pd.concat(nd_, axis=0).reset_index(drop=True)
@@ -1297,6 +1307,7 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
                 visual_areas=['V1', 'Lm', 'Li'], 
                 return_cells=False, create_new=False,
                 return_missing=False,
+                rootdir='/n/coxfs01/2p-data',
                 aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
 
     # bad segmentation
@@ -1333,11 +1344,13 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
         with open(unassigned_fp, 'rb') as f:
             sdata0 = pkl.load(f, encoding='latin1')
         sdata = sdata0[~sdata0.datakey.isin(excluded_datasets)].copy()
+        print(sdata.shape)
 
         # Assign cells
         cells, missing_seg = get_cells_by_area(sdata, create_new=create_new,
                                             return_missing=True,
-                                            rootdir=rootdir, aggregate_dir=aggregate_dir)
+                                            rootdir=rootdir,
+                                            aggregate_dir=aggregate_dir)
 
         cells = cells[cells.visual_area.isin(visual_areas)]
 
@@ -1409,6 +1422,7 @@ def get_aggregate_retinodata(meta=None, traceid='traces001',
                         mag_thr=None, delay_thr=None, return_missing=False,
                         visual_areas=['V1', 'Lm', 'Li'],
                         create_new=False, redo_fov=False,
+                        rootdir='/n/coxfs01/2p-data',
                         aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     '''
     Load or create aggregate retinodata for all datasets specified.
@@ -1419,7 +1433,8 @@ def get_aggregate_retinodata(meta=None, traceid='traces001',
     AZ/EL conditions for ALL cells.
     '''
     sdata, cells0 = get_aggregate_info(visual_areas=visual_areas, 
-                                        return_cells=True)
+                                        return_cells=True, 
+                                        rootdir=rootdir, aggregate_dir=aggregate_dir)
     if meta is None:
         meta = sdata[sdata.experiment=='retino'].copy() 
     # Only get cells for current experiment
@@ -1448,7 +1463,7 @@ def get_aggregate_retinodata(meta=None, traceid='traces001',
         for (va, dk), curr_cells in CELLS.groupby(['visual_area', 'datakey']):
             df = retutils.get_retino_fft(dk, curr_cells=curr_cells, 
                                     mag_thr=mag_thr, delay_thr=delay_thr,
-                                    create_new=redo_fov)
+                                    create_new=redo_fov, rootdir=rootdir)
             if df is None:
                 errs.append((va, dk))
                 continue
@@ -1488,6 +1503,7 @@ def get_aggregate_data(experiment, meta=None, traceid='traces001',
                     rename_configs=True, equalize_now=False, zscore_now=False,
                     return_configs=False, images_only=False, 
                     diff_configs = ['20190327_JC073_fov1', '20190314_JC070_fov1'], # 20190426_JC078 (LM, backlight)
+                    rootdir='/n/coxfs01/2p-data',
                     aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas',
                     visual_areas=['V1','Lm', 'Li'], verbose=False):
     '''
@@ -1503,7 +1519,8 @@ def get_aggregate_data(experiment, meta=None, traceid='traces001',
         Only inclues cells that are assigned to the specified area.
     '''
     sdata, cells0 = get_aggregate_info(visual_areas=visual_areas, 
-                                        return_cells=True)
+                                        return_cells=True, rootdir=rootdir,
+                                        aggregate_dir=aggregate_dir)
     if meta is None:
         meta = sdata[sdata.experiment==experiment].copy()
  
@@ -1527,7 +1544,8 @@ def get_aggregate_data(experiment, meta=None, traceid='traces001',
                         rename_configs=rename_configs, 
                         equalize_now=equalize_now, zscore_now=zscore_now,
                         return_configs=return_configs, 
-                        images_only=images_only)
+                        images_only=images_only,
+                        rootdir=rootdir, aggregate_dir=aggregate_dir)
     # Combine into dict by visual area
     NEURALDATA = dict((visual_area, {}) for visual_area in visual_areas)
     rf_=[]
@@ -1596,6 +1614,7 @@ def load_aggregate_data(experiment, traceid='traces001',
                     rename_configs=True, equalize_now=False, zscore_now=False,
                     return_configs=False, images_only=False, verbose=False,
             diff_configs = ['20190327_JC073_fov1', '20190314_JC070_fov1'], # 20190426_JC078 (LM, backlight)
+            rootdir='/n/coxfs01/2p-data',
             aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     '''
     Return dict of neural dataframes (keys are datakeys).
@@ -1625,10 +1644,11 @@ def load_aggregate_data(experiment, traceid='traces001',
             SDF, renamed_config_dict = check_sdfs_blobs(MEANS.keys(),
                                           images_only=images_only, 
                                           rename=rename_configs,
-                                          return_incorrect=True, verbose=verbose)
+                                          return_incorrect=True, verbose=verbose,
+                                          rootdir=rootdir)
             if rename_configs:
                 #sdf_master = get_master_sdf(experiment='blobs',
-                #                            images_only=images_only)
+                #                            images_only=images_only, rootdir=rootdir)
                 for k, cfg_lut in renamed_config_dict.items():
                     incl_cfgs = list(cfg_lut.keys())
                     data_ = MEANS[k].copy()
@@ -1651,7 +1671,7 @@ def load_aggregate_data(experiment, traceid='traces001',
     elif experiment=='gratings':
         SDF, incorrect = check_sdfs_gratings(MEANS.keys(), 
                             return_incorrect=True, rename=rename_configs,
-                            return_all=False, verbose=verbose)
+                            return_all=False, verbose=verbose, rootdir=rootdir)
         
     if equalize_now:
         # Get equal counts
@@ -2361,6 +2381,7 @@ def aggregate_and_save(experiment, traceid='traces001',
                        responsive_test='ROC', responsive_thr=0.05, n_stds=2.5, 
                        create_new=False, redo_stats=False, redo_fov=False,
                        always_exclude=['20190426_JC078'], n_processes=1,
+                        rootdir='/n/coxfs01/2p-data',
                        aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     '''
     create_new: remake aggregate file
@@ -2372,7 +2393,7 @@ def aggregate_and_save(experiment, traceid='traces001',
 
     #### Load mean trial info for responsive cells
     data_dir = os.path.join(aggregate_dir, 'data-stats')
-    sdata = get_aggregate_info(traceid=traceid)
+    sdata = get_aggregate_info(traceid=traceid, aggregate_dir=aggregate_dir, rootdir=rootdir)
     
     #### Get DATA   
     data_outfile = get_aggregate_filepath(experiment, traceid=traceid, 
@@ -2498,7 +2519,8 @@ def main(options):
                                        responsive_thr=responsive_thr, 
                                        create_new=any([create_new, redo_stats, redo_fov]),
                                        n_processes=n_processes,
-                                       redo_stats=redo_stats, redo_fov=redo_fov)
+                                       redo_stats=redo_stats, redo_fov=redo_fov,
+                                    aggregate_dir=aggregate_dir, rootdir=rootdir)
 
     elif do_metrics:
          save_trial_metrics_cycle(experiment, traceid=traceid, 
@@ -2508,7 +2530,8 @@ def main(options):
                                        responsive_thr=responsive_thr, 
                                        create_new=any([create_new, redo_stats, redo_fov]),
                                        n_processes=n_processes,
-                                       redo_stats=redo_stats, redo_fov=redo_fov)
+                                       redo_stats=redo_stats, redo_fov=redo_fov,
+                                    aggregate_dir=aggregate_dir, rootdir=rootdir)
  
     return
 

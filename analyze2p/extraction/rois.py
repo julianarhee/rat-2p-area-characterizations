@@ -212,7 +212,7 @@ def get_masks_and_centroids(dk, traceid='traces001',
 
     # Load zimg
     roiid = get_roiid_from_traceid(animalid, session, 'FOV%i_*' % fovnum, 
-                                          traceid=traceid)
+                                          traceid=traceid, rootdir=rootdir)
     zimg_path = glob.glob(os.path.join(rootdir, animalid, session, \
                                        'ROIs', '%s*' % roiid, 'figures', '*.tif'))[0]
     zimg = tf.imread(zimg_path)
@@ -288,7 +288,7 @@ def load_roi_positions(datakey, roiid=None, traceid='traces001',
     session, animalid, fovn = hutils.split_datakey_str(datakey)
     if roiid is None:
         roiid = get_roiid_from_traceid(animalid, session, 
-                            'FOV%i_zoom2p0x' % fovn, traceid=traceid)
+                            'FOV%i_zoom2p0x' % fovn, traceid=traceid, rootdir=rootdir)
     # create outpath
     roidir = glob.glob(os.path.join(rootdir, animalid, session,
                         'ROIs', '%s*' % roiid))[0]
@@ -314,7 +314,7 @@ def get_roi_coords(animalid, session, fov, roiid=None,
     Loads fovinfo (dict), 'roi_positions' is pd.DataFrame() with all the diff coords'''
 
     fovinfo = None
-    roiid = get_roiid_from_traceid(animalid, session, fov, traceid=traceid)
+    roiid = get_roiid_from_traceid(animalid, session, fov, traceid=traceid, rootdir=rootdir)
     # create outpath
     roidir = glob.glob(os.path.join(rootdir, animalid, session,
                         'ROIs', '%s*' % roiid))[0]

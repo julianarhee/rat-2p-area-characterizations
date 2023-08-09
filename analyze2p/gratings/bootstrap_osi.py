@@ -827,7 +827,8 @@ def get_tuning(datakey, run_name, return_iters=False,
             bootresults, fitparams = load_tuning_results(
                                         datakey=datakey,
                                         traceid_dir=traceid_dir,
-                                        fit_desc=fit_desc, verbose=verbose)
+                                        fit_desc=fit_desc, verbose=verbose,
+                                        rootdir=rootdir)
             assert fitparams is not None, "None returned"
             assert 'nonori_params' in fitparams.keys(), "Wrong results"
         except Exception as e:
@@ -959,7 +960,8 @@ def evaluate_tuning(datakey, run_name, traceid='traces001', fit_desc='', gof_thr
     session, animalid, fovnum = hutils.split_datakey_str(datakey)
     data_id = '%s\n%s' % ('|'.join([datakey, run_name]), fit_desc)
     bootresults, fitparams = load_tuning_results(datakey, run_name=run_name, 
-                                    fit_desc=fit_desc, rootdir=rootdir, verbose=verbose)
+                                    fit_desc=fit_desc, rootdir=rootdir, verbose=verbose,
+                                    rootdir=rootdir)
     # Evaluate metric fits
     fitdir = fitparams['directory']
     if not os.path.exists(os.path.join(fitdir, 'evaluation', 'gof-rois')):
@@ -1692,7 +1694,7 @@ def aggregate_ori_fits(CELLS, traceid='traces001', fit_desc=None,
             # Load tuning results
             fitresults, fitparams, is_missing = load_tuning_results(datakey=dk, 
                                             fit_desc=fit_desc, traceid=traceid,
-                                            return_missing=True)
+                                            return_missing=True, rootdir=rootdir)
             if is_missing or fitresults is None:
                 missing_fits.append((va, dk))
                 continue

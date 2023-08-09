@@ -43,7 +43,7 @@ def get_average_mag_across_pixels(datakey, retinorun=None,
     for retinorun in retinoruns:
         try:
             retinoid, RETID = load_retino_analysis_info(\
-                                datakey, retinorun, use_pixels=True, rootdir=rootdir)
+                                datakey, run=retinorun, use_pixels=True, rootdir=rootdir)
             assert RETID is not None, \
                 "Error loading analysis: %s (%s)" % (retinorun, datakey)
 
@@ -56,14 +56,14 @@ def get_average_mag_across_pixels(datakey, retinorun=None,
 
     return pd.DataFrame(magratios)
 
-def select_strongest_retinorun(projection_df):
+def select_strongest_retinorun(projection_df, rootdir='/n/coxfs01/2p-data'):
     d_=[]
     #m_=[]
     for (varea, dkey), g in projection_df.groupby(['visual_area', 'datakey']):
         if len(g['retinorun'].unique())>1:
             session, animalid, fovn = dkey.split('_')
             fov = 'FOV%i_zoom2p0x' % int(fovn[3:])
-            magratios = get_average_mag_across_pixels(animalid, session, fov)
+            magratios = get_average_mag_across_pixels(animalid, session, fov, rootdir=rootdir)
     #         means0 = pd.DataFrame({'retinorun': [m[0] for m in magratios],
     #                                'magratio': [m[1] for m in magratios]})
     #         means2 = g.groupby(['retinorun']).mean().reset_index()[['retinorun', 'R2']]
@@ -535,6 +535,10 @@ def load_retino_analysis_info(datakey, run='retino', roiid=None, retinoid=None,
             retinoid = sorted(roi_analyses, key=hutils.natural_keys)[-1]
         RID = rids[retinoid]
 
+        if rootdir != '/n/coxfs01/2p-data':
+            RID['DST'] = RID['DST'].replace('/n/coxfs01/2p-data', rootdir)
+
+
     except Exception as e:
         print(e)
         
@@ -624,8 +628,8 @@ def load_fft_results(datakey, retinorun='retino_run1', trace_type='corrected',
                             'FOV%i_*' % fovn, retinorun))
     try:
         # RETID = load_retinoanalysis(run_dir, traceid)
-        retinoid, RETID = load_retino_analysis_info(datakey, 
-                                    use_pixels=use_pixels, roiid=roiid)
+        retinoid, RETID = load_retino_analysis_info(datakey, run=retinorun,
+                                    use_pixels=use_pixels, roiid=roiid, rootdir=rootdir)
 
         assert RETID is not None
     except AssertionError as e: #Exception as e:
@@ -635,6 +639,9 @@ def load_fft_results(datakey, retinorun='retino_run1', trace_type='corrected',
         return None
 
     analysis_dir = RETID['DST']
+    #if rootdir != '/n/coxfs01/2p-data':
+    #    analysis_dir = analysis_dir.replace('/n/coxfs01/2p-data', rootdir)
+
     retinoid = RETID['analysis_id']
     if verbose:
         print("... Loaded: %s, %s (%s))" % (retinorun, retinoid, run_dir))
@@ -649,8 +656,8 @@ def load_fft_results(datakey, retinorun='retino_run1', trace_type='corrected',
 
     if create_new:
         # Load MW info and SI info
-        mwinfo = load_mw_info(datakey, retinorun)
-        scaninfo = get_protocol_info(datakey, run=retinorun) # load_si(run_dir)
+        mwinfo = load_mw_info(datakey, retinorun, rootdir=rootdir)
+        scaninfo = get_protocol_info(datakey, run=retinorun, rootdir=rootdir) # load_si(run_dir)
         tiff_paths = sorted(glob.glob(os.path.join(RETID['SRC'], '*.tif')), 
                                 key=hutils.natural_keys)
         if verbose:
@@ -665,10 +672,10 @@ def load_fft_results(datakey, retinorun='retino_run1', trace_type='corrected',
         # retino_dpath = os.path.join(analysis_dir, 'traces', 'extracted_traces.h5')
         np_traces = load_roi_traces(datakey, run=retinorun,
                             analysisid=retinoid, trace_type='neuropil', 
-                            detrend_after_average=detrend_after_average)
+                            detrend_after_average=detrend_after_average, rootdir=rootdir)
         soma_traces = load_roi_traces(datakey, run=retinorun,
                             analysisid=retinoid, trace_type=trace_type, 
-                            detrend_after_average=detrend_after_average)
+                            detrend_after_average=detrend_after_average, rootdir=rootdir)
         # Do fft
         n_frames = scaninfo['stimulus']['n_frames']
         frame_rate = scaninfo['stimulus']['frame_rate']
@@ -699,7 +706,7 @@ def load_fft_results(datakey, retinorun='retino_run1', trace_type='corrected',
 
 def get_retino_fft(datakey, curr_cells=None, traceid='traces001', 
                    mag_thr=None, delay_thr=None, create_new=False,
-                   use_pixels=False):
+                   use_pixels=False, rootdir='/n/coxfs01/2p-data'):
     '''
     Get retino phase/mag for AZ and EL by datakey and assigned cells.
     Set mag_thr to super low # if don't want to threshold yet.
@@ -711,13 +718,14 @@ def get_retino_fft(datakey, curr_cells=None, traceid='traces001',
     fov='FOV%i_zoom2p0x' % fovn
     try:
         roiid = roiutils.get_roiid_from_traceid(animalid, session, fov, 
-                                                traceid=traceid)
+                                                traceid=traceid, rootdir=rootdir)
     except Exception as e:
         print("[%s] Unable to get roiid (%s)" % (datakey, traceid))
         print(e)
         roiid=None
     # Select best retino run (if there are multiple)
-    all_retinos = get_average_mag_across_pixels(datakey)
+    all_retinos = get_average_mag_across_pixels(datakey, rootdir=rootdir)
+    retinorun=None
     try:
         retinorun = all_retinos.loc[all_retinos[1].idxmax()][0]
     except Exception as e:
@@ -727,7 +735,7 @@ def get_retino_fft(datakey, curr_cells=None, traceid='traces001',
     fft_results = load_fft_results(datakey, roiid=roiid,
                                     retinorun=retinorun, traceid=traceid, 
                                     create_new=create_new, 
-                                    use_pixels=use_pixels)
+                                    use_pixels=use_pixels, rootdir=rootdir)
     if fft_results is None:
         return None
 
@@ -806,24 +814,29 @@ def load_roi_traces(datakey, run='retino_run1', analysisid='analysis002',
     session, animalid, fovn = hutils.split_datakey_str(datakey)
     if verbose:
         print("... loading traces (%s)" % trace_type)
-    retinoid_path = glob.glob(os.path.join(rootdir, animalid, session, 
-                           'FOV%i_*' % fovn, '%s*' % run,
-                            'retino_analysis', 'analysisids_*.json'))[0]
-    with open(retinoid_path, 'r') as f:
-        RIDS = json.load(f)
-    eligible = [r for r, res in RIDS.items() if res['PARAMS']['roi_type']!='pixels']
-    if analysisid not in eligible:
-        print("Specified ID <%s> not eligible. Selecting 1st of %s"
-                    % (analysisid, str(eligible)))
-        analysisid = eligible[0]
+#    retinoid_path = glob.glob(os.path.join(rootdir, animalid, session, 
+#                           'FOV%i_*' % fovn, '%s*' % run,
+#                            'retino_analysis', 'analysisids_*.json'))[0]
+#    with open(retinoid_path, 'r') as f:
+#        RIDS = json.load(f)
+    retinoid, RETID = load_retino_analysis_info(datakey, run=run, retinoid=analysisid,
+                                    use_pixels=False, roiid=None, rootdir=rootdir)
 
-    analysis_dir = RIDS[analysisid]['DST']
+#    eligible = [r for r, res in RIDS.items() if res['PARAMS']['roi_type']!='pixels']
+#    if analysisid not in eligible:
+#        print("Specified ID <%s> not eligible. Selecting 1st of %s"
+#                    % (analysisid, str(eligible)))
+#        analysisid = eligible[0]
+
+    analysis_dir = RETID['DST'] #RIDS[analysisid]['DST']
+    if rootdir != '/n/coxfs01/2p-data':
+        analysis_dir = analysis_dir.replace('/n/coxfs01/2p-data', rootdir)
     if verbose:
         print("... loading traces from: %s" % analysis_dir)
     retino_dpath = os.path.join(analysis_dir, 'traces', 'extracted_traces.h5')
-    scaninfo = get_protocol_info(datakey, run=run)
+    scaninfo = get_protocol_info(datakey, run=run, rootdir=rootdir)
     if temporal_ds is None:
-        temporal_ds = RIDS[analysisid]['PARAMS']['downsample_factor']
+        temporal_ds = RETID['PARAMS']['downsample_factor'] #RIDS[analysisid]['PARAMS']['downsample_factor']
     traces = load_roi_traces_from_file(retino_dpath, scaninfo, trace_type=trace_type,
                                     temporal_ds=temporal_ds, 
                                     detrend_after_average=detrend_after_average)
