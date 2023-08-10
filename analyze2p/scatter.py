@@ -290,7 +290,8 @@ def plot_linear_fit_and_scatter(aligned_pix, regr_meas, x_var='ml_pos', y_var='x
 # Save deviants
 def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001', 
                  redo_fov=False, response_type='dff',  ecc_center=(0, 0), abs_value=False,
-                 do_spherical_correction=False, verbose=False, save_plots=False):
+                 do_spherical_correction=False, verbose=False, save_plots=False,
+                rootdir='/n/coxfs01/2p-data'):
     '''
     Finds true deviants per axis condition -- CIs per ROI vs. CIs for linear fit. 
     Only considered as deviant if this is true, and also, is "reliable" for position.
@@ -301,7 +302,8 @@ def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001',
                                 experiment=experiment, 
                                 traceid=traceid, 
                                 response_type=response_type,
-                                do_spherical_correction=do_spherical_correction)
+                                do_spherical_correction=do_spherical_correction,
+                                rootdir=rootdir)
                                     #fit_desc=fit_desc)   
     if eval_params is None:
         return None
@@ -336,7 +338,8 @@ def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001',
         fitrf_ = project_soma_position_in_fov(dk, va, experiment=experiment, 
                                 traceid=traceid, response_type=response_type,
                                 do_spherical_correction=do_spherical_correction, 
-                                ecc_center=ecc_center, abs_value=abs_value)
+                                ecc_center=ecc_center, abs_value=abs_value,
+                                rootdir=rootdir)
         rfs_ = fitrf_[fitrf_.reliable].copy()
         rfs_.index = rfs_['cell'].values
         reliable_ = rfs_['cell'].unique()        
@@ -600,8 +603,8 @@ def cycle_and_load_maps(dk_list, experiment='rfs', traceid='traces001',
 #---------------------------------------------------------------------
 # Functions to load NP from MOVING BAR
 # --------------------------------------------------------------------
-def get_best_retinorun(datakey):
-    all_retinos = retutils.get_average_mag_across_pixels(datakey)     
+def get_best_retinorun(datakey, rootdir='/n/coxfs01/2p-data'):
+    all_retinos = retutils.get_average_mag_across_pixels(datakey, rootdir=rootdir) 
     retinorun = all_retinos.iloc[all_retinos[1].idxmax()][0]
     #retinorun = all_retinos.loc[all_retinos[1].idxmax()][0] 
     return retinorun
@@ -610,10 +613,10 @@ def load_movingbar_results(dk, retinorun, traceid='traces001',
                         rootdir='/n/coxfs01/2p-data'):
     # load retinodata
     retinoid, RETID = retutils.load_retino_analysis_info(
-                        dk, run=retinorun, use_pixels=False)
+                        dk, run=retinorun, use_pixels=False, rootdir=rootdir)
     data_id = '_'.join([dk, retinorun, retinoid])
     #print("DATA ID: %s" % data_id)
-    scaninfo = retutils.get_protocol_info(dk, run=retinorun)
+    scaninfo = retutils.get_protocol_info(dk, run=retinorun, rootdir=rootdir)
 
     # Image dimensions
     d2_orig = scaninfo['pixels_per_line']
@@ -678,7 +681,7 @@ def adjust_retinodf(mvb_np, mag_thr=0.02):
 
 
 def load_neuropil_data(dk, retinorun, mag_thr=0.001, delay_map_thr=1.0, ds_factor=2,
-                    visual_areas=['V1', 'Lm', 'Li']):
+                    visual_areas=['V1', 'Lm', 'Li'], rootdir='/n/coxfs01/2p-data'):
     '''
     Wrapper for loading neuropil data from movingbar.
     Loads FFT results and calculates final retino pref. estimates for each NP mask.
@@ -692,7 +695,7 @@ def load_neuropil_data(dk, retinorun, mag_thr=0.001, delay_map_thr=1.0, ds_facto
     df = None
     # Load FFT results
     mags_soma, phases_soma, mags_np, phases_np, dims = load_movingbar_results(dk, 
-                                                                              retinorun)
+                                                            retinorun, rootdir=rootdir)
     # Get maps:  abs_vmin, abs_vmax = (-np.pi, np.pi)
     mvb_np = retutils.get_final_maps(mags_np, phases_np, 
                         trials_by_cond=None,
@@ -701,7 +704,7 @@ def load_neuropil_data(dk, retinorun, mag_thr=0.001, delay_map_thr=1.0, ds_facto
     # Filter bad responses
     df = adjust_retinodf(mvb_np.dropna().copy(), mag_thr=mag_thr)
     # Add cell position info
-    df = add_position_info(df, dk, 'retino', retinorun=retinorun)
+    df = add_position_info(df, dk, 'retino', retinorun=retinorun, rootdir=rootdir)
 
     return df
 
@@ -709,6 +712,7 @@ def load_neuropil_data(dk, retinorun, mag_thr=0.001, delay_map_thr=1.0, ds_facto
 # Gradient functions
 # --------------------------------------------------------------------
 def get_smoothed_area_map(dk, va, create_new=False, map_type='final',
+                        pix_mag_thr=0.002, delay_thr=1, target_sigma_um=25, 
                         rootdir='/n/coxfs01/2p-data'):
 
     '''
@@ -747,8 +751,11 @@ def get_smoothed_area_map(dk, va, create_new=False, map_type='final',
             print("    found maps: %s" % str(list(maps.keys()))) 
      
     if create_new:
-        retinorun = get_best_retinorun(dk)
-        sm_azim, sm_elev = smooth_within_area_mask(dk, va, retinorun)
+        retinorun = get_best_retinorun(dk, rootdir=rootdir)
+        sm_azim, sm_elev = smooth_within_area_mask(dk, va, retinorun,
+                                pix_mag_thr=pix_mag_thr, delay_map_thr=delay_thr,
+                                target_sigma_um=target_sigma_um, create_new=create_new,
+                                rootdir=rootdir)
         # Save for visual area
         new_maps = {'final_az': sm_azim['final'], 'final_el': sm_elev['final'], 
                     'start_az': sm_azim['input'], 'start_el': sm_elev['input'],
@@ -762,15 +769,22 @@ def get_smoothed_area_map(dk, va, create_new=False, map_type='final',
 
     return AZMAP_NP, ELMAP_NP
 
-def smooth_within_area_mask(dk, va, retinorun):
+def smooth_within_area_mask(dk, va, retinorun, create_new=False,
+                            pix_mag_thr=0.002, delay_map_thr=1, target_sigma_um=25,
+                            rootdir='/n/coxfs01/2p-data'):
     '''
     Load original pixel maps, do smoothing WITHIN area (segmentation results).
     '''
-    # Load original image
-    pmaps, pparams = seg.get_processed_maps(dk, retinorun=retinorun, create_new=False)
+    # Load original image - if want to adjust mag_thr or delay_thr, need to run
+    # seg.get_processed_maps(), create_new=True
+
+    pmaps, pparams = seg.get_processed_maps(dk, retinorun=retinorun, create_new=create_new,
+                                        pix_mag_thr=pix_mag_thr, delay_map_thr=delay_map_thr,
+                                            rootdir=rootdir)
 
     # Load segmentation and mask for current visual area
-    seg_results, seg_params = seg.load_segmentation_results(dk, retinorun=retinorun)
+    seg_results, seg_params = seg.load_segmentation_results(dk, retinorun=retinorun,
+                                            rootdir=rootdir)
     segmented_areas = seg_results['areas']
     area_results = segmented_areas[va].copy()
     curr_segmented_mask = area_results['mask']
@@ -786,7 +800,7 @@ def smooth_within_area_mask(dk, va, retinorun):
     thr_img_el[curr_segmented_mask==0] = np.nan     
     # -------
     smooth_spline=1
-    target_sigma_um=25 # 
+    target_sigma_um=target_sigma_um # 
     sm_azim, sm_elev = seg.smooth_maps(thr_img_az, thr_img_el, 
                                 target_sigma_um=target_sigma_um, #smooth_fwhm=smooth_fwhm, 
                                 smooth_spline=(smooth_spline, smooth_spline), 
@@ -849,6 +863,7 @@ def load_neuropil_background(datakey, retinorun, map_type='final', protocol='BAR
     return az_map, el_map
 
 def load_pixel_maps(dk, va, create_new=False, map_type='final',
+                        pix_mag_thr=0.002, delay_thr=1, target_sigma_um=25,
                         rootdir='/n/coxfs01/2p-data'):
     '''
     create_new: (bool)
@@ -860,7 +875,10 @@ def load_pixel_maps(dk, va, create_new=False, map_type='final',
         'start' -- input map (filtered, no smooth)
     '''
     # Get smoothed background from pixel map (within area)
-    az_, el_ = get_smoothed_area_map(dk, va, create_new=create_new, map_type=map_type)
+    az_, el_ = get_smoothed_area_map(dk, va, create_new=create_new, map_type=map_type,
+                                    pix_mag_thr=pix_mag_thr, delay_thr=delay_thr, 
+                                    target_sigma_um=target_sigma_um,
+                                    rootdir=rootdir)
         
     # screen info
     screen = hutils.get_screen_dims()
@@ -877,6 +895,7 @@ def load_pixel_maps(dk, va, create_new=False, map_type='final',
 
 
 def load_gradients(dk, va, retinorun='retino_run1', create_new=False,
+                    pix_mag_thr=0.002, delay_thr=1, target_sigma_um=25,
                     rootdir='/n/coxfs01/2p-data'):
     '''
     Load gradient results for specified visual area and run.
@@ -921,16 +940,19 @@ def load_gradients(dk, va, retinorun='retino_run1', create_new=False,
     if create_new:
         print("... calculating global gradients (%s, %s)" % (dk, va))
         # Load area segmentation results 
-        seg_results, seg_params = seg.load_segmentation_results(dk, retinorun=retinorun)
+        seg_results, seg_params = seg.load_segmentation_results(dk, retinorun=retinorun,
+                                        rootdir=rootdir)
         segmented_areas = seg_results['areas']
-        region_props = seg_results['region_props']
+        #region_props = seg_results['region_props']
         assert va in segmented_areas.keys(), \
             "Visual area <%s> not in region. Found: %s" % (va, str(segmented_areas.keys())) 
         curr_area_mask = segmented_areas[va]['mask'].copy()
 
         # Load pixel map
         AZMAP_NP, ELMAP_NP = load_pixel_maps(dk, va, create_new=create_new, 
-                                            map_type='final')
+                                            pix_mag_thr=pix_mag_thr, delay_thr=delay_thr,
+                                            target_sigma_um=target_sigma_um,
+                                            map_type='final', rootdir=rootdir)
         # Load NP masks
 #        AZMAP_NP, ELMAP_NP = load_neuropil_background(dk, retinorun,
 #                                            map_type='final', protocol='BAR')
@@ -1208,7 +1230,8 @@ def update_models(dk, va, REGR_NP, #create_new=False,
 
     return
 
-def add_position_info(df, dk, experiment, retinorun='retino_run1'):
+def add_position_info(df, dk, experiment, retinorun='retino_run1', 
+                        rootdir='/n/coxfs01/2p-data'):
     '''
     Correctly assign visual area to each cell based on segmentation results,
     specify RETINORUN for loading roi assignemnts.
@@ -1217,14 +1240,14 @@ def add_position_info(df, dk, experiment, retinorun='retino_run1'):
     # Add pos info to NP masks
     df['cell'] = df.index.tolist()
     # Assign va to each cell
-    roi_assignments = seg.load_roi_assignments(dk, retinorun=retinorun)
+    roi_assignments = seg.load_roi_assignments(dk, retinorun=retinorun, rootdir=rootdir)
     df['visual_area'] = None
     for va, rois_ in roi_assignments.items():
         df.loc[df['cell'].isin(rois_), 'visual_area'] = str(va)
     # Add other meta info
     df = hutils.add_meta_to_df(df, {'datakey': dk,
                                     'experiment': experiment})
-    df = aggr.add_roi_positions(df)
+    df = aggr.add_roi_positions(df, rootdir=rootdir)
 
     return df
 
@@ -1234,7 +1257,8 @@ def add_position_info(df, dk, experiment, retinorun='retino_run1'):
 def project_soma_position_in_fov(dk, va, experiment='rfs', traceid='traces001', 
         response_type='dff', do_spherical_correction=False, 
         pass_criterion='position', 
-        return_transformation=False, ecc_center=(0, 0), abs_value=False):
+        return_transformation=False, ecc_center=(0, 0), abs_value=False,
+        rootdir='/n/coxfs01/2p-data'):
     '''
     Simplified function: load G-vectors only, align soma coords. 
     Prev called  get_projected_soma_rfs()
@@ -1248,13 +1272,14 @@ def project_soma_position_in_fov(dk, va, experiment='rfs', traceid='traces001',
 
     '''
     # Load gradient vectors
-    GVECTORS = load_vectors(dk, va, create_new=False)
+    GVECTORS = load_vectors(dk, va, create_new=False, rootdir=rootdir)
     # Load soma data w/ RF fits
     df_soma = load_soma_data(dk, experiment=experiment,
                                 protocol='TILE', traceid=traceid,
                                 response_type=response_type,
                                 do_spherical_correction=do_spherical_correction, 
-                                ecc_center=ecc_center, pass_criterion=pass_criterion)
+                                ecc_center=ecc_center, pass_criterion=pass_criterion,
+                                rootdir=rootdir)
     if df_soma is None:
         return None
 
@@ -1276,7 +1301,8 @@ def load_soma_data(dk, experiment='rfs', retinorun='retino_run1',
                         response_type='dff', 
                         do_spherical_correction=False, fit_thr=0.5,
                         pass_criterion='position',
-                        mag_thr=0.01, ecc_center=(0, 0), verbose=False):
+                        mag_thr=0.01, ecc_center=(0, 0), verbose=False,
+                        rootdir='/n/coxfs01/2p-data'):
     '''
     Load SOMA data (and visual_area assignemnts) -- if TILE, includes reliable or not.
     **Specify RETINORUN for correct roi assignments .
@@ -1288,7 +1314,7 @@ def load_soma_data(dk, experiment='rfs', retinorun='retino_run1',
         delay_map_thr=1.0
         ds_factor=2
         mags_soma, phases_soma, mags_np, phases_np, dims = load_movingbar_results(dk, 
-                                                                    retinorun)
+                                                                retinorun, rootdir=rootdir)
         # #### Get maps:  abs_vmin, abs_vmax = (-np.pi, np.pi)
         mvb_soma = retutils.get_final_maps(mags_soma, phases_soma, 
                             trials_by_cond=None,
@@ -1303,7 +1329,7 @@ def load_soma_data(dk, experiment='rfs', retinorun='retino_run1',
         fit_desc = rfutils.get_fit_desc(response_type=response_type,
                                 do_spherical_correction=do_spherical_correction)
         fitdf_soma = rfutils.load_rf_fits(dk, experiment=experiment, fit_desc=fit_desc,
-                                        ecc_center=ecc_center)
+                                        ecc_center=ecc_center, rootdir=rootdir)
         if fitdf_soma is None:
             return None
 
@@ -1315,7 +1341,7 @@ def load_soma_data(dk, experiment='rfs', retinorun='retino_run1',
             eval_results, eval_params = rfutils.load_eval_results(dk,
                                             experiment=experiment, 
                                             traceid=traceid, 
-                                            fit_desc=fit_desc)   
+                                            fit_desc=fit_desc, rootdir=rootdir)   
             if eval_results is not None:                
                 # check if all params within 95% CI
                 reliable_rois = rfutils.get_reliable_fits(eval_results['pass_cis'],
@@ -1330,7 +1356,8 @@ def load_soma_data(dk, experiment='rfs', retinorun='retino_run1',
         fitdf_soma.loc[reliable_rois, 'reliable'] = True
         
     # Add pos info to NP masks
-    df = add_position_info(fitdf_soma.copy(), dk, experiment, retinorun=retinorun)
+    df = add_position_info(fitdf_soma.copy(), dk, experiment, retinorun=retinorun,
+                            rootdir=rootdir)
 
     return df.reset_index(drop=True)
 
@@ -1505,7 +1532,9 @@ def load_vectors(dk, va, create_new=False,
  
     return GVECTORS
 
-def load_vectors_and_maps(dk, va, create_new=False):
+def load_vectors_and_maps(dk, va, create_new=False, 
+                        pix_map_thr=0.001, delay_thr=1, target_sigma_um=25,
+                        rootdir='/n/coxfs01/2p-data'):
     '''
     If create_new, re-calculates gradients from saved image (loads gradients_results.pkl).
     
@@ -1524,8 +1553,10 @@ def load_vectors_and_maps(dk, va, create_new=False):
         Gradient vectors for azimuth and elevation
 
     '''
-    retinorun = get_best_retinorun(dk)
-    gresults = load_gradients(dk, va, retinorun, create_new=create_new)
+    retinorun = get_best_retinorun(dk, rootdir=rootdir)
+    gresults = load_gradients(dk, va, retinorun, create_new=create_new, 
+                                pix_map_thr=pix_map_thr, delay_thr=delay_thr,
+                                target_sigma_um=target_sigma_um, rootdir=rootdir)
     
     AZMAP_NP = gresults['az_gradients']['image']
     ELMAP_NP = gresults['el_gradients']['image']
@@ -1536,7 +1567,7 @@ def load_vectors_and_maps(dk, va, create_new=False):
 
 
 
-def plot_gradients(dk, va, retinorun, cmap='Spectral'):
+def plot_gradients(dk, va, retinorun, cmap='Spectral', rootdir='/n/coxfs01/2p-data'):
     # Gradient plot
     spacing =200
     scale = 0.0001 #0.0001
@@ -1546,7 +1577,7 @@ def plot_gradients(dk, va, retinorun, cmap='Spectral'):
     contour_lw=1
 
     # load
-    gresults = load_gradients(dk, va, retinorun, create_new=False)
+    gresults = load_gradients(dk, va, retinorun, create_new=False, rootdir=rootdir)
     grad_az = gresults['az_gradients']
     grad_el = gresults['el_gradients']
     AZMAP_NP = grad_az['image']
@@ -1665,7 +1696,8 @@ def get_gradient_results(dk, va, return_best=False,
 
     #### Load NEUROPIL BACKGROUND and GRADIENTS
     print("... loading gradient vectors (%s, %s)" % (dk, va))
-    retinorun, AZMAP_NP, ELMAP_NP, GVECTORS = load_vectors_and_maps(dk, va, create_new=do_gradients)
+    retinorun, AZMAP_NP, ELMAP_NP, GVECTORS = load_vectors_and_maps(dk, va, 
+                                                    create_new=do_gradients, rootdir=rootdir)
     if plot:
         fig = plot_gradients(dk, va, retinorun, cmap=cmap)
         fig.text(0.05, 0.95, 'Gradients, est. from MOVINGBAR\n(%s, %s)' % (dk, va), fontsize=8)
@@ -1687,12 +1719,12 @@ def get_gradient_results(dk, va, return_best=False,
         print("... estimating linear fit (%s, %s)" % (dk, va))
         # Align NP to gradient vectors in current visual area
         aligned_np, regr_np_post, regr_np_meas = transform_and_fit_pixels(dk, va, retinorun, 
-                                                            GVECTORS, create_new=True)
+                                                 GVECTORS, create_new=True, rootdir=rootdir)
 #        aligned_np, regr_np_post, regr_np_meas = transform_and_fit_neuropil(dk, va, retinorun,
 #                                                GVECTORS,
 #                                                mag_thr=np_mag_thr, 
 #                                                delay_map_thr=np_delay_map_thr, 
-#                                                ds_factor=np_ds_factor) 
+#                                                ds_factor=np_ds_factor, rootdir=rootdir) 
         # Save
         regr_np_meas['aligned'] = False
         regr_np_post['aligned'] = True
@@ -1734,6 +1766,7 @@ def get_gradient_results(dk, va, return_best=False,
 
 
 def transform_and_fit_pixels(dk, va, retinorun, GVECTORS, create_new=False,
+                    pix_mag_thr=0.002, delay_thr=1, target_sigma_um=25,
                     rootdir='/n/coxfs01/2p-data'):
 
     session, animalid, fovn = hutils.split_datakey_str(dk)
@@ -1757,7 +1790,10 @@ def transform_and_fit_pixels(dk, va, retinorun, GVECTORS, create_new=False,
 
     if create_new: 
         # Get smoothed background maps for area
-        AZMAP_NP, ELMAP_NP = load_pixel_maps(dk, va, create_new=False, map_type='final')
+        AZMAP_NP, ELMAP_NP = load_pixel_maps(dk, va, create_new=create_new, map_type='final',
+                                            pix_mag_thr=pix_mag_thr, delay_thr=delay_thr,
+                                            target_sigma_um=target_sigma_um,
+                                            rootdir=rootdir)
 
         # Get coordinates of each pixel
         d1, d2 = ELMAP_NP.shape
@@ -1835,7 +1871,8 @@ def plot_pre_and_post_pixel_alignment(aligned_pix, regr_proj, regr_meas,
 
 
 def transform_and_fit_neuropil(dk, va, retinorun, GVECTORS,abs_value=False,
-                        mag_thr=0.001, delay_map_thr=1.0, ds_factor=2):
+                        mag_thr=0.001, delay_map_thr=1.0, ds_factor=2, 
+                        rootdir='/n/coxfs01/2p-data'):
     '''
     Align NEUROPIL retino preferences (each ROI's neuropil) to gradient vectors
     calculated for curent visual area. 
@@ -1858,7 +1895,7 @@ def transform_and_fit_neuropil(dk, va, retinorun, GVECTORS,abs_value=False,
     # 1. Get retino data for NEUROPIL (background)
     retinodf_np = load_neuropil_data(dk, retinorun, mag_thr=mag_thr, 
                                         delay_map_thr=delay_map_thr, 
-                                        ds_factor=ds_factor)
+                                        ds_factor=ds_factor, rootdir=rootdir)
 
     if retinodf_np is None:
         return None
@@ -1886,7 +1923,8 @@ def predict_soma_from_gradient(dk, va, REGR_NP, experiment='rfs',
                     response_type='dff', do_spherical_correction=False,
                     pass_criterion='position',
                     ecc_center=(0, 0), abs_value=False,
-                    verbose=False, plot=False, plot_dst_dir='/tmp'):
+                    verbose=False, plot=False, plot_dst_dir='/tmp',
+                    rootdir='/n/coxfs01/2p-data'):
     '''
     Using gradient vectors, project FOV coords along retino gradients.
     If protocol=='TILE', then will also calculate deg/dist scatter.
@@ -1899,7 +1937,7 @@ def predict_soma_from_gradient(dk, va, REGR_NP, experiment='rfs',
                             do_spherical_correction=do_spherical_correction,
                             pass_criterion=pass_criterion,
                             return_transformation=True, ecc_center=ecc_center, 
-                            abs_value=abs_value)
+                            abs_value=abs_value, rootdir=rootdir)
     if aligned_soma.shape[0]<2:
         return None
 
@@ -1976,7 +2014,8 @@ def overlay_scatter(dk, va, df_, AZMAP_NP, ELMAP_NP, experiment='rfs',
                      traceid='traces001', single_axis=True,
                     markersize=50, lw=0.5, alpha=1, cmap='Spectral', 
                     plot_true=True, plot_predicted=True, plot_lines=True,
-                    return_fig=False, plot_dst_dir=None, data_id=None):
+                    return_fig=False, plot_dst_dir=None, data_id=None, 
+                    rootdir='/n/coxfs01/2p-data'):
     '''
     Scatter overlay on top of smoothed background.
     Prev. called do_visualization()
@@ -1984,7 +2023,7 @@ def overlay_scatter(dk, va, df_, AZMAP_NP, ELMAP_NP, experiment='rfs',
     if data_id is None:
         data_id = '%s|%s|%s, %s' % (traceid, va, dk, experiment)
     # # Visualization
-    zimg, masks, ctrs = roiutils.get_masks_and_centroids(dk, traceid=traceid)
+    zimg, masks, ctrs = roiutils.get_masks_and_centroids(dk, traceid=traceid, rootdir=rootdir)
     pixel_size = hutils.get_pixel_size()
     zimg_r = retutils.transform_2p_fov(zimg, pixel_size)
     fig = plot_scatter_on_fov(df_, AZMAP_NP, ELMAP_NP, zimg_r=zimg_r,

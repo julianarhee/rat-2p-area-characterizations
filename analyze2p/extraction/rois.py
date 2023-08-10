@@ -219,7 +219,7 @@ def get_masks_and_centroids(dk, traceid='traces001',
     zimg = zimg[:, :, 1]
     # Load masks for centroids
     masks, _ = load_roi_masks(animalid, session, fov, rois=roiid, 
-                                       rois_first=True)
+                                       rois_first=True, rootdir=rootdir)
     # Get centroids, better for plotting
     centroids =  calculate_roi_centroids(masks, xlabel=xlabel, ylabel=ylabel)
 

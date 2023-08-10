@@ -128,7 +128,8 @@ def get_processed_maps(datakey, retinorun='retino_run1',
         # Load data metainfo
         print("Current run: %s" % retinorun)
         retinoid, RETID = retutils.load_retino_analysis_info(datakey, retinorun, 
-                                                             use_pixels=True)
+                                                             use_pixels=True,
+                                                            rootdir=rootdir)
         data_id = '_'.join([datakey, retinorun, retinoid])
         print("DATA ID: %s" % data_id)
        
@@ -138,12 +139,12 @@ def get_processed_maps(datakey, retinorun='retino_run1',
             os.makedirs(curr_dst_dir)
             print(curr_dst_dir)
         # Load MW info and SI info
-        mwinfo = retutils.load_mw_info(datakey, retinorun)
-        scaninfo = retutils.get_protocol_info(datakey, run=retinorun) 
+        mwinfo = retutils.load_mw_info(datakey, retinorun, rootdir=rootdir)
+        scaninfo = retutils.get_protocol_info(datakey, run=retinorun, rootdir=rootdir) 
         trials_by_cond = scaninfo['trials']
      
         # Get run results
-        magratio, phase, trials_by_cond = retutils.fft_results_by_trial(RETID)
+        magratio, phase, trials_by_cond = retutils.fft_results_by_trial(RETID, rootdir=rootdir)
         d2 = scaninfo['pixels_per_line']
         d1 = scaninfo['lines_per_frame']
         print("Original dims: [%i, %i]" % (d1, d2))

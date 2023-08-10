@@ -862,7 +862,8 @@ def select_best_fovs(counts_by_fov, criterion='max', colname='cell'):
 
 # ------------------------------------------------
 
-def add_roi_positions(rfdf, calculate_position=False, traceid='traces001'):
+def add_roi_positions(rfdf, calculate_position=False, traceid='traces001', 
+                    rootdir='/n/coxfs01/2p-data'):
     '''
     Add ROI position info to RF dataframe (converted and pixel-based).
     Set calculate_position=True, to re-calculate. 
@@ -883,7 +884,7 @@ def add_roi_positions(rfdf, calculate_position=False, traceid='traces001'):
         session, animalid, fovnum = hutils.split_datakey_str(dk)
         try:
             fcoords = roiutils.get_roi_coords(animalid, session, 'FOV%i_zoom2p0x' % fovnum,
-                                      traceid=traceid, create_new=False)
+                                      traceid=traceid, create_new=False, rootdir=rootdir)
             cell_ids = np.array(g['cell'].values) #unique()
             p_ = fcoords['roi_positions'].loc[cell_ids].copy()
             for p in pos_params:
