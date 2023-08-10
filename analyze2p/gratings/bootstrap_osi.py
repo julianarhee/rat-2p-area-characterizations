@@ -960,7 +960,7 @@ def evaluate_tuning(datakey, run_name, traceid='traces001', fit_desc='', gof_thr
     session, animalid, fovnum = hutils.split_datakey_str(datakey)
     data_id = '%s\n%s' % ('|'.join([datakey, run_name]), fit_desc)
     bootresults, fitparams = load_tuning_results(datakey, run_name=run_name, 
-                                    fit_desc=fit_desc, rootdir=rootdir, verbose=verbose,
+                                    fit_desc=fit_desc, verbose=verbose,
                                     rootdir=rootdir)
     # Evaluate metric fits
     fitdir = fitparams['directory']
