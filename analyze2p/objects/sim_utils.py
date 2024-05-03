@@ -447,7 +447,8 @@ def load_rfpolys(fit_desc, combine_method='average',
 
 def update_rfpolys(rfdf, fit_desc, combine_method='average', create_new=False,
             limit_screen=True, save=True,       
-            aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+            #aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+            aggregate_dir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/julianarhee/aggregate-visual-areas'):
     # Set output file
     dst_dir = os.path.join(aggregate_dir, 'receptive-fields', 'dataframes')
     if not os.path.exists(dst_dir):
@@ -541,7 +542,8 @@ def rf_mask_to_screen(x0, y0, fwhm_x, fwhm_y, theta, resolution=[1080, 1920]):
 
 def get_stimulus_polys(dk, experiment='blobs', create_new=False,
                     return_onscreen=False, verbose=False,
-                    rootdir='/n/coxfs01/2p-data'):
+                    #rootdir='/n/coxfs01/2p-data'):
+                    rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
     ''' 
     Loads or creates shapely Polygons for all images on screen.
     Args

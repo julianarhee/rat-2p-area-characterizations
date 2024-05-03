@@ -46,12 +46,12 @@ from analyze2p.arousal import dlc_utils as dlcutils
 import analyze2p.arousal.with_neural as arous
 
 
-import psignifit as ps
+#import psignifit as ps
 
 
 from inspect import currentframe, getframeinfo
-from pandas.core.common import SettingWithCopyError
-pd.options.mode.chained_assignment='warn' #'raise' # 'warn'
+#from pandas.core.common import SettingWithCopyError
+#pd.options.mode.chained_assignment='warn' #'raise' # 'warn'
 
 
 # ======================================================================

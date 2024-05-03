@@ -1005,7 +1005,8 @@ def get_fit_dpaths(dsets, traceid='traces001', fit_desc=None,
                                          'JC080_20190602_fov1',
                                          'JC113_20191108_fov1', 
                                          'JC113_20191108_fov2'],
-                    rootdir='/n/coxfs01/2p-data'):
+                    #rootdir='/n/coxfs01/2p-data'):
+                   rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
     '''
     rfdata: (dataframe)
         Metadata (subset of 'sdata') of all datasets to include in current analysis
@@ -1084,7 +1085,8 @@ def aggregate_rfdata(rf_dsets, assigned_cells, traceid='traces001',
 
 def aggregate_fits(cells0, sdata, response_type='dff', do_spherical_correction=False,
             reliable_only=False, pass_criterion='all', combine='average', ecc_center=(0, 0),
-            rootdir='/n/coxfs01/2p-data'):
+            #rootdir='/n/coxfs01/2p-data'):
+            rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
     '''
     Combines all RF fit params.
     Args:

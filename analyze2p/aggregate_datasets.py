@@ -122,8 +122,10 @@ def load_split_pupil_input(animalid, session, fovnum, curr_id='results_id',
 #    return sdf
 #
 
-def get_stimuli(datakey, experiment, match_names=False,  
-                    rootdir='/n/coxfs01/2p-data', verbose=False):
+def get_stimuli(datakey, experiment, match_names=False, verbose=False,
+                rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
+                    #rootdir='/n/coxfs01/2p-data', verbose=False):
+    
     '''
     Get stimulus info for a given experiment and imaging site.
 
@@ -176,7 +178,9 @@ def get_stimuli(datakey, experiment, match_names=False,
 
 def check_sdfs_gratings(dkey_list, experiment='gratings',
                     rename=False, return_incorrect=False, return_all=False, 
-                    verbose=False, as_dict=False, rootdir='/n/coxfs01/2p-data'):
+                    verbose=False, as_dict=False, 
+                    rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
+                        #rootdir='/n/coxfs01/2p-data'):
     '''
     Return all SDFs (as df or dict)
     
@@ -256,7 +260,9 @@ def check_sdfs_gratings(dkey_list, experiment='gratings',
         return SDF
 
 def get_master_sdf(experiment='blobs', images_only=False, rename=False,
-                    rootdir='/n/coxfs01/2p-data'):
+                    #rootdir='/n/coxfs01/2p-data'):
+                    rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
+
     '''
     Get "standard" stimulus info.
     '''
@@ -296,7 +302,9 @@ def convert_value_to_level(sdf):
 
 def check_sdfs(stim_datakeys, experiment='blobs', images_only=False, 
                 rename=True, return_incorrect=False, return_all=False,
-                as_dict=False, verbose=False, rootdir='/n/coxfs01/2p-data'):
+                as_dict=False, verbose=False, 
+               rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
+               #rootdir='/n/coxfs01/2p-data'):
     '''
     return_all: (bool)
         Final SDF (dict or datafram) should include even incorrect ones
@@ -348,7 +356,8 @@ def check_sdfs(stim_datakeys, experiment='blobs', images_only=False,
 def check_sdfs_blobs(stim_datakeys, images_only=False, return_all=False,
                 rename=True, return_incorrect=False, as_dict=False,
                 diff_configs=['20190314_JC070_fov1', '20190327_JC073_fov1'],
-                verbose=False, rootdir='/n/coxfs01/2p-data'):
+                verbose=False, #rootdir='/n/coxfs01/2p-data'):
+                rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
     '''
     Checks config names and reutrn master dict of all stimconfig dataframes
     Notes: only tested with blobs, and renaming only works with blobs.
@@ -411,7 +420,8 @@ def check_sdfs_blobs(stim_datakeys, images_only=False, return_all=False,
     else:
         return SDF
 
-def match_config_names(sdf_o, experiment='blobs', rootdir='/n/coxfs01/2p-data'):
+def match_config_names(sdf_o, experiment='blobs', #rootdir='/n/coxfs01/2p-data'):
+                       rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
     '''
     Make sure config labels are the same/matching to master cfgs.
     sdf_o is the original sdf (loaded from data arrays).
@@ -451,7 +461,8 @@ def match_config_names(sdf_o, experiment='blobs', rootdir='/n/coxfs01/2p-data'):
     return updated_keys #sdf_new
 
 def select_stimulus_configs(datakey, experiment, select_stimuli=None, 
-            rename=False, rootdir='/n/coxfs01/2p-data'):
+            rename=False, #rootdir='/n/coxfs01/2p-data'):
+            rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
     '''
     Load configs for datakey and experiment.
 
@@ -1062,8 +1073,10 @@ def load_responsive_neuraldata(experiment, meta=None, traceid='traces001',
                       response_type='dff', trial_epoch='plushalf',
                       responsive_test='nstds', responsive_thr=10,n_stds=2.5,
                       retino_thr=0.01, retino_delay=0.5, redo_retino=False,
-                    rootdir='/n/coxfs01/2p-data',
-                    aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                    #rootdir='/n/coxfs01/2p-data',
+                    #aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                    rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data',
+                               aggregate_dir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/julianarhee/aggregate-visual-areas'):
 
     '''
     Load ALL aggregate data for ALL FOV, with correctly assigned cells (NDATA).
@@ -1308,8 +1321,10 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
                 visual_areas=['V1', 'Lm', 'Li'], 
                 return_cells=False, create_new=False,
                 return_missing=False,
-                rootdir='/n/coxfs01/2p-data',
-                aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                rootdir = '/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data',
+                aggregate_dir = '/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/julianarhee/aggregate-visual-areas'):
+                #rootdir='/n/coxfs01/2p-data',
+                #aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
 
     # bad segmentation
     excluded_datasets = datasets_to_exclude()
@@ -1391,8 +1406,9 @@ def get_aggregate_info(traceid='traces001', fov_type='zoom2p0x', state='awake',
 
 def get_aggregate_filepath(experiment, traceid='traces001', response_type='dff', 
                         epoch='stimulus', 
-                       responsive_test='ROC', responsive_thr=0.05, n_stds=0.0,
-                       aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                       responsive_test='ROC', responsive_thr=0.05, n_stds=0.0,  
+                       #aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+            aggregate_dir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/julianarhee/aggregate-visual-areas'):
     '''Get filepath for specified aggregate data
     (prev called get_aggregate_data_filepath()
     '''
@@ -1423,8 +1439,10 @@ def get_aggregate_retinodata(meta=None, traceid='traces001',
                         mag_thr=None, delay_thr=None, return_missing=False,
                         visual_areas=['V1', 'Lm', 'Li'],
                         create_new=False, redo_fov=False,
-                        rootdir='/n/coxfs01/2p-data',
-                        aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                        #rootdir='/n/coxfs01/2p-data',
+                        #aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                        rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data',
+                                             aggregate_dir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/julianarhee/aggregate-visual-areas'):
     '''
     Load or create aggregate retinodata for all datasets specified.
     Includes ALL assigned cells (ret_cells). 
@@ -1504,8 +1522,10 @@ def get_aggregate_data(experiment, meta=None, traceid='traces001',
                     rename_configs=True, equalize_now=False, zscore_now=False,
                     return_configs=False, images_only=False, 
                     diff_configs = ['20190327_JC073_fov1', '20190314_JC070_fov1'], # 20190426_JC078 (LM, backlight)
-                    rootdir='/n/coxfs01/2p-data',
-                    aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas',
+                    rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data',
+                                   aggregate_dir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/julianarhee/aggregate-visual-areas',
+                    #rootdir='/n/coxfs01/2p-data',
+                    #aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas',
                     visual_areas=['V1','Lm', 'Li'], verbose=False):
     '''
     Oldv:  
@@ -1615,8 +1635,10 @@ def load_aggregate_data(experiment, traceid='traces001',
                     rename_configs=True, equalize_now=False, zscore_now=False,
                     return_configs=False, images_only=False, verbose=False,
             diff_configs = ['20190327_JC073_fov1', '20190314_JC070_fov1'], # 20190426_JC078 (LM, backlight)
-            rootdir='/n/coxfs01/2p-data',
-            aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+            #rootdir='/n/coxfs01/2p-data',
+            #aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                    rootdir='/n/coxfs01/2p-data',
+                    aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     '''
     Return dict of neural dataframes (keys are datakeys).
 
@@ -2382,8 +2404,10 @@ def aggregate_and_save(experiment, traceid='traces001',
                        responsive_test='ROC', responsive_thr=0.05, n_stds=2.5, 
                        create_new=False, redo_stats=False, redo_fov=False,
                        always_exclude=['20190426_JC078'], n_processes=1,
-                        rootdir='/n/coxfs01/2p-data',
-                       aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                       #rootdir='/n/coxfs01/2p-data',
+                       #aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                    rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01',
+                    aggregate_dir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/julianarhee/aggregate-visual-areas'):
     '''
     create_new: remake aggregate file
     redo_stats: for each loaded FOV, re-calculate stats 

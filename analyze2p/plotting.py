@@ -869,17 +869,17 @@ def stripplot_metric_by_area(plotdf, metric='morph_sel', markersize=1,
         #for ai, metric in enumerate(plot_params):
         sns.stripplot(x='visual_area', y=metric, data=plotdf, ax=ax,
                     hue='visual_area', palette=area_colors, order=visual_areas, 
-                    marker=marker, size=markersize, zorder=-10000, jitter=jitter)
+                    marker=marker, size=markersize, jitter=jitter) #zorder=-10000, 
         if plot_means:
             if mean_style=='point':
                 sns.pointplot(x='visual_area', y=metric, data=plotdf, ax=ax,
                             color='k', order=visual_areas, scale=scale,
                             hue='visual_area', estimator=estimator,
-                            markers='_', errwidth=errwidth, zorder=10000, ci='sd')
+                            markers='_', errwidth=errwidth, ci='sd') #zorder=10000, 
             else:
                 sns.barplot(x='visual_area', y=metric, data=plotdf, ax=ax,
                        order=visual_areas, color=[0.8]*3, ecolor='w', ci=None,
-                       zorder=-1000000, estimator=estimator)
+                       estimator=estimator) # zorder=-1000000, 
 
         sts = pg.pairwise_ttests(data=plotdf, dv=metric, between='visual_area', 
                       parametric=False, padjust=posthoc, effsize='eta-square')
