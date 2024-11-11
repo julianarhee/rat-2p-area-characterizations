@@ -1533,7 +1533,7 @@ def load_vectors(dk, va, create_new=False,
     return GVECTORS
 
 def load_vectors_and_maps(dk, va, create_new=False, 
-                        pix_map_thr=0.001, delay_thr=1, target_sigma_um=25,
+                        pix_mag_thr=0.001, delay_thr=1, target_sigma_um=25,
                         rootdir='/n/coxfs01/2p-data'):
     '''
     If create_new, re-calculates gradients from saved image (loads gradients_results.pkl).
@@ -1555,7 +1555,7 @@ def load_vectors_and_maps(dk, va, create_new=False,
     '''
     retinorun = get_best_retinorun(dk, rootdir=rootdir)
     gresults = load_gradients(dk, va, retinorun, create_new=create_new, 
-                                pix_map_thr=pix_map_thr, delay_thr=delay_thr,
+                                pix_mag_thr=pix_mag_thr, delay_thr=delay_thr,
                                 target_sigma_um=target_sigma_um, rootdir=rootdir)
     
     AZMAP_NP = gresults['az_gradients']['image']

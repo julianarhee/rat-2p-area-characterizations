@@ -37,8 +37,8 @@ def do_mannwhitney(mdf, metric='I_rs', multi_comp_test='holm'):
     '''
     
     #import statsmodels.api as sm
-    import statsmodels.api as sm
-
+    #import statsmodels.api as sm
+    import statsmodels as sm
     visual_areas = ['V1', 'Lm', 'Li']
     mpairs = list(itertools.combinations(visual_areas, 2))
 
