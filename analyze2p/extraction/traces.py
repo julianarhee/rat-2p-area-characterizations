@@ -387,7 +387,8 @@ def process_and_save_traces(trace_type='dff', add_offset=True, save=True,
 
 
 def load_dataset(soma_fpath, trace_type='dff', is_neuropil=False,
-                add_offset=True, make_equal=False, create_new=False, save=True):
+                add_offset=True, make_equal=False, create_new=False, save=True,
+                rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
     '''
     Loads all the roi traces and labels.
     If want to load corrected NP traces, set flag is_neuropil.
@@ -407,7 +408,8 @@ def load_dataset(soma_fpath, trace_type='dff', is_neuropil=False,
             traces, labels, sdf, run_info = process_and_save_traces(
                                                     trace_type=trace_type,
                                                     soma_fpath=soma_fpath,
-                                                    add_offset=add_offset, save=save
+                                                    add_offset=add_offset, save=save,
+                                                    rootdir=rootdir
             )
         else:
             if is_neuropil:
@@ -700,7 +702,7 @@ def plot_mean_sem_roi_set(tdf, response_var='smoothed',
 def plot_raw_traces_roi_set(roidf, response_var='smoothed', 
                         param='ori', hue_var='pref_theta', hue_cdict=None,
                         lw=2, trial_lw=0.5, trial_alpha=0.5, 
-                        label_rows=True, label_size=6):
+                        label_rows=True, label_size=6, fig_height=2.5, fig_aspect=0.5):
     '''
     Plot PSTHs from stacked dataframe.
     Args.
@@ -736,7 +738,7 @@ def plot_raw_traces_roi_set(roidf, response_var='smoothed',
         hue_cdict = dict((k, v) for k, v in zip(roidf[hue_var].unique(), rand_cols))
 
     fg = sns.FacetGrid(col=param, col_order=param_levels, data=roidf, 
-                       height=2.5, aspect=0.5, row='cell')
+                       height=fig_height, aspect=fig_aspect, row='cell')
     fg.map(sns.lineplot, 'tsec', response_var, 'ix_%s' % hue_var, 
           palette=trial_cols, lw=trial_lw, alpha=0.5)
 
@@ -767,7 +769,8 @@ def plot_raw_traces_roi_set(roidf, response_var='smoothed',
 
 def plot_raw_traces_tuning_curve(roidf, response_var='smoothed', 
                                 param='morphlevel', color='k',
-                                lw=2, trial_lw=0.5, trial_alpha=0.5):
+                                lw=2, trial_lw=0.5, trial_alpha=0.5,
+                                fig_height=2.5, fig_aspect=0.5):
     '''
     Plot PSTHs from stacked dataframe.
     Args.
@@ -788,7 +791,7 @@ def plot_raw_traces_tuning_curve(roidf, response_var='smoothed',
     trial_cols = dict((k, color) for k in np.arange(0, max_ntrials))
 
     fg = sns.FacetGrid(col=param, col_order=param_levels, data=roidf, 
-                       height=2.5, aspect=0.5)
+                       height=fig_height, aspect=fig_aspect)
     fg.map(sns.lineplot, 'tsec', response_var, 'trial_ix', 
           palette=trial_cols, lw=trial_lw, alpha=0.5)
     fg.set_titles('{col_name}')
