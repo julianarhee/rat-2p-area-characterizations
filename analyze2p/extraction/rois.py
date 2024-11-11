@@ -169,7 +169,8 @@ def get_mask_info(TID, RID, nslices=1, rootdir='/n/coxfs01/2p-data'):
 # --------------------------------------------------------------------
 
 def load_roi_assignments(animalid, session, fov, retinorun='retino_run1', 
-                            rootdir='/n/coxfs01/2p-data'):
+                            #rootdir='/n/coxfs01/2p-data'):
+                        rootdir = '/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
    
     roi_assignments=None
     results_fpath = os.path.join(rootdir, animalid, session, fov, retinorun, 

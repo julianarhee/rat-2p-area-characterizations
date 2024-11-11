@@ -1233,8 +1233,10 @@ def datasets_to_exclude():
 
 def get_cells_by_area(sdata, create_new=False, excluded_datasets=[], 
                 return_missing=False, verbose=False,
-                rootdir='/n/coxfs01/2p-data',
-                aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                #rootdir='/n/coxfs01/2p-data',
+                #aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                rootdir = '/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data',
+                aggregate_dir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/julianarhee/aggregate-visual-areas'):
     '''
     Use retionrun to ID area boundaries. If more than 1 retino, combine.
     '''

@@ -2367,8 +2367,10 @@ def aggregate_iterated_results(meta, class_name, experiment=None,
                       variation_name=None,
                       overlap_thr=None, match_rfs=False, 
                       split_arousal=False,
-                      rootdir='/n/coxfs01/2p-data',
-                      aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                      #rootdir='/n/coxfs01/2p-data',
+                      #aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                     rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data',
+                     aggregate_dir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/julianarhee/aggregate-visual-areas'):
     if test_type is None:
         test_str = 'default' 
     else:
