@@ -850,7 +850,9 @@ def cycle_and_load(rfmeta, cells0, is_neuropil=False,
                     fit_thr=0.5, scale_sigma=True, sigma_scale=2.35, 
                     verbose=False,  ecc_center=(0, 0), 
                     response_type='dff', reliable_only=True, pass_criterion='all',
-                    rootdir='/n/coxfs01/2p-data', return_missing=False):
+                    #rootdir='/n/coxfs01/2p-data', 
+                    return_missing=False,
+                    rootdir= '/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
     '''
     Combines fit_results.pkl(fit from data) and evaluation_results.pkl (evaluated fits via bootstrap)
     and gets fit results only for those cells that are good/robust fits based on bootstrap analysis.
@@ -890,7 +892,8 @@ def cycle_and_load(rfmeta, cells0, is_neuropil=False,
                 eval_results, eval_params = load_eval_results(dk,
                                                 experiment=rfname, 
                                                 traceid=traceid, 
-                                                fit_desc=fit_desc)   
+                                                fit_desc=fit_desc,
+                                                rootdir=rootdir) 
                 if eval_results is None:
                     no_eval.append((va, dk))
                     continue
@@ -1057,7 +1060,9 @@ def get_fit_dpaths(dsets, traceid='traces001', fit_desc=None,
 def aggregate_rfdata(rf_dsets, assigned_cells, traceid='traces001', 
                         fit_desc='fit-2dgaus_dff-no-cutoff', ecc_center=(0, 0), 
                         reliable_only=True, pass_criterion='all',
-                        verbose=False,return_missing=False, rootdir='/n/coxfs01/2p-data'):
+                        verbose=False,return_missing=False, 
+                        #rootdir='/n/coxfs01/2p-data'):
+                        rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
     # Gets all results for provided datakeys (sdata, for rfs/rfs10)
     # Aggregates results for the datakeys
     # assigned_cells:  cells assigned by visual area
@@ -1076,7 +1081,13 @@ def aggregate_rfdata(rf_dsets, assigned_cells, traceid='traces001',
 #                      for i, g in rfdf.iterrows()]
 #    rfdf['rf_theta_deg'] = [np.rad2deg(i) % 180 for i in rfdf['theta_Mm_c'].values]
 #    rfdf['aspect_ratio'] = rfdf['major_axis']/rfdf['minor_axis']
-
+    # Only try to load rfdata if we can find fit + evaluation results
+    rfmeta, no_fits = get_fit_dpaths(rf_dsets, traceid=traceid,
+                                    fit_desc=fit_desc, rootdir=rootdir)
+    rfdf, no_fit, no_eval = cycle_and_load(rfmeta, assigned_cells,
+                            reliable_only=reliable_only, pass_criterion=pass_criterion,
+                            fit_desc=fit_desc, traceid=traceid,
+                            verbose=verbose, return_missing=True, rootdir=rootdir)
     if return_missing:
         return rfdf, no_fit, no_eval
     else:
@@ -2522,7 +2533,8 @@ def do_evaluation(datakey, fit_results, fit_params, trialdata,
             print("... loading eval results")
             eval_results, eval_params = load_eval_results(datakey, 
                                                      rfdir=rfdir,
-                                                     fit_desc=fit_desc) 
+                                                     fit_desc=fit_desc,
+                                                    rootdir=rootdir) 
             assert 'data' in eval_results.keys(), \
                     "... old datafile, redoing boot analysis"
             assert 'pass_cis' in eval_results.keys(), \
