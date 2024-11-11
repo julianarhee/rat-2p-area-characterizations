@@ -28,6 +28,7 @@ import scipy.stats as spstats
 import pingouin as pg
 import analyze2p.plotting as pplot
 import analyze2p.aggregate_datasets as aggr
+import analyze2p.utils as util
 
 def get_x_curves_at_best_y(df, x='morphlevel', y='size', normalize=False):
     '''Get <size> tuning curves at best <morphlevel>, for ex.'''
@@ -36,8 +37,14 @@ def get_x_curves_at_best_y(df, x='morphlevel', y='size', normalize=False):
     df_ = df[df[y]==best_y]
     #df_[y] = best_y
     if normalize:
+        min_d = float(df_['response'].min())
+        #df_['response'] = (df_['response'] - min_d)
+        
         max_d = float(df_['response'].max())
-        df_['response'] = df_['response']/max_d
+        #df_['response'] = df_['response'] / max_d
+
+        df_['response'] = util.convert_range(df_['response'], newmax=1, newmin=0, 
+                                        oldmax=max_d, oldmin=min_d)
 
     df_ = df_.rename(columns={y: 'best_%s' % y})
     # df_['best_%s' % y] = best_y
@@ -55,10 +62,10 @@ def get_x_curves_at_given_size(df, x='morphlevel', y='size',
     return df_
 
 
-def assign_morph_ix(df, at_best_other=True, name='morph_sel'):
+def assign_morph_ix(df, at_best_other=True, name='morph_sel', normalize=False):
     if at_best_other:
         df_ = get_x_curves_at_best_y(df, x='morphlevel', y='size', 
-                                    normalize=False)
+                                    normalize=normalize)
     else:
         df_ = df.copy()
     mt = morph_tuning_index(df_['response'].values)
@@ -83,14 +90,17 @@ def morph_tuning_index(responses):
     return mt
 
 
-def assign_size_tolerance(df, at_best_other=True, name='size_tol'):
+def assign_size_tolerance(df, at_best_other=True, name='size_tol', normalize=False):
     if at_best_other:
         df_ = get_x_curves_at_best_y(df, x='size', y='morphlevel', 
-                                normalize=False)
+                                normalize=normalize)
+        morph_tuning = get_x_curves_at_best_y(df[df['morphlevel']!=-1], x='morphlevel', y='size',
+                                normalize=normalize)
     else:
         df_ = df.copy()
-    mt = size_tolerance(df_['response'].values)
    
+    #mt = size_tolerance_corr(df, morph_tuning) 
+    mt = size_tolerance(df_['response'].values) 
     size_tol = pd.DataFrame({name: mt, 
                              'best_morphlevel': float(df_['best_morphlevel'].unique())}, 
                             index=[int(df['cell'].unique())])
@@ -98,6 +108,36 @@ def assign_size_tolerance(df, at_best_other=True, name='size_tol'):
      
     return size_tol #pd.Series(mt, name=df_['cell'].unique()[0])
 
+def assign_size_tolerance_corr(df, at_best_other=True, name='size_tol', normalize=False):
+    if at_best_other:
+        df_ = get_x_curves_at_best_y(df, x='size', y='morphlevel', 
+                                normalize=normalize)
+        morph_tuning = get_x_curves_at_best_y(df[df['morphlevel']!=-1], x='morphlevel', y='size',
+                                normalize=normalize)
+    else:
+        df_ = df.copy()
+   
+    mt = size_tolerance_corr(df, morph_tuning) 
+    #mt = size_tolerance(df_['response'].values) 
+    size_tol = pd.DataFrame({name: mt, 
+                             'best_morphlevel': float(df_['best_morphlevel'].unique())}, 
+                            index=[int(df['cell'].unique())])
+
+     
+    return size_tol #pd.Series(mt, name=df_['cell'].unique()[0])
+
+
+def get_corr(d1, d2):
+    #np.corrcoef(d1['response'], d2['response'])
+    return np.corrcoef(d1['response'], d2['response'])[0][1]
+
+def size_tolerance_corr(df, morph_tuning):
+
+    corrs = df[df['morphlevel']!=-1].groupby('size').apply(lambda x: get_corr(x, morph_tuning))
+
+    return np.mean(corrs[corrs!=1])
+
+    
 def size_tolerance(responses):
     '''
     ST = mean( Rtest / max(Rtest) ), where mean is taken over all sizes.
@@ -107,6 +147,7 @@ def size_tolerance(responses):
     if min(responses)<0:
         responses =  responses - min(responses)
 
+    # Zoccolan et al:
     normed_tuning = responses/float(max(responses))
     ST = np.mean(normed_tuning[normed_tuning<1.])
 
@@ -145,7 +186,7 @@ def sparseness(responses):
     
     return S # (1-num) #(num/denom)
 
-def assign_lum_ix(df, at_best_other=True, name='lum_sel'):
+def assign_lum_ix(df, at_best_other=True, name='lum_sel', normalize=False):
     '''
     Get SIZE tuning curve at best MORPH level. 
     Only include morphlevel=-1 to get "luminance" selectivity
@@ -156,7 +197,7 @@ def assign_lum_ix(df, at_best_other=True, name='lum_sel'):
     if at_best_other:
         # Get size tuning curve at the best morph
         df_ = get_x_curves_at_best_y(df, x='size', y='morphlevel', 
-                    normalize=False)
+                    normalize=normalize)
     else:
         df_ = df.copy()
     mt = morph_tuning_index(df_['response'].values)
@@ -173,15 +214,15 @@ def assign_lum_ix(df, at_best_other=True, name='lum_sel'):
     return sel_df #mt_ #pd.Series(mt, name=df_['cell'].unique()[0])
 
 
-def get_lum_corr(rd):
+def get_lum_corr(rd, normalize=False):
     '''Get size tuning curve (at best morph) and 
     luminance tuning curve (i.e., size-tuning curve @ morphlevel=-1).
     Calculate correlation coefficient between size- and luminance-tuning curves.
     '''
     lumr = get_x_curves_at_best_y(rd[rd.morphlevel==-1], 
-                              x='size', y='morphlevel', normalize=False)
+                              x='size', y='morphlevel', normalize=normalize)
     sizr = get_x_curves_at_best_y(rd[rd.morphlevel!=-1], 
-                              x='size', y='morphlevel', normalize=False)
+                              x='size', y='morphlevel', normalize=normalize)
     r_, p_ = spstats.pearsonr(sizr['response'].values, lumr['response'].values)
     
     #pd.Series(mt, name=df_['cell'].unique()[0])
@@ -283,7 +324,7 @@ def plot_overlaid_tuning_curves(morph_mat, rank_order=False, ax=None,
     ax.set_xticks(xticks)
     # xticks = xtick_ixs+1 if rank_order else [0, 0.5, 1]
     ax.set_xticklabels(xticks)
-    ax.set_ylim([0, 1.01])
+    #ax.set_ylim([0, 1.01])
     return ax
 
 
@@ -366,18 +407,39 @@ def exclude_lum_is_best(ndf, sdf):
 
     return ndf[ndf['cell'].isin(incl_cells)]
 
-def calculate_metrics(rdf, sdf, iternum=None):
+def exclude_lum_is_best_from_mean(meanr, lumcontrols=[-1]):
+    '''Get cells whose best stimulus is Full Field luminance'''
+
+    # Get best config for each cell
+    maxr = meanr.loc[meanr.groupby('cell')['response'].idxmax()]
+
+    # Exclude cells if "best config" is luminance
+    excl_cells = maxr[maxr['morphlevel'].isin(lumcontrols)]['cell'].unique()
+
+    return excl_cells #ndf[ndf['cell'].isin(incl_cells)]
+
+
+
+def calculate_metrics(rdf, sdf, iternum=None, normalize=False):
     #rdf = x0.groupby(['cell', 'config']).mean().reset_index().drop('trial', axis=1)
     rdf['size'] = [sdf['size'][c] for c in rdf['config']]
     rdf['morphlevel'] = [sdf['morphlevel'][c] for c in rdf['config']]
+
     # Calculate morph selectivity (@ best size)
     morph_ixs = rdf[rdf['morphlevel']!=-1].groupby(['cell'])\
-                    .apply(assign_morph_ix, at_best_other=True, name='morph_sel')
+                    .apply(assign_morph_ix, at_best_other=True, name='morph_sel',
+                            normalize=normalize)
     morph_ixs.index = morph_ixs.index.droplevel(1)
+
     # Calculate size tolerance (@ best morph)
     size_tols = rdf[rdf['morphlevel']!=-1].groupby(['cell'])\
-                    .apply(assign_size_tolerance, at_best_other=True, name='size_tol')
+                    .apply(assign_size_tolerance, at_best_other=True, name='size_tol',                          normalize=normalize)
     size_tols.index = size_tols.index.droplevel(1)
+
+    # Calculate corr of morph curves at each size
+    size_tols_corr = rdf[rdf['morphlevel']!=-1].groupby(['cell'])\
+                    .apply(assign_size_tolerance_corr, at_best_other=True, name='size_tol_corr', normalize=normalize)
+    size_tols_corr.index = size_tols_corr.index.droplevel(1)
 
     # calculate sparseness, all morph images
     sparse_morphs = rdf[rdf['morphlevel']!=-1][['cell', 'response']]\
@@ -396,13 +458,15 @@ def calculate_metrics(rdf, sdf, iternum=None):
  
     # Calculate how selective to SIZE (@ best morph)
     size_sel = rdf[rdf['morphlevel']!=-1].groupby(['cell'])\
-                    .apply(assign_lum_ix, at_best_other=True, name='size_sel')
+                    .apply(assign_lum_ix, at_best_other=True, name='size_sel', 
+                            normalize=normalize)
     size_sel.index = size_sel.index.droplevel(1)
 
     if -1 in rdf['morphlevel'].unique():
         # How selective is each cell to the LUMINANCE levels
         lum_sel = rdf[rdf['morphlevel']==-1].groupby(['cell'])\
-                        .apply(assign_lum_ix, at_best_other=True, name='lum_sel')
+                        .apply(assign_lum_ix, at_best_other=True, name='lum_sel',
+                                normalize=normalize)
         lum_sel.index = lum_sel.index.droplevel(1)
         # Luminance corrs: corr coef. bw size-tuning at best morph 
         # vs "size"-tuning at lum control (no morph)
@@ -415,7 +479,7 @@ def calculate_metrics(rdf, sdf, iternum=None):
                                 'lum_size_pval': [None]*len(morph_ixs)}, 
                                  index=morph_ixs.index)
     # Combine 
-    ixs_ = pd.concat([morph_ixs, size_tols, sparse_all, sparse_morphs, sparse_anchors,
+    ixs_ = pd.concat([morph_ixs, size_tols, size_tols_corr, sparse_all, sparse_morphs, sparse_anchors,
                       size_sel, lum_sel, lum_ccs], axis=1)
     ixs_['cell'] = ixs_.index
     if iternum is not None:
@@ -439,28 +503,33 @@ def normalize_curve_by_lum_response(rdf0, sdf):
 #            #['response'] += epsilon
         for sz, s_df in sdf.groupby('size'):
             curr_sz_cfgs = s_df.index.tolist() # all the configs at this size
-            lum = s_df[s_df['morphlevel']==-1].index.tolist()    # which lum is it
+            lum = s_df[s_df['morphlevel']==-1].index.tolist()    # which config is this lum val
             lum_r = float(g[g.config.isin(lum)]['response'])     # response at lum size X
             resp_at_size = g[g.config.isin(curr_sz_cfgs)].copy() # should be 10 morphs per size
             new_vs = (resp_at_size['response']-lum_r)/lum_r
-            if new_vs.isin([np.nan, np.inf, -np.inf]).all() or all(new_vs<=0):
-                rdf.loc[resp_at_size.index, 'response'] = 0
-            else:
-                rdf.loc[resp_at_size.index, 'response'] = new_vs
+            #if new_vs.isin([np.nan, np.inf, -np.inf]).all() or all(new_vs<=0):
+            #    rdf.loc[resp_at_size.index, 'response'] = 0
+            #else:
+            rdf.loc[resp_at_size.index, 'response'] = new_vs
 
     return rdf
 
 def subtract_min(rdf0):
+    '''substract min value if neg'''
     #rdf_ = rdf0.copy()
     rdf_minsub = rdf0.copy()
-    for ci, rd_ in rdf_minsub.groupby('cell'):
-        if rd_['response'].min()<0:
-            #print(ci, x0['response'].min())
-            offset_c = rd_['response'] - rd_['response'].min() #+ epsilon
-            rdf_minsub.loc[rd_.index, 'response'] = offset_c
+    
+    #for ci, rd_ in rdf_minsub.groupby('cell'):
+    #    if rd_['response'].min()<0:
+    #        offset_c = rd_['response'] - rd_['response'].min() + 0.0001 #epsilon
+    #        rdf_minsub.loc[rd_.index, 'response'] = offset_c
+    minv = rdf0['response'].min()
+    rdf_minsub['response'] = rdf_minsub['response'] - minv
+
     return rdf_minsub
 
 def half_rectify(rdf0):
+    '''set neg values to 0'''
     rdf_rectify = rdf0.copy()
     for ci, rd_ in rdf_rectify.groupby('cell'):
         if rd_['response'].min()<0:
@@ -503,7 +572,7 @@ def correct_luminance(rdf0, sdf, lcorrection='none'):
     return curr_rdf
 
 def aggregate_cell_metrics(NDATA, offset_type='none', lcorrection='none',
-                            experiment='blobs', exclude=[]):
+                            experiment='blobs', exclude=[], normalize=False):
     '''Cycle thru all datasets, calculate all the metrics.
     Args.
 
@@ -515,6 +584,7 @@ def aggregate_cell_metrics(NDATA, offset_type='none', lcorrection='none',
 
     lcorrection: (str)
         'none': don't do anything
+        'normalize': normalize responses at each size by response to lum value for that size 
         'exclude': exclude cells whose BEST stimulus is luminance.
 
     '''
@@ -531,9 +601,10 @@ def aggregate_cell_metrics(NDATA, offset_type='none', lcorrection='none',
     #         x0['response'] = x0['response'] - x0.groupby(['cell'])['response'].transform('min')
         rdf0 = x0.groupby(['cell', 'config']).mean().reset_index().drop('trial', axis=1)
         rdf_offset = correct_offset(rdf0, offset=offset_type)
+        #rdf = correct_luminance(rdf_offset, sdf, lcorrection='exclude')
         rdf = correct_luminance(rdf_offset, sdf, lcorrection=lcorrection)
 
-        ixs_ = calculate_metrics(rdf[rdf.config.isin(configs)], sdf)
+        ixs_ = calculate_metrics(rdf[rdf.config.isin(configs)], sdf, normalize=normalize)
         ixs_['visual_area'] = va
         ixs_['datakey'] = dk
         ixs_['n_cells'] = len(x0['cell'].unique())
