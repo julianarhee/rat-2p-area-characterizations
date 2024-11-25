@@ -2604,10 +2604,13 @@ def generalization_score_by_iter(mean_df, max_ncells=None,
     cols = [c for c in byiter_data.columns if c not in drop_cols]
     # Get NOVEL only
     byiter_novel = byiter_data[byiter_data['novel']==True][cols].copy()
+    byiter_train = byiter_data[byiter_data['novel']==False][cols].copy()
     # Calculate generalization score
-    train_scores = byiter_data[~(byiter_data.novel)][metric].values
-    novel_scores = byiter_data[(byiter_data.novel)][metric].values
-    byiter_novel['generalization'] = (train_scores-novel_scores)/train_scores
+    train_scores = byiter_train[metric].values #byiter_data[~(byiter_data.novel)][metric].values
+    novel_scores = byiter_novel[metric].values #byiter_data[(byiter_data.novel)][metric].values
+    byiter_novel['generalization_norm'] = (train_scores-novel_scores)/train_scores
+    byiter_novel['generalization_div'] = novel_scores/train_scores
+    byiter_novel['generalization_sub'] = train_scores - novel_scores
 
     return byiter_novel
 
@@ -2627,8 +2630,17 @@ def calculate_difference_scores(byiter_data, metric_name='difference'):
     diffdf = diffdf.sort_values(by=['iteration', 'visual_area'])
 
     byiter_data = byiter_data.sort_values(by=['iteration', 'visual_area'])
-    true_diffs = byiter_data[(~byiter_data.novel)]['heldout_test_score'].values\
-                - byiter_data[(byiter_data.novel)]['heldout_test_score'].values
+    
+    trained = byiter_data[(~byiter_data.novel)]['heldout_test_score'].values
+    novel = byiter_data[(byiter_data.novel)]['heldout_test_score'].values
+    
+    if metric_name == 'difference':
+        true_diffs = trained - novel
+    elif metric_name == 'ratio':
+        true_diffs = novel/trained
+    elif metric_name == 'norm':
+        true_diffs = (trained-novel)/trained
+
     diffdf[metric_name] = true_diffs
     
     return diffdf
