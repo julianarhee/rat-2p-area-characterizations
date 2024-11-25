@@ -282,7 +282,7 @@ def get_soma_fpath(datakey, experiment, traceid='traces001',
 def process_and_save_traces(trace_type='dff', add_offset=True, save=True,
                             animalid=None, session=None, fov=None, 
                             experiment=None, traceid='traces001',
-                            soma_fpath=None,
+                            soma_fpath=None, min_subtract=False,
                             rootdir='/n/coxfs01/2p-data'):
     '''Process raw traces (SOMA ONLY), and calculate dff'''
 
@@ -648,7 +648,8 @@ def roi_traces_df(rid, processed, labels, sdf, params=[], cfgs_=[], smooth_win_s
     return roidf
 
 def plot_mean_sem_roi_set(tdf, response_var='smoothed', 
-                        param='morphlevel', hue_var='best_morphlevel', hue_cdict=None,
+                        param='morphlevel', param_order=None,
+                        hue_var='best_morphlevel', hue_cdict=None,
                         lw=2, label_rows=True, label_size=6):
     '''
     Plot mean and sem with shading (instead of trials)
@@ -676,9 +677,9 @@ def plot_mean_sem_roi_set(tdf, response_var='smoothed',
         hue_cdict = dict((k, v) for k, v in zip(roidf[hue_var].unique(), rand_cols))
 
 
-    param_levels = sorted(tdf[param].unique())
+    param_order = sorted(tdf[param].unique())
 
-    fg = sns.FacetGrid(data=tdf, col=param, col_order=param_levels, 
+    fg = sns.FacetGrid(data=tdf, col=param, col_order=param_order, 
                    row='cell', height=2, aspect=0.5,
                    hue=hue_var, palette=hue_cdict)
 
@@ -700,7 +701,8 @@ def plot_mean_sem_roi_set(tdf, response_var='smoothed',
 
 
 def plot_raw_traces_roi_set(roidf, response_var='smoothed', 
-                        param='ori', hue_var='pref_theta', hue_cdict=None,
+                        param='ori', param_order=None,
+                        hue_var='pref_theta', hue_cdict=None,
                         lw=2, trial_lw=0.5, trial_alpha=0.5, 
                         label_rows=True, label_size=6, fig_height=2.5, fig_aspect=0.5):
     '''
@@ -724,7 +726,8 @@ def plot_raw_traces_roi_set(roidf, response_var='smoothed',
         Dict, keys are the different values of hue_var, colors are corresponding colors.
  
     ''' 
-    param_levels = sorted(roidf[param].unique())
+    if param_order is None:
+        param_order = sorted(roidf[param].unique())
     max_ntrials = roidf['trial_ix'].max()+1
     #trial_cols = dict((k, color) for k in np.arange(0, max_ntrials))
 
@@ -737,7 +740,7 @@ def plot_raw_traces_roi_set(roidf, response_var='smoothed',
         rand_cols = sns.color_palette('cubehelix', n_colors=len(roidf[hue_var].unique()))
         hue_cdict = dict((k, v) for k, v in zip(roidf[hue_var].unique(), rand_cols))
 
-    fg = sns.FacetGrid(col=param, col_order=param_levels, data=roidf, 
+    fg = sns.FacetGrid(col=param, col_order=param_order, data=roidf, 
                        height=fig_height, aspect=fig_aspect, row='cell')
     fg.map(sns.lineplot, 'tsec', response_var, 'ix_%s' % hue_var, 
           palette=trial_cols, lw=trial_lw, alpha=0.5)
@@ -768,7 +771,7 @@ def plot_raw_traces_roi_set(roidf, response_var='smoothed',
 
 
 def plot_raw_traces_tuning_curve(roidf, response_var='smoothed', 
-                                param='morphlevel', color='k',
+                                param='morphlevel', param_order=None, color='k',
                                 lw=2, trial_lw=0.5, trial_alpha=0.5,
                                 fig_height=2.5, fig_aspect=0.5):
     '''
@@ -786,11 +789,13 @@ def plot_raw_traces_tuning_curve(roidf, response_var='smoothed',
         SDF config name to group by (e.g., morphlevel, size, etc.)
 
     ''' 
-    param_levels = sorted(roidf[param].unique())
+
+    if param_order is None:
+        param_order = sorted(roidf[param].unique())
     max_ntrials = roidf['trial_ix'].max()+1
     trial_cols = dict((k, color) for k in np.arange(0, max_ntrials))
 
-    fg = sns.FacetGrid(col=param, col_order=param_levels, data=roidf, 
+    fg = sns.FacetGrid(col=param, col_order=param_order, data=roidf, 
                        height=fig_height, aspect=fig_aspect)
     fg.map(sns.lineplot, 'tsec', response_var, 'trial_ix', 
           palette=trial_cols, lw=trial_lw, alpha=0.5)
