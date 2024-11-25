@@ -2090,7 +2090,7 @@ def load_traces(datakey, experiment, traceid='traces001',
 
 def process_traces(raw_traces, labels, trace_type='zscore', 
                     response_type='zscore', trial_epoch='stimulus',
-                    return_baseline=False,
+                    return_baseline=False, local_offset=False,
                     nframes_post_onset=None):
     '''
     Calculate raw traces into dff traces (or zscore) and calculate trial metrics
@@ -2153,6 +2153,9 @@ def process_traces(raw_traces, labels, trace_type='zscore',
 
         # Get traces using current trial's indices: divide by std of baseline
         raw_ = raw_traces.iloc[tmat.index]
+        if local_offset and raw_.min() < 0:
+            raw_ = raw_ - raw_.min()
+
         bas_std = raw_.iloc[0:stim_on_frame].std(axis=0)
         bas_mean = raw_.iloc[0:stim_on_frame].mean(axis=0)
         stim_mean = raw_.iloc[metric_ixs].mean(axis=0)
