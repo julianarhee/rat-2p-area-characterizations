@@ -26,6 +26,9 @@ import pingouin as pg
 
 from .stats import do_mannwhitney
 
+from scipy.stats import mannwhitneyu
+from statsmodels.stats.multitest import multipletests
+
 np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)       
 
 import re
@@ -848,8 +851,36 @@ def adjust_image_contrast(img, clip_limit=2.0, tile_size=10):#(10,10)):
 
 
 # Experiment-specific plotting funca
+
+def pairwise_mannwhitney(plotdf, conditions=['V1', 'Lm', 'Li'],
+                        metric='morph_sel', posthoc='fdr_bh'):
+    # Perform pairwise Mann-Whitney U tests
+    pairs =  list(itertools.combinations(conditions, 2))
+    results = []
+    for i, j in pairs:
+        _, p = mannwhitneyu(plotdf[plotdf['visual_area']==i][metric],
+                            plotdf[plotdf['visual_area']==j][metric], alternative='two-sided')
+        results.append((i, j, p))
+    # Adjust p-values for multiple comparisons (Bonferroni correction)
+    p_values = [res[2] for res in results]
+    adjusted_p_values = multipletests(p_values, method=posthoc)[1]
+
+    # Print results
+    #print("Pairwise comparisons and adjusted p-values:")
+    # Create a DataFrame to store results
+    df_results = pd.DataFrame(
+        {
+            "A": [i for i, j in pairs],
+            "B": [j for i, j in pairs],
+            "p-unc": p_values,
+            "p-corr": adjusted_p_values,
+            "p-adjust": posthoc
+        })
+    return df_results
+
+
 def stripplot_metric_by_area(plotdf, metric='morph_sel', markersize=1,
-                marker='.', area_colors=None, posthoc='fdr_bh', 
+                marker='.', area_colors=None, stat='mannwhitney', posthoc='fdr_bh', 
                 y_loc=1.01, offset=0.01, ylim=None, aspect=4,
                 sig_fontsize=6, sig_lw=0.25, errwidth=0.5, scale=1, 
                 jitter=True, return_stats=False, plot_means=True,
@@ -881,11 +912,22 @@ def stripplot_metric_by_area(plotdf, metric='morph_sel', markersize=1,
                        order=visual_areas, color=[0.8]*3, ecolor='w', ci=None,
                        estimator=estimator) # zorder=-1000000, 
 
-        sts = pg.pairwise_ttests(data=plotdf, dv=metric, between='visual_area', 
-                      parametric=False, padjust=posthoc, effsize='eta-square')
-        #print(sts)
-        annotate_multicomp_by_area(ax, sts, y_loc=y_loc, offset=offset, 
+        if stat == 'ttest':
+            sts = pg.pairwise_ttests(data=plotdf, dv=metric, between='visual_area', 
+                          parametric=False, padjust=posthoc, effsize='eta-square')
+            annotate_multicomp_by_area(ax, sts, y_loc=y_loc, offset=offset, 
                                              fontsize=sig_fontsize, lw=sig_lw)
+        else:
+            #sts = do_mannwhitney(plotdf, metric=metric, multi_comp_test=posthoc)
+            #annotate_stats_areas(sts, ax, lw=sig_lw, color='k',
+            #            y_loc=y_loc, offset=offset, fontsize=sig_fontsize)
+
+            sts = pairwise_mannwhitney(plotdf, conditions=visual_areas,
+                            metric=metric, posthoc=posthoc)
+            annotate_multicomp_by_area(ax, sts, y_loc=y_loc, offset=offset, 
+                                             fontsize=sig_fontsize, lw=sig_lw)
+
+        #print(sts)
             
         ax.legend_.remove()
         #print(sts)
