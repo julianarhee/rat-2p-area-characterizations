@@ -41,10 +41,10 @@ def get_x_curves_at_best_y(df, x='morphlevel', y='size', normalize=False):
         #df_['response'] = (df_['response'] - min_d)
         
         max_d = float(df_['response'].max())
-        #df_['response'] = df_['response'] / max_d
+        df_['response'] = df_['response'] / max_d
 
-        df_['response'] = util.convert_range(df_['response'], newmax=1, newmin=0, 
-                                        oldmax=max_d, oldmin=min_d)
+        #df_['response'] = util.convert_range(df_['response'], newmax=1, newmin=0, 
+        #                                oldmax=max_d, oldmin=min_d)
 
     df_ = df_.rename(columns={y: 'best_%s' % y})
     # df_['best_%s' % y] = best_y
@@ -298,7 +298,7 @@ def get_object_tuning_curves(rdf, sort_best_size=True, normalize=True, return_st
 # plotting
 def plot_overlaid_tuning_curves(morph_mat, rank_order=False, ax=None,
                                rois_plot=None, roi_styles=None, roi_colors=None,
-                               roi_labels=None, lw=0.5, lc='gray', roi_lw=2):
+                               roi_labels=None, lw=0.5, lc='gray', roi_lw=2, alpha=1):
     morph_labels = sorted(morph_mat.index.tolist())
     if ax is None:
         fig, ax = pl.subplots(figsize=(4,4), dpi=100)
@@ -308,14 +308,14 @@ def plot_overlaid_tuning_curves(morph_mat, rank_order=False, ax=None,
         mm = xx[::-1]
     else:
         mm = morph_mat.copy()
-    ax.plot(mm.values, color=lc, alpha=1, lw=lw)
+    ax.plot(mm.values, color=lc, alpha=alpha, lw=lw)
     
     if rois_plot is not None:
         if roi_labels is None:
             roi_labels = rois_plot
         for ls, col, rid, rlabel in zip(roi_styles, roi_colors, rois_plot, roi_labels):
             ax.plot(mm[rid].values, color=col, lw=roi_lw, linestyle=ls, label=rlabel)
-        ax.legend(bbox_to_anchor=(0.5, 1.2), loc='lower center', fontsize=6)
+        ax.legend(bbox_to_anchor=(0.5, 1.2), loc='lower center', fontsize=4)
 
     # xtick_ixs = np.linspace(0, len(morph_labels)-2, 3, endpoint=True)
     xticks = np.arange(0, len(morph_labels)) # if rank_order else morph_labels
@@ -396,16 +396,30 @@ def exclude_lum_is_best(ndf, sdf):
 
     if len(lumcontrols)==0:
         return ndf
-    # Get mean resp to each config
-    meanr = ndf[['cell', 'config', 'response']].groupby(['cell', 'config']).mean()
-    # Get best config for each cell
-    maxr = meanr.loc[meanr.groupby('cell')['response'].idxmax()]
 
-    # Exclude cells if "best config" is luminance
-    lum_is_not_max = maxr[~maxr.index.get_level_values(1).isin(lumcontrols)].copy()
-    incl_cells = lum_is_not_max.index.get_level_values(0)
+#    # Get mean resp to each config
+#    meanr = ndf[['cell', 'config', 'response']].groupby(['cell', 'config']).mean()
+#    # Get best config for each cell
+#    maxr = meanr.loc[meanr.groupby('cell')['response'].idxmax()]
+#
+#    # Exclude cells if "best config" is luminance
+#    lum_is_not_max = maxr[~maxr.index.get_level_values(1).isin(lumcontrols)].copy()
+#    incl_cells = lum_is_not_max.index.get_level_values(0)
 
-    return ndf[ndf['cell'].isin(incl_cells)]
+    if 'morphlevel' not in ndf.columns:
+        ndf['morphlevel'] = [sdf.loc[c]['morphlevel'] for c in ndf['config']]
+        ndf['size'] = [sdf.loc[c]['size'] for c in ndf['config']]    
+    meanr = ndf.groupby(['cell', 'config', 'morphlevel', 'size']).mean().reset_index()
+    excl_lum = exclude_lum_is_best_from_mean(meanr)
+
+    # new: Exclue cells that have sig. size and luminance tuning curves:
+    lum_ccs = meanr.groupby(['cell']).apply(get_lum_corr)
+    excl_lum_corr = lum_ccs[(lum_ccs['lum_size_pval']<.05)].index.tolist()
+                           #& (lum_ccs['lum_size_cc']>=.5)].index.tolist()
+    # Get intersection:
+    excl_cells = list(set(excl_lum) | set(excl_lum_corr))
+
+    return ndf[~ndf['cell'].isin(excl_cells)]
 
 def exclude_lum_is_best_from_mean(meanr, lumcontrols=[-1]):
     '''Get cells whose best stimulus is Full Field luminance'''
@@ -418,6 +432,19 @@ def exclude_lum_is_best_from_mean(meanr, lumcontrols=[-1]):
 
     return excl_cells #ndf[ndf['cell'].isin(incl_cells)]
 
+
+def correct_luminance_from_mean_responses(meanr, sdf, lumcontrols=[-1]):
+    '''
+    Given mean response to all configs for all cells, exclude cells whose best response is for one of the luminance control stimuli.
+    '''
+    if 'morphlevel' not in meanr.columns:
+        meanr['morphlevel'] = [sdf.loc[c]['morphlevel'] for c in meanr['config'].values]
+
+    excl_cells = exclude_lum_is_best_from_mean(meanr, lumcontrols=lumcontrols)
+
+    corrected_df = meanr[~meanr['cell'].isin(excl_cells)].copy()
+
+    return corrected_df
 
 
 def calculate_metrics(rdf, sdf, iternum=None, normalize=False):
@@ -514,17 +541,19 @@ def normalize_curve_by_lum_response(rdf0, sdf):
 
     return rdf
 
-def subtract_min(rdf0):
+def subtract_min(rdf0, global_min=False):
     '''substract min value if neg'''
     #rdf_ = rdf0.copy()
     rdf_minsub = rdf0.copy()
-    
-    #for ci, rd_ in rdf_minsub.groupby('cell'):
-    #    if rd_['response'].min()<0:
-    #        offset_c = rd_['response'] - rd_['response'].min() + 0.0001 #epsilon
-    #        rdf_minsub.loc[rd_.index, 'response'] = offset_c
-    minv = rdf0['response'].min()
-    rdf_minsub['response'] = rdf_minsub['response'] - minv
+
+    if global_min:
+        minv = rdf0['response'].min()
+        rdf_minsub['response'] = rdf_minsub['response'] - minv
+    else:  
+        for ci, rd_ in rdf_minsub.groupby('cell'):
+            if rd_['response'].min()<0:
+                offset_c = rd_['response'] - rd_['response'].min() + 0.0001 #epsilon
+                rdf_minsub.loc[rd_.index, 'response'] = offset_c
 
     return rdf_minsub
 
@@ -539,7 +568,13 @@ def half_rectify(rdf0):
             rdf_rectify.loc[rd_.index, 'response'] = offset_c.values
     return rdf_rectify
 
-def correct_offset(rdf0, offset='none'):
+def correct_offset(rdf0, offset='none', global_minsub=False):
+    '''
+    rdf0 (pd.DataFrame): mean response to each stimulus config for all cells
+    offset (string): 'minsub' (subtract min if < 0), 'rectify' (set <0 to 0)
+    global_minsub (bool): if offset=='minsub', subtract the same negative value for all cells, rather than on a per-cell basis
+
+    '''
     curr_rdf = None
     rdf = rdf0.copy()
 
@@ -547,7 +582,7 @@ def correct_offset(rdf0, offset='none'):
         return rdf0.copy()
     elif offset=='minsub':
         # min-subtract
-        curr_rdf = subtract_min(rdf)
+        curr_rdf = subtract_min(rdf, global_min=global_minsub)
     elif offset=='rectify':
         curr_rdf = half_rectify(rdf)
     else:
@@ -557,6 +592,11 @@ def correct_offset(rdf0, offset='none'):
     return curr_rdf
 
 def correct_luminance(rdf0, sdf, lcorrection='none'):
+    '''
+    rdf0 (pd.DataFrame): mean response to each stimulus config for all cells
+    sdf (pd.DataFrame): stimulus config dataframe
+    lcorrection (str): 'normalize' (normalize responses to size-matched luminance response), 'exclude' (exclude cells whose preferred stimulus is one of the luminance controls)
+    '''
     curr_rdf=None
     rdf = rdf0.copy()
     if lcorrection=='none':
