@@ -495,15 +495,15 @@ def annotate_stats_areas(statresults, ax, lw=1, color='k',
 def annotate_multicomp_by_area(ax, statsdf, p_thr=0.05, 
                             visual_areas=['V1', 'Lm', 'Li'],
                             lw=0.5, color='k', y_loc=None, 
-                            offset=1, fontsize=6):
+                            offset=1, fontsize=6, p_var='p-corr'):
     '''
     More general plotting for pairwise comparisons bw areas.
     statsdf:  pingouin output 
     '''
     if y_loc is None:
         y_loc = ax.get_ylim()[-1]
-    for ci in statsdf[statsdf['p-corr']<p_thr].index.tolist():
-        v1, v2, pv = statsdf.loc[ci, ['A', 'B', 'p-corr']].values
+    for ci in statsdf[statsdf[p_var]<p_thr].index.tolist():
+        v1, v2, pv = statsdf.loc[ci, ['A', 'B', p_var]].values
         x1 = visual_areas.index(v1)
         x2 = visual_areas.index(v2)
         y1 = y_loc+(ci*offset)
