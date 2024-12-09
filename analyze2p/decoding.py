@@ -2577,8 +2577,11 @@ def average_within_iterations_by_ncells(iterdf, analysis_type='by_ncells',
     '''
     if analysis_type=='by_ncells':
         grouper.append('n_cells')
+
+    # average scores for novel condition and for trained condition
     if test_type is not None and 'novel' not in grouper:
         grouper.append('novel')
+
     #print(grouper)
     mean_by_iters = iterdf.groupby(grouper).mean().reset_index()
     
@@ -2605,9 +2608,11 @@ def generalization_score_by_iter(mean_df, max_ncells=None,
     # Get NOVEL only
     byiter_novel = byiter_data[byiter_data['novel']==True][cols].copy()
     byiter_train = byiter_data[byiter_data['novel']==False][cols].copy()
+
     # Calculate generalization score
     train_scores = byiter_train[metric].values #byiter_data[~(byiter_data.novel)][metric].values
     novel_scores = byiter_novel[metric].values #byiter_data[(byiter_data.novel)][metric].values
+
     byiter_novel['generalization_norm'] = (train_scores-novel_scores)/train_scores
     byiter_novel['generalization_div'] = novel_scores/train_scores
     byiter_novel['generalization_sub'] = train_scores - novel_scores
@@ -2615,7 +2620,38 @@ def generalization_score_by_iter(mean_df, max_ncells=None,
     return byiter_novel
 
 
-def calculate_difference_scores(byiter_data, metric_name='difference'):
+def calculate_difference_scores(byiter, metric_name='difference'):
+    '''
+    For each iteration, calculate the difference between test scores on 
+    TRAINED v NOVEL conditions.
+    
+    Returns:
+        
+    diffdf: (pd.DataFrame)
+        DF of size N visual areas * N iterations.
+    '''    
+    byiter_data = byiter[byiter['condition']=='data'].copy()
+
+    #trained = byiter_data[(~byiter_data.novel)]['heldout_test_score'].values
+    #novel = byiter_data[(byiter_data.novel)]['heldout_test_score'].values
+    trained = byiter_data[byiter_data['novel']==False]['heldout_test_score'].values
+    novel = byiter_data[byiter_data['novel']==True]['heldout_test_score'].values
+ 
+    if metric_name == 'difference':
+        true_diffs = trained - novel
+    elif metric_name == 'ratio':
+        true_diffs = novel/trained
+    elif metric_name == 'norm':
+        true_diffs = (trained-novel)/trained
+
+    cols = ['visual_area', 'n_cells', 'iteration'] #, 'train_transform', 'test_transform']
+    diffdf = byiter_data[cols].copy().drop_duplicates() #.reset_index(drop=True).drop_duplicates()
+
+    diffdf[metric_name] = true_diffs
+    
+    return diffdf
+
+def old_calculate_difference_scores(byiter_data, metric_name='difference'):
     '''
     For each iteration, calculate the difference between test scores on 
     TRAINED v NOVEL conditions.
@@ -2647,6 +2683,38 @@ def calculate_difference_scores(byiter_data, metric_name='difference'):
 
 
 def permutation_test_trained_v_novel(data_, analysis_type='by_ncells', 
+                            test_type='size_single', n_permutations=500):
+    '''
+    For each iteration, calculate trained vs. novel test score difference,
+    and test score difference if trained/novel labels shuffled.
+    '''
+    # Get true diffs
+    data_scores = average_within_iterations_by_ncells(data_, 
+                            analysis_type=analysis_type, test_type=test_type,
+                            grouper=['visual_area', 'condition', 'iteration']) 
+    true_diffs = calculate_difference_scores(data_scores)
+
+
+    # Shuffle labels
+    shuff_ = data_.copy()
+     # Shuffle novel/trained WITHIN classifier cond (per clf, per iter)
+    shuff_['novel'] = shuff_.groupby(\
+                        ['visual_area', 'iteration', 'train_transform'])['novel']\
+                        .sample(frac=1)
+                        #.transform(np.random.permutation)
+    # Average
+    shuff_scores = average_within_iterations_by_ncells(shuff_, 
+                            analysis_type=analysis_type, test_type=test_type,
+                            grouper=['visual_area', 'condition', 'iteration']) 
+    shuff_diffs = calculate_difference_scores(shuff_scores)
+    true_diffs['trained_v_novel'] = 'true'
+    shuff_diffs['trained_v_novel'] = 'shuffled'
+    diffs = pd.concat([true_diffs, shuff_diffs], axis=0, ignore_index=True)
+    
+    return diffs
+
+
+def old_permutation_test_trained_v_novel(data_, analysis_type='by_ncells', 
                             test_type='size_single'):
     '''
     For each iteration, calculate trained vs. novel test score difference,
