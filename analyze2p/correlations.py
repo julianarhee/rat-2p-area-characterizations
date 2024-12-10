@@ -321,7 +321,7 @@ def trial_averaged_responses(zscored, sdf, params=['ori', 'sf', 'size', 'speed']
 
 
 def get_roi_pos_and_rfs(neuraldf, curr_rfs=None, rfs_only=True, position_only=False,
-                        merge_cols=['cell']):
+                        merge_cols=['cell'], rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
     '''
     For a given dataset, return the position (and RF fit info) for each cell.
     Specify merge_cols to include visual_area and datakey if neuraldf is aggregate.
@@ -367,7 +367,7 @@ def get_roi_pos_and_rfs(neuraldf, curr_rfs=None, rfs_only=True, position_only=Fa
         rf_params.extend(non_pos_params)
     # Add position info to neuraldata dataframe
     if 'ml_pos' not in neuraldf.columns:
-        wpos = aggr.add_roi_positions(neuraldf.copy())
+        wpos = aggr.add_roi_positions(neuraldf.copy(), rootdir=rootdir)
     else:
         wpos = neuraldf.copy()
     roi_pos = wpos[['visual_area', 'datakey', 'cell', 'ml_pos', 'ap_pos']].drop_duplicates().copy()
@@ -619,7 +619,8 @@ def do_pairwise_diffs_melt(df_, metric_name='morph_sel', include_diagonal=False)
 
 def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, rfpolys=None,
                 SDF=None, min_ncells=10, 
-                select_stimuli='fullfield', distance_var='rf_distance', verbose=False):
+                select_stimuli='fullfield', distance_var='rf_distance', 
+                verbose=False, rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
     '''
     Cycle thru all datasets and calculate CCs and PW distances.
     
@@ -697,7 +698,7 @@ def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, rfpolys=None,
         else:
             curr_cells = ndf[['visual_area', 'datakey', 'experiment', 'cell']]\
                                         .drop_duplicates().copy()
-            posdf_ = aggr.add_roi_positions(curr_cells)
+            posdf_ = aggr.add_roi_positions(curr_cells, rootdir=rootdir)
             
 #         # Cortical and RF position distances
 #         ccdists = get_pw_distance(corrs, posdf_, xcoord='x0', ycoord='y0', 
@@ -964,7 +965,8 @@ def correlate_pw_tuning_in_fov(df_, n_intervals=3, stimulus='gratings',
 
 def aggregate_tuning_curve_ccdist(df, rfdf=None, rfpolys=None, n_intervals=3, 
                                 min_ncells=5, stimulus='gratings',
-                                sort_best_size=True, normalize=True):
+                                sort_best_size=True, normalize=True,
+                                rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
     '''
     Calculate PW diffs for GRATINGS (+ RFs, if have).
 
@@ -1001,7 +1003,7 @@ def aggregate_tuning_curve_ccdist(df, rfdf=None, rfpolys=None, n_intervals=3,
                 no_rfs.append((va, dk, exp))
                 continue
         else:
-            posdf_ = aggr.add_roi_positions(df_)
+            posdf_ = aggr.add_roi_positions(df_, rootdir=rootdir)
             
         # Cortical and RF position distances
 #         dists = get_pw_distance(tuning_dists, posdf_, xcoord='x0', ycoord='y0', 

@@ -1295,7 +1295,8 @@ def average_rfs(rfdf, keep_experiment=True): #, ecc_center=(0, 0)):
     return final_rfdf
 
 
-def add_rf_positions(rfdf, calculate_position=False, traceid='traces001'):
+def add_rf_positions(rfdf, calculate_position=False, traceid='traces001', 
+                rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
     '''
     Add ROI position info to RF dataframe (converted and pixel-based).
     Set calculate_position=True, to re-calculate.
@@ -1310,7 +1311,7 @@ def add_rf_positions(rfdf, calculate_position=False, traceid='traces001'):
         session, animalid, fovnum = split_datakey_str(dk)
 
         fcoords = rutils.get_roi_coords(animalid, session, 'FOV%i_zoom2p0x' % fovnum,
-                                  traceid=traceid, create_new=False)
+                                  traceid=traceid, create_new=False, rootdir=rootdir)
 
         #for ei, e_df in g.groupby(['experiment']):
         cell_ids = g['cell'].unique()
