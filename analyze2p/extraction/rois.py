@@ -253,9 +253,9 @@ def load_roi_masks(animalid, session, fov, rois=None,
     Returns masks, zimg
     '''
     masks=None; zimg=None;
-    mask_fpath = glob.glob(os.path.join(rootdir, animalid, session, 
-                                'ROIs', '%s*' % rois, 'masks.hdf5'))[0]
     try:
+        mask_fpath = glob.glob(os.path.join(rootdir, animalid, session, 
+                                'ROIs', '%s*' % rois, 'masks.hdf5'))[0]
         mfile = h5py.File(mask_fpath, 'r')
 
         # Load and reshape masks
@@ -270,6 +270,7 @@ def load_roi_masks(animalid, session, fov, rois=None,
             masks_r0 = np.swapaxes(masks, 0, 2)
             masks = np.swapaxes(masks_r0, 1, 2)
     except Exception as e:
+        print("error: {}_{}_{}".format(session, animalid, fov))
         traceback.print_exc()
     finally:
         mfile.close()
@@ -449,6 +450,20 @@ def contours_from_masks(masks, rois_first=True):
 
     return tmp_roi_contours
 
+def plot_roi_mask_contours(zimg, masks, roi, ax=None):
+    if masks.min()==0:
+        masks[masks==0] = np.nan
+
+    if ax is None:
+        fig, ax = pl.subplots()
+
+    surface_2p = pplot.adjust_image_contrast(zimg, clip_limit=5.0, tile_size=5)
+    ax.imshow(surface_2p, cmap='gray')
+
+    # plot roi
+    im = masks[roi, :, :].copy()
+    msk = np.ma.masked_where( np.isnan(im), im)
+    ax.imshow(msk)
 
 def get_roi_position_in_fov(tmp_roi_contours, roi_list=None,
                             convert_um=True, npix_y=512, npix_x=512):
