@@ -572,6 +572,13 @@ def get_pw_distance(cc_, pos_, xcoord='ml_pos', ycoord='ap_pos', label='cortical
     #    "[%s, %s]: incorrect roi indexing in RFDATA" % (va, dk)
     if 'cell' in pos_.columns:
         pos_.index = pos_['cell'].values
+    
+    # check that cell is in position df
+    incl_cell1 = [c for c in cc_['cell_1'] if c in pos_['cell']]
+    cc_ = cc_[cc_['cell_1'].isin(incl_cell1)]
+    incl_cell2 = [c for c in cc_['cell_2'] if c in pos_['cell']] 
+    cc_ = cc_[cc_['cell_2'].isin(incl_cell2)]
+
     # Coords of cell1 in pair, in order
     coords1 = np.array(pos_.loc[cc_['cell_1'].values][[xcoord, ycoord]])
     # Coords of cell2 in pair 
@@ -670,10 +677,14 @@ def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, rfpolys=None,
             continue
         # Select stimuli and trials
         if experiment in ['gratings', 'blobs']:
-            sdf=SDF[SDF.datakey==dk].copy()
+            if SDF is not None:
+                sdf=SDF[SDF.datakey==dk].copy()
+            else:
+                sdf = aggr.get_stimuli(dk, experiment, match_names=True)
             curr_cfgs = aggr.get_included_stimconfigs(sdf, experiment=exp,
                                                      select_stimuli=select_stimuli)
             if len(curr_cfgs)==0:
+                print("Wrong configs, excluding: {}".format(dk))
                 wrong_configs.append((va, dk))
                 continue
         else:
@@ -704,9 +715,15 @@ def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, rfpolys=None,
 #         ccdists = get_pw_distance(corrs, posdf_, xcoord='x0', ycoord='y0', 
 #                                  label='rf_distance', add_eccentricity=True)
         # Cortical and RF difff
-        if 'x0' in posdf_.columns:
-            ccdists = get_pw_distance(corrs, posdf_, xcoord='x0', ycoord='y0', 
+        if 'x0' in posdf_.columns and len(posdf_['x0'])>0:
+            try:
+                ccdists = get_pw_distance(corrs, posdf_, xcoord='x0', ycoord='y0', 
                                      label='rf_distance', add_eccentricity=True)
+            except Exception as e:
+                print("Unable to calculate RF distances: {}".format(dk))
+                #ccdists = get_pw_distance(corrs, posdf_, xcoord='ml_pos', 
+                #                ycoord='ap_pos', 
+                #                label='cortical_distance', add_eccentricity=False)
         else:
             ccdists = get_pw_distance(corrs, posdf_, xcoord='ml_pos', ycoord='ap_pos', 
                                      label='cortical_distance', add_eccentricity=False)
@@ -844,7 +861,7 @@ def compare_curves(curve1, curve2, a=0, b=1):
     # do cosine similarity
     cosim = cosine_similarity(curve1, curve2)
     # combine
-    res = pd.Series({'xcorr': xcorr, 'pearsons': cc,  'cosim': cosim,
+    res = pd.Series({'xcorr': float(xcorr), 'pearsons': float(cc),  'cosim': float(cosim),
                       'cell_1': int(a), 'cell_2': int(b), 
                       'neuron_pair': '%i_%i' % (a, b)})
 
