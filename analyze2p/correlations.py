@@ -625,7 +625,7 @@ def do_pairwise_diffs_melt(df_, metric_name='morph_sel', include_diagonal=False)
     return diffs
 
 def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, rfpolys=None,
-                SDF=None, min_ncells=10, 
+                SDF=None, min_ncells=10, match_stimulus_names=True,
                 select_stimuli='fullfield', distance_var='rf_distance', 
                 verbose=False, rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
     '''
@@ -636,7 +636,9 @@ def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, rfpolys=None,
         All pw signal- and noise-corrs, plus distances (RF, and/or cortical)
         
     Args:
-    
+    NDATA: (pd.DataFrame)
+        All trial responses to stimuli (not trial-averaged per stimulus)
+  
     selective_stimuli: (str, None)
         fullfield: only include FF stimuli when calculating PW corrs (must provide SDF)
         images:  only include apertured or image stimuli (must provide SDF)
@@ -680,7 +682,7 @@ def aggregate_ccdist(NDATA, experiment='gratings', rfdf=None, rfpolys=None,
             if SDF is not None:
                 sdf=SDF[SDF.datakey==dk].copy()
             else:
-                sdf = aggr.get_stimuli(dk, experiment, match_names=True)
+                sdf = aggr.get_stimuli(dk, experiment, match_names=match_stimulus_names)
             curr_cfgs = aggr.get_included_stimconfigs(sdf, experiment=exp,
                                                      select_stimuli=select_stimuli)
             if len(curr_cfgs)==0:
