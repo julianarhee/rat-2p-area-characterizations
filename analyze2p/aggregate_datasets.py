@@ -291,11 +291,14 @@ def convert_value_to_level(sdf):
     # convert values to high/low
     for param in ['sf', 'size', 'speed']:
         param_vals = sorted(sdf[param].unique())
-        assert len(param_vals)==2, "    Incorrect N %s: %s" \
-                                    % (param, str(param_vals))
-        lo_val, hi_val = param_vals
-        sdf.loc[sdf[param]==lo_val, param] = 'low'
-        sdf.loc[sdf[param]==hi_val, param] = 'high'
+        if len(param_vals)==2: 
+            lo_val, hi_val = param_vals
+            sdf.loc[sdf[param]==lo_val, param] = 'low'
+            sdf.loc[sdf[param]==hi_val, param] = 'high'
+        else:
+            print("    Incorrect N %s: %s" \
+                                    % (param, str(param_vals)))
+            sdf[param] = 'neither'
 
     return sdf
 
@@ -497,11 +500,11 @@ def select_stimulus_configs(datakey, experiment, select_stimuli=None,
 def get_included_stimconfigs(sdf, experiment='blobs', select_stimuli='images'):
     '''
     select_stimuli: (str or None)
-        - None: Returns all configs in sdf.
+        - None (or all): Returns all configs in sdf.
         - fullfield: Return only full-field stimuli 
                    This will be FF (gratings) or morphlevel=-1 (blobs)
         - images: Return non-FF stimuli.
-                This will be apertured (gratings) or images (blobs)
+                This will be apertured (gratings) or images (blobs, no lum controls)
     Returns list ['config001', 'config002', etc.]
     '''
     curr_cfgs=None
@@ -976,7 +979,8 @@ def get_sorted_fovs(filter_by='drop_repeats', excluded_sessions=[]):
 
                 'JC091': {'Lm': [('20190627')],
                           'Li': [('20190602', '20190607'),
-                                 ('20190606', '20190614'),
+                                 ('20190606'),
+                                 ('20160614'), #('20190606', '20190614'),
                                  ('20191007', '20191008')]},
 
                 'JC092': {'Li': [('20190527_fov2'),
