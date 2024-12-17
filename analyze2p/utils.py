@@ -55,8 +55,8 @@ def make_ordinal(n):
 def replace_root(origdir, rootdir, animalid, session):
     orig = origdir.split('/%s/%s' % (animalid, session))[0]
     origdir = origdir.replace(orig, rootdir)
-    print("ORIG ROOT: %s" % origdir)
-    print("NEW ROOT: %s" % origdir)
+    #print("ORIG ROOT: %s" % origdir)
+    #print("NEW ROOT: %s" % origdir)
     return origdir
 
 from stat import S_IREAD, S_IRGRP, S_IROTH, S_IWRITE, S_IWGRP, S_IWOTH

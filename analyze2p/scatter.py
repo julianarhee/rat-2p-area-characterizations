@@ -309,11 +309,16 @@ def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001',
         return None
     # try loading
     eval_dir = os.path.join(eval_params['rfdir'], 'evaluation')
+    session, animalid, fovnum = hutils.split_datakey_str(dk) 
+    eval_dir = hutils.replace_root(eval_dir, rootdir, animalid, session)
+
     dev_fpath = os.path.join(eval_dir, 'deviants.json')
+
     if os.path.exists(dev_fpath) and redo_fov is False:
         try:
             with open(dev_fpath, 'r') as f:
                 deviants = json.load(f)
+            #print("Deviants:", deviants.keys())
             assert isinstance(deviants, dict) and va in list(deviants.keys())
             # assert va in deviants.keys(), "No deviant results found: %s, %s" % (dk, va)
         except Exception as e:
@@ -388,7 +393,8 @@ def get_deviants_in_fov(dk, va, experiment='rfs',  traceid='traces001',
 def aggregate_deviant_cells(response_type='dff', do_spherical_correction=False,
                             meta=None, traceid='traces001', ecc_center=(0, 0),
                             create_new=False, redo_fov=False, verbose=False, save_plots=False,
-                            aggr_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
+                            aggr_dir='/n/coxfs01/julianarhee/aggregate-visual-areas',
+                            rootdir='/n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-data'):
     '''
     Cycle thru all datasets (meta) with rfs/rfs10, and calculate deviants
     Main function is get_deviants_in_fov(). Assumes basis is RFs.
@@ -439,7 +445,8 @@ def aggregate_deviant_cells(response_type='dff', do_spherical_correction=False,
                                    response_type=response_type,
                                    do_spherical_correction=do_spherical_correction,
                                     ecc_center=ecc_center, 
-                                   redo_fov=redo_fov, verbose=verbose, save_plots=save_plots)
+                                   redo_fov=redo_fov, verbose=verbose, save_plots=save_plots,
+                                    rootdir=rootdir)
             if not df_['deviants'].any(): # is None:
                 no_deviants.append((va, dk, exp))
                 continue
@@ -2067,7 +2074,7 @@ def do_scatter_analysis(dk, va, experiment='rfs', do_spherical_correction=False,
             print("    loading existing scatter results")
             scatter_df = load_scatter_results(dk, va, experiment=experiment,
                                         do_spherical_correction=do_spherical_correction,
-                                        verbose=verbose)
+                                        verbose=verbose, rootdir=rootdir)
         except Exception as e:
             # traceback.print_exc()
             create_new=True
@@ -2361,7 +2368,8 @@ def main(options):
                             response_type=response_type, 
                             do_spherical_correction=do_spherical_correction,
                             traceid=traceid,
-                            cmap=cmap, plot=plot, verbose=verbose, create_new=create_new)
+                            cmap=cmap, plot=plot, verbose=verbose, create_new=create_new,
+                            rootdir=rootdir)
     else:
         assert dk is not None, "Must specify datakey" 
         sdata = aggr.get_aggregate_info(visual_areas=['V1', 'Lm', 'Li'], 
@@ -2381,7 +2389,8 @@ def main(options):
                             np_ds_factor=np_ds_factor,
                             response_type=response_type, 
                             do_spherical_correction=do_spherical_correction,
-                            cmap=cmap, plot=plot, verbose=verbose, create_new=create_new)
+                            cmap=cmap, plot=plot, verbose=verbose, create_new=create_new,
+                            rootdir=rootdir)
             if deviants is not None:
                 print("    N deviants:", deviants.shape)
 
