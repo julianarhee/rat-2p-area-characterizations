@@ -320,6 +320,8 @@ def aggregate_ori_fits(CELLS, traceid='traces001', fit_desc=None,
                        aggregate_dir='/n/coxfs01/julianarhee/aggregate-visual-areas'):
     '''
     assigned_cells:  dataframe w/ assigned cells of dsets that have gratings
+    Loads previously aggregate results if possible,
+    in contrast to boostrap_osi.aggregate_ori().
     '''
     gdata=None
     no_fits=[]
@@ -349,7 +351,8 @@ def aggregate_ori_fits(CELLS, traceid='traces001', fit_desc=None,
             try:
                 # Load tuning results
                 fitresults, fitparams = load_tuning_results(dk, 
-                                                fit_desc=fit_desc, traceid=traceid)
+                                                fit_desc=fit_desc, traceid=traceid,
+                                                rootdir=rootdir)
                 assert fitresults is not None, "ERROR: [%s] No fit results" % dk
                 # Get OSI results for assigned cells
                 rois_ = g['cell'].unique()

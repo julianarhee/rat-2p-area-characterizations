@@ -595,18 +595,19 @@ def set_yaxis_for_traces(ax, stim_on_frame, nframes_on,
 from matplotlib.offsetbox import OffsetImage,AnnotationBbox
 from matplotlib.patches import Ellipse, Rectangle, Polygon
 
-def get_icon(name, icon_type='ori'):
-    src = '/n/coxfs01/julianarhee/legends/%s/%s%03d.png' % (icon_type, icon_type, name)
+def get_icon(name, icon_type='ori', rootdir='/n/coxfs01/2p-data'):
+    base = rootdir.split('/2p-data')[0]
+    src = os.path.join(base, 'julianarhee/legends/%s/%s%03d.png' % (icon_type, icon_type, name))
     #print(src)
     im = pl.imread(src)
     return im
 
 def offset_image(coord, ax, name=None, pad=0, xybox=(0, 0), 
-                    xycoords=('data'), yloc=None, zoom=1.0):
+                    xycoords=('data'), yloc=None, zoom=1.0, rootdir='/n/coxfs01/2p-data'):
     '''
     Load icon img (arrows) and replace tick labels.
     '''
-    img = get_icon(name)
+    img = get_icon(name, rootdir=rootdir)
     im = OffsetImage(img, zoom=zoom)
     im.image.axes = ax
     
@@ -621,7 +622,8 @@ def offset_image(coord, ax, name=None, pad=0, xybox=(0, 0),
     return yloc
 
 def replace_ori_labels(ori_names, bin_centers=None, ax=None, 
-                    xybox=(0, 0), yloc=None, zoom=0.25, pad=0, polar=False):
+                    xybox=(0, 0), yloc=None, zoom=0.25, pad=0, polar=False,
+                    rootdir='/n/coxfs01/2p-data'):
     '''
     Replace tick labels with icons (x-ticks).
     Args:
@@ -634,7 +636,7 @@ def replace_ori_labels(ori_names, bin_centers=None, ax=None,
         xycoords=("data")
         for i, c in enumerate(ori_names):
             yloc = offset_image(np.deg2rad(c), ax, name=c, xybox=xybox, xycoords=xycoords, 
-                                yloc=yloc,  pad=pad, zoom=zoom)
+                                yloc=yloc,  pad=pad, zoom=zoom, rootdir=rootdir)
             ax.set_xticklabels([])
         #if yloc is not None:
         #ax.set_ylim([0, yloc])
@@ -969,7 +971,8 @@ def plot_standard_panel(df, metric, return_stats=False, posthoc='holm'):
 
 
 
-def polar_ticks_gratings(ax, ylim=0.13, ytick_lim=0.1, n_yticks=3):
+def polar_ticks_gratings(ax, ylim=0.13, ytick_lim=0.1, n_yticks=3,
+                        rootdir='/n/coxfs01/2p-data'):
     ax.set_ylim([0, ylim])
     ax.set_yticks(np.linspace(0, ytick_lim, n_yticks))
     ax.set_yticklabels(['' if i<(n_yticks-1) else ytick_lim for i in np.arange(0, n_yticks)])
@@ -978,7 +981,8 @@ def polar_ticks_gratings(ax, ylim=0.13, ytick_lim=0.1, n_yticks=3):
     ax.set_rlabel_position(45)
     ori_names = np.arange(0, 360, 45) #np.rad2deg(xticks)
     replace_ori_labels(ori_names, ax=ax, 
-                    xybox=(0, 0), yloc=ax.get_ylim()[-1]*1.1, zoom=0.12, polar=True)
+                    xybox=(0, 0), yloc=ax.get_ylim()[-1]*1.1, zoom=0.12, polar=True,
+                    rootdir=rootdir)
 
 
 
@@ -999,7 +1003,8 @@ def create_theta_legend(ax=None, ori_colors=None):
     ax.set_aspect(1)
     return ax
 
-def polar_theta_legend(ax, ori_colors, add_text=True):
+def polar_theta_legend(ax, ori_colors, add_text=True, 
+                        rootdir='/n/coxfs01/2p-data'):
     #fig = pl.figure()
     #ax = fig.add_subplot(1, 1, 1, polar=True)
     tested_thetas = np.linspace(0, 315, 8)
@@ -1011,7 +1016,7 @@ def polar_theta_legend(ax, ori_colors, add_text=True):
             ax.text(xv, yv, th)
         ylim = 1#
         ytick_lim = np.floor(ylim*10)/10.
-        polar_ticks_gratings(ax, ylim=ylim, ytick_lim=ytick_lim, n_yticks=0)
+        polar_ticks_gratings(ax, ylim=ylim, ytick_lim=ytick_lim, n_yticks=0, rootdir=rootdir)
     ax.set_aspect(1)
 
     return ax
