@@ -75,7 +75,9 @@ def set_plot_params(lw_axes=0.25, axis_labelsize=7, tick_labelsize=6, color='k',
     pl.rcParams['font.size'] = tick_labelsize
     #pl.rcParams['text.usetex'] = True
 
-    rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
+    #rc('font',**{'family':'sans-serif','sans-serif':['Arial']})
+    pl.rcParams["font.family"] = "Arial"
+
     #rc('text', usetex=True)
 
     pl.rcParams["axes.titlesize"] = axis_labelsize+2
