@@ -108,7 +108,7 @@ def load_tuning_results(datakey, run_name='gratings', traceid='traces001',
     bootresults=None; fitparams=None;
     try: 
         ori_dir = get_fit_dir(datakey, traceid=traceid, fit_desc=fit_desc,
-                                verbose=verbose)
+                                verbose=verbose, rootdir=rootdir)
         assert ori_dir is not None, "... [%s] No ori_dir" % datakey
         results_fpath = os.path.join(ori_dir, 'fitresults.pkl')
         params_fpath = os.path.join(ori_dir, 'fitparams.json')
