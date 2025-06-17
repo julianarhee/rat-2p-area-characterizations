@@ -42,8 +42,8 @@ import analyze2p.aggregate_datasets as aggr
 import analyze2p.utils as hutils
 import analyze2p.plotting as pplot
 
-from analyze2p.arousal import dlc_utils as dlcutils
-import analyze2p.arousal.with_neural as arous
+#from analyze2p.arousal import dlc_utils as dlcutils
+#import analyze2p.arousal.with_neural as arous
 
 
 #import psignifit as ps
