@@ -1,0 +1,15 @@
+name: rat2pMIGR
+channels:
+  - defaults
+dependencies:
+  - jupyter
+  - seaborn
+  - python=3.8
+  - matplotlib
+  - pip
+  - scipy
+  - ipython
+  - numpy
+  - pandas
+prefix: /n/holylfs05/LABS/pfister_lab/Lab/coxfs01/2p-pipeline/envs/rat2pMIGR
+
